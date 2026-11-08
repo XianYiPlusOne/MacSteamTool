@@ -1,0 +1,4 @@
+_FluentPinsInstall
+_FluentPinsReload
+_FluentPinsRemove
+_FluentPinsCount

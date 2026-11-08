@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+work/
+outputs/
+dist/
+.DS_Store
+Engine/**/bin/
+Engine/**/obj/
+__pycache__/
