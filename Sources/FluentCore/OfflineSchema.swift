@@ -8,6 +8,8 @@ public struct OfflineSchema: Sendable {
         public let icon: String, iconGray: String
     }
     public let definitions: [Definition]
+    public struct Stat: Codable, Sendable { public let name: String; public let type: String; public let `default`: String; public let global: String }
+    public var statistics: [Stat] = []
     public var images: [String: Data] = [:]
 
     public static func parse(_ data: Data) throws -> Self {
@@ -25,7 +27,41 @@ public struct OfflineSchema: Sendable {
             guard let name = row["name"] as? String, !name.isEmpty, name.utf8.count <= 1024, !name.contains("\0"), seen.insert(name).inserted else { throw AppFailure("成就标识无效或重复 / Invalid or duplicate achievement identifier") }
             return Definition(name: name, displayName: row["displayName"] as? String ?? name, description: row["description"] as? String ?? "", hidden: (row["hidden"] as? Int ?? 0) == 0 ? 0 : 1, icon: row["icon"] as? String ?? "", iconGray: row["icongray"] as? String ?? "")
         }
-        return Self(definitions: definitions)
+        guard stats["stats"] == nil || stats["stats"] is [[String: Any]] else { throw AppFailure("统计定义格式无效 / Invalid statistic definitions") }
+        let statRows = stats["stats"] as? [[String: Any]] ?? []
+        guard statRows.count <= 10000 else { throw AppFailure("统计定义过多 / Too many statistic definitions") }
+        seen.removeAll()
+        let statistics = try statRows.map { row -> Stat in
+            guard let name = row["name"] as? String, !name.isEmpty, name.utf8.count <= 1024, !name.contains("\0"), seen.insert(name).inserted else { throw AppFailure("统计名称无效或重复 / Invalid or duplicate statistic name") }
+            let type = (row["type"] as? String ?? "int").lowercased()
+            let value = row["defaultvalue"].map { String(describing: $0) } ?? "0"
+            guard ["int", "float", "avgrate"].contains(type), let numeric = Double(value), numeric.isFinite,
+                  type != "int" || Int32(value) != nil else { throw AppFailure("统计类型或默认值无效 / Invalid statistic type or default value：\(name)") }
+            return Stat(name: name, type: type, default: value, global: "0")
+        }
+        return Self(definitions: definitions, statistics: statistics)
+    }
+    public func statsJSON() throws -> Data { let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]; return try e.encode(statistics) }
+    public static func fromBinary(_ data: Data, appID: Int, language: String) throws -> Self {
+        guard let app = try VDF.binary(data).object(String(appID)), let stats = app.object("stats") else { throw AppFailure("本地统计定义不匹配此游戏 / Local schema does not match this game") }
+        var statRows: [[String: Any]] = [], achievements: [[String: Any]] = []
+        func localized(_ display: VDF?, _ key: String) -> String {
+            display?.object(key)?.string(language) ?? display?.object(key)?.string("english") ?? display?.string(key) ?? ""
+        }
+        for entry in stats.entries {
+            guard let stat = entry.children, let type = Int(stat.string("type_int") ?? "") else { continue }
+            if let kind = [1: "int", 2: "float", 3: "avgrate"][type], let name = stat.string("name") {
+                statRows.append(["name": name, "type": kind, "defaultvalue": stat.string("default") ?? "0"])
+            } else if type == 4 {
+                for bit in stat.object("bits")?.entries ?? [] {
+                    guard let definition = bit.children, let name = definition.string("name") else { continue }
+                    let display = definition.object("display")
+                    achievements.append(["name": name, "displayName": localized(display, "name"), "description": localized(display, "desc"),
+                        "hidden": Int(display?.string("hidden") ?? "0") ?? 0])
+                }
+            }
+        }
+        return try parse(JSONSerialization.data(withJSONObject: ["game": ["availableGameStats": ["stats": statRows, "achievements": achievements]]]))
     }
     public static func fetch(appID: Int, apiKey: String, language: String, withImages: Bool) async throws -> Self {
         guard TextUtil.validID(String(appID)) != nil, apiKey.count == 32, apiKey.allSatisfy({ $0.isASCII && $0.isHexDigit }), ["english", "schinese"].contains(language) else { throw AppFailure("AppID、语言或 Web API Key 格式无效 / Invalid AppID, language or Web API key") }

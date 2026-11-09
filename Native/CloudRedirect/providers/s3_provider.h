@@ -18,6 +18,9 @@ public:
 
     bool Upload(const std::string& path, const uint8_t* data, size_t len) override;
     bool Download(const std::string& path, std::vector<uint8_t>& outData) override;
+    bool SupportsConditionalWrites() const override { return true; }
+    ExistsStatus ReadVersioned(const std::string&, std::vector<uint8_t>&, std::string&) override;
+    ConditionalResult WriteConditional(const std::string&, const std::string&, const std::string&) override;
     bool Remove(const std::string& path) override;
     ExistsStatus CheckExists(const std::string& path) override;
     std::vector<FileInfo> List(const std::string& prefix) override;

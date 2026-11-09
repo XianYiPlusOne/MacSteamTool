@@ -54,6 +54,9 @@ static std::unordered_map<uint32_t, std::string> g_cloudBlobByApp;
 static std::unordered_set<uint32_t> g_cloudBlobMerged;
 // True when the account blob needs re-upload. g_mutex.
 static bool g_accountBlobDirty = false;
+static bool OverlayPendingUploadsLocked(std::unordered_map<uint32_t, std::string>& all);
+static void AcknowledgeUploadsLocked(uint32_t account, const std::unordered_map<uint32_t, std::string>& sent);
+static bool HasPendingUploadLocked(uint32_t appId);
 
 // Apps whose native import was attempted. g_mutex.
 static std::unordered_map<uint32_t, bool> g_importAttempted;
@@ -123,10 +126,16 @@ static bool RefreshCloudBlobCache() {
     if (!pull) return false;
 
     std::unordered_map<uint32_t, std::string> fetched;
-    if (!pull(fetched)) return false;
+    const bool fetchedOK = pull(fetched);
 
     std::lock_guard<std::mutex> lock(g_mutex);
     if(!account||!g_accountIdProvider||account!=g_accountIdProvider())return false;
+    if (!fetchedOK) {
+        // Retain both cached remote data and durable local changes during an
+        // outage. A process restart must not lose the upload retry intent.
+        if (OverlayPendingUploadsLocked(g_cloudBlobByApp)) g_accountBlobDirty = true;
+        return false;
+    }
     if (g_isNamespaceApp) {
         size_t before = fetched.size();
         for (auto it = fetched.begin(); it != fetched.end(); ) {
@@ -140,6 +149,7 @@ static bool RefreshCloudBlobCache() {
     }
     static bool firstRefresh = true;
     size_t prevCount = g_cloudBlobByApp.size();
+    if (OverlayPendingUploadsLocked(fetched)) g_accountBlobDirty = true;
     g_cloudBlobByApp = std::move(fetched);
     g_cloudBlobMerged.clear();
     if (firstRefresh || g_cloudBlobByApp.size() != prevCount)
@@ -399,6 +409,54 @@ static std::string StatsPath(uint32_t appId) {
     std::string dir = AccountStatsDir();
     if (dir.empty()) return std::string();
     return dir + "/" + std::to_string(appId) + ".json";
+}
+
+// A marker survives process exit; the atomically written account/app JSON is
+// the payload. Disabled apps keep their marker without being uploaded.
+static bool HasPendingUploadLocked(uint32_t appId) {
+    if (!g_diskAccountId) return false;
+    std::error_code ec;
+    return fs::is_regular_file(fs::symlink_status(StatsPath(appId) + ".pending", ec));
+}
+
+static bool OverlayPendingUploadsLocked(std::unordered_map<uint32_t, std::string>& all) {
+    if (!g_diskAccountId) return false;
+    bool found = false;
+    std::error_code ec;
+    fs::directory_iterator entries(AccountStatsDir(), ec);
+    if (ec) return false;
+    for (const auto& entry : entries) {
+        const auto name = entry.path().filename().string();
+        const std::string suffix = ".json.pending";
+        if (!name.ends_with(suffix) || !fs::is_regular_file(entry.symlink_status(ec))) continue;
+        auto id = name.substr(0, name.size() - suffix.size());
+        if (id.empty() || id.size() > 10 || id.find_first_not_of("0123456789") != std::string::npos) continue;
+        auto wide = std::strtoull(id.c_str(), nullptr, 10);
+        if (!wide || wide > UINT32_MAX) continue;
+        auto app = static_cast<uint32_t>(wide);
+        if (g_isNamespaceApp && !g_isNamespaceApp(app)) continue;
+        const auto path = StatsPath(app);
+        if (!fs::is_regular_file(fs::symlink_status(path, ec)) || fs::file_size(path, ec) > 16 * 1024 * 1024 || ec) continue;
+        std::ifstream input(path, std::ios::binary);
+        std::string local((std::istreambuf_iterator<char>(input)), {});
+        AppStats parsed;
+        if (local.empty() || !ParseAppStatsJson(local, parsed)) continue;
+        all[app] = MergeAppStatsJson(all.count(app) ? all.at(app) : "", local);
+        found = true;
+    }
+    return found;
+}
+
+static void AcknowledgeUploadsLocked(uint32_t account, const std::unordered_map<uint32_t, std::string>& sent) {
+    if (!account || account != g_diskAccountId) return;
+    for (const auto& [app, json] : sent) {
+        if (!HasPendingUploadLocked(app)) continue;
+        std::ifstream input(StatsPath(app), std::ios::binary);
+        std::string current((std::istreambuf_iterator<char>(input)), {});
+        // A newer write may have landed while the network call was in flight.
+        // Only acknowledge the exact durable payload included in this request.
+        if (current == json) { std::error_code ec; fs::remove(StatsPath(app) + ".pending", ec); }
+    }
 }
 
 static std::string SchemaPath(uint32_t appId) {
@@ -677,7 +735,8 @@ bool ResetForAccountSwitch(uint32_t newAccountId) {
         lock.unlock();
         {
             std::lock_guard<std::mutex> pushLock(g_pushInFlightMutex);
-            push(oldAccountId,snapshot);
+            const bool ok = push(oldAccountId,snapshot);
+            if (ok) { std::lock_guard<std::mutex> ackLock(g_mutex); AcknowledgeUploadsLocked(oldAccountId, snapshot); }
         }
         lock.lock();
     }
@@ -1524,11 +1583,17 @@ static bool MergeCloudBlobLocked(uint32_t appId, AppStats& out, bool haveLocal) 
         // Union-merge achievements (unlocks are monotonic -- never let a local copy
         // hide another device's unlock) and stat values, so cloud progress is
         // preserved instead of clobbered on next push.
-        MergeProgress(out,cloudStats);
+        if (HasPendingUploadLocked(appId)) {
+            auto local = out;
+            out.stats = cloudStats.stats; out.achievements = cloudStats.achievements;
+            out.resetRevision = cloudStats.resetRevision;
+            MergeProgress(out, local);
+        } else MergeProgress(out,cloudStats);
         // Schema is descriptive; adopt cloud's only when we hold none.
         if (out.schema.empty() && !cloudStats.schema.empty())
             out.schema = std::move(cloudStats.schema);
     }
+    out.crcStats = ComputeCrcLocked(out);
     g_cloudBlobMerged.insert(appId);
     size_t haveAfter = CountUnlockedAchievements(out.achievements);
     if (haveAfter != localHad || cloudHad > localHad)
@@ -1606,9 +1671,12 @@ static void WriteAppStats(uint32_t appId, const AppStats& stats, bool pushCloud,
 
     std::string json = BuildAppStatsJson(merged);
 
-    std::ofstream f(path, std::ios::trunc);
-    f << json;
-    f.close();
+    // Mark before replacing the payload: a crash between these writes can at
+    // worst retry the previous payload, never silently forget pending progress.
+    if (pushCloud && !FileUtil::AtomicWriteText(path + ".pending", "pending\n"))
+        LOG("[Stats] WARNING: could not persist upload retry marker for app %u", appId);
+    if (!FileUtil::AtomicWriteText(path, json))
+        LOG("[Stats] WARNING: could not persist statistics for app %u", appId);
 
     if (!merged.schema.empty()) {
         std::string schemaPath = SchemaPath(appId);
@@ -1656,7 +1724,12 @@ static void PushAccountBlobIfDirty() {
                 return;
             }
         }
-        if(!push(snapshotAccountId,snapshot)){std::lock_guard lock(g_mutex);if(g_diskAccountId==snapshotAccountId)g_accountBlobDirty=true;}
+        const bool ok = push(snapshotAccountId,snapshot);
+        std::lock_guard lock(g_mutex);
+        if (g_diskAccountId == snapshotAccountId) {
+            if (ok) AcknowledgeUploadsLocked(snapshotAccountId, snapshot);
+            else g_accountBlobDirty = true;
+        }
     }).detach();
 }
 
@@ -1667,7 +1740,9 @@ void SaveAppStats(uint32_t appId, const AppStats& stats) {
 // Import native stats if absent. Retries until accountId is ready. Caller holds mutex.
 static void EnsureNativeImportLocked(uint32_t appId, AppStats& stats) {
     if(!MetadataSync::AchievementsEnabled())return;
-    if(stats.resetRevision){
+    // A pending JSON is newer authoritative local progress; an older exported
+    // Steam cache must not replace its non-monotonic counters during restart.
+    if(stats.resetRevision || HasPendingUploadLocked(appId)){
         if(!g_importAttempted.count(appId)&&g_accountIdProvider&&g_accountIdProvider()){
             AppStats native;if(stats.schema.empty()&&ImportNativeStats(appId,native))stats.schema=std::move(native.schema);
             ExportNativeStats(appId,stats);g_importAttempted[appId]=true;
@@ -1725,15 +1800,30 @@ static bool ReimportNativeStatsLocked(uint32_t appId, AppStats& stats,
     AppStats native;
     if (!ImportNativeStats(appId, native, nativeAppId)) return false;
 
-    // After an explicit relock, another still-open game/IPC client can flush an
-    // old native bitmap. Only a new StoreUserStats submission may unlock those
-    // bits again; a file rescan is not evidence of a new achievement.
+    // An old IPC client may flush a pre-relock bitmap, but the relock must not
+    // permanently disable native capture. Steam can persist a new game unlock
+    // even when StoreStats is rate-limited and emits no network submission.
+    // Accept only timestamps strictly after the last clear (native timestamps
+    // have second precision); ambiguous same-second values need an explicit
+    // StoreUserStats submission. Filter both timestamps and the parallel mask.
     auto nativeValues=native.stats;
-    if(stats.resetRevision)nativeValues.erase(std::remove_if(nativeValues.begin(),nativeValues.end(),[&](const StatEntry& e){
-        return e.merge==StatMerge::BitwiseOr||std::any_of(stats.achievements.begin(),stats.achievements.end(),[&](const AchievementBlock& b){return b.statId==e.statId;});
-    }),nativeValues.end());
+    if(stats.resetRevision){
+        const uint64_t clearedAt=stats.resetRevision/1000000;
+        for(auto& block:native.achievements){
+            block.bits=0;
+            for(unsigned bit=0;bit<32;bit++){
+                if(block.unlockTimes[bit]>clearedAt)block.bits|=(1u<<bit);
+                else block.unlockTimes[bit]=0;
+            }
+        }
+        nativeValues.erase(std::remove_if(nativeValues.begin(),nativeValues.end(),[&](StatEntry& e){
+            auto block=std::find_if(native.achievements.begin(),native.achievements.end(),[&](const AchievementBlock& b){return b.statId==e.statId;});
+            if(block!=native.achievements.end()){e.value&=block->bits;return false;}
+            return e.merge==StatMerge::BitwiseOr||std::any_of(stats.achievements.begin(),stats.achievements.end(),[&](const AchievementBlock& b){return b.statId==e.statId;});
+        }),nativeValues.end());
+    }
     bool changed = MergeStatValues(stats.stats, nativeValues);
-    if (!stats.resetRevision && MergeAchievements(stats.achievements, native.achievements)) changed = true;
+    if (MergeAchievements(stats.achievements, native.achievements)) changed = true;
     if (ReconcileAchievementBits(stats.stats, stats.achievements)) changed = true;
     if (stats.schema.empty() && !native.schema.empty()) {
         stats.schema = std::move(native.schema);

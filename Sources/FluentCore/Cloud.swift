@@ -79,7 +79,15 @@ public struct CloudConfiguration: Sendable {
         j["token_paths"] = tokens; j["stats_sync_enabled"] = syncAchievements || syncPlaytime
         j["stats_apps"] = Array(Set(statIDs)).sorted(); j["sync_achievements"] = syncAchievements; j["sync_playtime"] = syncPlaytime
         let data = try JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys])
-        try FileTransaction(backupRoot: paths.backups).apply([(url, data)], reason: "云存档配置", expectations: [url: old.map(FileStore.hash) ?? "missing"], validate: validate)
+        func commit() throws {
+            try FileTransaction(backupRoot: paths.backups).apply([(url, data)], reason: "云存档配置", expectations: [url: old.map(FileStore.hash) ?? "missing"], validate: validate)
+        }
+        let oldJSON = try old.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? [:] } ?? [:]
+        let oldFolder = (oldJSON["token_paths"] as? [String: String])?["folder"] ?? ""
+        if provider == .folder, oldFolder.hasPrefix("/"), !oldFolder.isEmpty, oldFolder != folder {
+            try DirectoryMigration.apply(from: URL(fileURLWithPath: oldFolder), to: URL(fileURLWithPath: folder), selection: .all,
+                                         lockRoot: paths.backups, validate: validate, commit: commit)
+        } else { try commit() }
     }
 }
 public enum CloudEngine {

@@ -63,6 +63,7 @@ public enum OfflineTools {
                 }
                 if let schema {
                     try FileStore.write(schema.json(), to: settings.appendingPathComponent("achievements.json"))
+                    try FileStore.write(schema.statsJSON(), to: settings.appendingPathComponent("stats.json"))
                     for (relative, bytes) in schema.images {
                         guard relative.hasPrefix("achievement_images/"), bytes.count <= 4 * 1024 * 1024 else { throw AppFailure("成就图片无效 / Invalid achievement image") }
                         try FileStore.write(bytes, to: try GamePatches.target(relative, root: settings))
@@ -74,6 +75,21 @@ public enum OfflineTools {
             }
             return try GamePatches.plan(package: destination, gameRoot: root, appID: appID)
         } catch { try? FileStore.fm.removeItem(at: destination); throw error }
+    }
+    /// One preview, backup, install receipt and restore operation for both tools.
+    public static func combined(_ plans: [PatchPlan]) throws -> PatchPlan {
+        guard let first = plans.first, plans.count >= 2, plans.allSatisfy({ $0.appID == first.appID && $0.gameRoot == first.gameRoot && $0.registry == nil }) else { throw AppFailure("离线处理目标不一致 / Offline plans have different targets") }
+        var entries: [String: PatchEntry] = [:]; var total = 0
+        for plan in plans {
+            for entry in plan.entries {
+                let key = entry.relative.precomposedStringWithCanonicalMapping.lowercased()
+                if let old = entries[key] {
+                    guard old.relative == entry.relative, old.data == entry.data, old.originalHash == entry.originalHash else { throw AppFailure("离线处理输出冲突 / Conflicting offline outputs：\(entry.relative)") }
+                } else { entries[key] = entry; total += entry.data.count }
+            }
+        }
+        guard entries.count <= 10000, total <= 512 * 1024 * 1024 else { throw AppFailure("离线输出超过限制 / Offline output exceeds the size limit") }
+        return PatchPlan(appID: first.appID, gameRoot: first.gameRoot, source: "Steamless + Goldberg", entries: entries.values.sorted { $0.relative < $1.relative })
     }
     public static func steamless(package: URL, executable: URL, gameRoot: URL, appID: Int, paths: AppPaths, bridge: URL, destination: URL) async throws -> PatchPlan {
         let tool = try ToolPackage.load(package, provider: "steamless")

@@ -29,7 +29,7 @@ struct RuntimeFeaturesPanel: View {
                             else if (gameID >> 24) & 0xff == 2 { Text(model.tr("这次使用非 Steam 游戏身份显示游戏名。", "This message used a non-Steam shortcut with the game title.")).font(.caption).foregroundStyle(.secondary) }
                         }
                     }
-                    Text(model.tr("好友端可见：尚未验证。发送队列接受不等于好友已显示；Steam 隐私设置仍然适用。", "Friend-side visibility: unverified. Queue acceptance does not confirm display; Steam privacy settings still apply.")).font(.caption).foregroundStyle(.secondary)
+                    Text(model.tr("好友通知已通过用户实测验收。显示和弹窗仍遵循 Steam 隐私与通知设置。", "Friend notifications passed user acceptance. Display and popups follow Steam privacy and notification settings.")).font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(model.tr("已加载的扩展版本较旧，需要更新扩展并重启 Steam，才能使用自动广播与发送诊断。", "Update the native extension and restart Steam to enable automatic presence and send diagnostics.")).font(.caption).foregroundStyle(Palette.amber)
                 }

@@ -39,6 +39,7 @@ add_library(cloud_redirect SHARED
     common/parental_bypass.cpp
     common/metadata_sync.cpp
     common/stats_store.cpp
+    common/stats_journal.cpp
     common/stats_handlers.cpp
     common/miniz.c
     common/miniz_tdef.c
@@ -61,6 +62,7 @@ macos/live_playtime.cpp
 macos/runtime_settings.cpp
 macos/ticket_hooks.cpp
 macos/ownership_hooks.cpp
+macos/onlinefix.cpp
 macos/manifest_provider.cpp
 macos/manifest_json.mm
 macos/access_tokens.cpp
@@ -75,7 +77,7 @@ macos/http_util.cpp
 macos/platform_linux.cpp
 macos/file_util.cpp)
 set_target_properties(cloud_redirect PROPERTIES PREFIX "" INSTALL_NAME_DIR "@loader_path")
-target_include_directories(cloud_redirect PRIVATE common providers macos)
+target_include_directories(cloud_redirect PRIVATE common providers macos "${DOBBY_SOURCE}/include")
 target_compile_definitions(cloud_redirect PRIVATE MINIZ_NO_STDIO CR_VERSION_STRING="mac-port-0.1" CR_RELEASE_VERSION="mac-port-0.1")
 target_compile_options(cloud_redirect PRIVATE -Wno-deprecated-declarations)
 add_executable(FluentCloudCLI macos/cli_main.cpp)
@@ -86,6 +88,9 @@ target_link_libraries(FluentCloudProbe PRIVATE cloud_redirect)
 target_link_libraries(cloud_redirect PRIVATE dobby_static curl "-framework Foundation")
 target_link_options(cloud_redirect PRIVATE "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/macos/hidden_symbols.txt")
 add_executable(FluentRuntimeProbe tests/runtime_probe.cpp)
+add_executable(FluentOnlineFixProbe tests/onlinefix_probe.cpp)
+target_include_directories(FluentOnlineFixProbe PRIVATE common providers macos "${DOBBY_SOURCE}/include")
+target_link_libraries(FluentOnlineFixProbe PRIVATE cloud_redirect dobby_static)
 target_include_directories(FluentRuntimeProbe PRIVATE common providers macos)
 target_link_libraries(FluentRuntimeProbe PRIVATE cloud_redirect dobby_static)
 add_executable(FluentProviderProbe tests/provider_probe.cpp)
@@ -93,6 +98,9 @@ target_include_directories(FluentProviderProbe PRIVATE common providers macos)
 target_link_libraries(FluentProviderProbe PRIVATE cloud_redirect)
 
 add_executable(FluentCloudOnlineProbe tests/cloud_online_probe.cpp)
+add_executable(FluentStatsConcurrencyProbe tests/stats_concurrency_probe.cpp)
+target_include_directories(FluentStatsConcurrencyProbe PRIVATE common providers macos)
+target_link_libraries(FluentStatsConcurrencyProbe PRIVATE cloud_redirect)
 target_include_directories(FluentCloudOnlineProbe PRIVATE common providers macos)
 target_link_libraries(FluentCloudOnlineProbe PRIVATE cloud_redirect)
 add_executable(FluentAchievementProbe tests/achievement_probe.cpp)

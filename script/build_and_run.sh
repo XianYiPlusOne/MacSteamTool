@@ -23,6 +23,12 @@ cp "$BIN_DIR/FluentSteamWorker" "$STAGING/Contents/MacOS/FluentSteamWorker"
 "$ROOT_DIR/script/build_windows.sh"
 "$ROOT_DIR/script/build_notproton.sh"
 "$ROOT_DIR/script/build_pins.sh"
+python3 "$ROOT_DIR/script/build_notproton_kernel.py"
+mkdir -p "$STAGING/Contents/Resources/Helpers/NotProtonRepair"
+cp "$ROOT_DIR/work/notproton-kernel-source/out/notproton.dylib" "$ROOT_DIR/work/notproton-kernel-source/out/fluent-notproton-repair.json" "$STAGING/Contents/Resources/Helpers/NotProtonRepair/"
+# The receipt is resource data, not executable code. Never place JSON in Helpers,
+# where deep signing gives it an xattr-only signature lost by ordinary ZIP extraction.
+rm -f "$ROOT_DIR/work/notproton-publish/notproton.dylib" "$ROOT_DIR/work/notproton-publish/fluent-notproton-repair.json"
 mkdir -p "$STAGING/Contents/Helpers/Manifest"
 cp "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" "$STAGING/Contents/Helpers/Manifest/"
 mkdir -p "$STAGING/Contents/Helpers/Cloud"
@@ -48,8 +54,8 @@ cat > "$STAGING/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Fluent Steam Mac</string>
 <key>CFBundleDisplayName</key><string>Fluent Steam Mac</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.9</string>
-<key>CFBundleVersion</key><string>11</string>
+<key>CFBundleShortVersionString</key><string>0.2.14</string>
+<key>CFBundleVersion</key><string>16</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>

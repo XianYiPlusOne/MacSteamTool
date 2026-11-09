@@ -9,6 +9,46 @@ public struct VDF: Equatable, Sendable {
     }
     public var entries: [Entry] = []
     public init() {}
+    /// Bounded Steam binary KeyValues reader; reads definitions, never player state.
+    public static func binary(_ data: Data) throws -> VDF {
+        guard data.count <= 16 * 1024 * 1024 else { throw AppFailure("Binary VDF exceeds 16 MiB") }
+        let bytes = [UInt8](data); var offset = 0, count = 0
+        func number(_ size: Int) throws -> UInt64 {
+            guard offset + size <= bytes.count else { throw AppFailure("Truncated binary VDF") }
+            defer { offset += size }
+            return (0..<size).reduce(0) { $0 | UInt64(bytes[offset + $1]) << ($1 * 8) }
+        }
+        func string() throws -> String {
+            let start = offset
+            while offset < bytes.count && bytes[offset] != 0 { offset += 1 }
+            guard offset < bytes.count, offset - start <= 1_048_576, let value = String(bytes: bytes[start..<offset], encoding: .utf8) else { throw AppFailure("Invalid binary VDF string") }
+            offset += 1; return value
+        }
+        func section(_ depth: Int) throws -> VDF {
+            guard depth <= 64 else { throw AppFailure("Binary VDF nesting limit") }
+            var result = VDF()
+            while offset < bytes.count {
+                let type = try number(1)
+                if type == 8 { return result }
+                count += 1; guard count <= 100_000 else { throw AppFailure("Binary VDF node limit") }
+                let key = try string()
+                switch type {
+                case 0: result.entries.append(Entry(key: key, children: try section(depth + 1)))
+                case 1: result.entries.append(Entry(key: key, value: try string()))
+                case 2: result.entries.append(Entry(key: key, value: String(Int32(bitPattern: UInt32(try number(4))))))
+                case 3: result.entries.append(Entry(key: key, value: String(Float(bitPattern: UInt32(try number(4))))))
+                case 7: result.entries.append(Entry(key: key, value: String(try number(8))))
+                case 10: result.entries.append(Entry(key: key, value: String(Int64(bitPattern: try number(8)))))
+                default: throw AppFailure("Unsupported binary VDF type: \(type)")
+                }
+            }
+            guard depth == 0 else { throw AppFailure("Unterminated binary VDF section") }
+            return result
+        }
+        let result = try section(0)
+        guard offset == bytes.count else { throw AppFailure("Trailing binary VDF data") }
+        return result
+    }
     public func string(_ key: String) -> String? { entries.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value }
     public func object(_ key: String) -> VDF? { entries.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.children }
     public mutating func set(_ key: String, value: String) {

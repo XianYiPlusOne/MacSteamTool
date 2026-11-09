@@ -127,6 +127,7 @@ struct GameDetailView: View {
     }
     private var overview: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if let installed = game.installed { GameStartupPanel(game: installed) }
             Panel {
                 InfoLine(title: model.tr("入库状态", "Library state"), value: game.enabled ? model.tr("macSteam 已启用", "Enabled in macSteam") : model.tr("未启用", "Not enabled"))
                 InfoLine(title: model.tr("安装状态", "Installation"), value: game.installed == nil ? model.tr("未检测到本地安装", "No local installation found") : model.tr("已安装", "Installed"))

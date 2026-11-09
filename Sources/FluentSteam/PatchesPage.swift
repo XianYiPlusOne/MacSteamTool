@@ -23,6 +23,7 @@ struct PatchesPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             PageHeader(title: model.tr("联机补丁", "Online patches"), subtitle: model.tr("OnlineFix 搜索与下载，ZIP / RAR / 7z 解压，预览后部署到 Windows 游戏目录。", "Find OnlineFix patches, extract ZIP / RAR / 7z archives and review files before deployment.")) { Button(model.tr("下载目录", "Downloads")) { model.openFolder(model.paths.data.appendingPathComponent("Downloads")) } }
+            OnlineFixModePanel()
             Panel {
                 HStack { TextField(model.tr("英文游戏名称", "English game title"), text: $query).textFieldStyle(.roundedBorder).onSubmit(search); Button(model.tr("搜索", "Search"), action: search).disabled(model.busy || query.count < 2); Button(model.tr("打开原站", "Open website")) { model.openURL("https://online-fix.me/") } }
                 ForEach(results) { result in

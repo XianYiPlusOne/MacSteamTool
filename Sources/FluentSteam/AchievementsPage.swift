@@ -9,6 +9,13 @@ struct AchievementsPage: View {
             PageHeader(title: model.tr("Steam 成就管理", "Steam achievements"), subtitle: model.tr("连接当前登录的 Steam 账号，读取、编辑并提交成就状态。", "Read, edit and submit achievements for the currently signed-in Steam account.")) { EmptyView() }
             Panel {
                 Label(model.tr("先选择游戏并读取当前状态；读取成功后才能编辑和保存成就。", "Choose a game and load its current state before editing or saving achievements."), systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.secondary)
+                Toggle(model.tr("自动准备新入库游戏的兼容成就", "Automatically prepare achievements for newly added games"), isOn: Binding(get: { model.preferences.automaticallyPrepareAchievements != false }, set: {
+                    model.automaticAchievementsTask?.cancel()
+                    model.preferences.automaticallyPrepareAchievements = $0; model.savePreferences()
+                }))
+                Text(model.tr("Steam 登录后读取定义，退出后备份并启用。不会自动解锁成就，也不会批量改动已有游戏。", "Fetch definitions after Steam sign-in, then back up and enable after Steam exits. This never unlocks achievements or enrolls existing games in bulk.")).font(.caption).foregroundStyle(.secondary)
+                if !model.automaticAchievementsStatus.isEmpty { Text(model.automaticAchievementsStatus).font(.caption).textSelection(.enabled) }
+                Button(model.tr("重试成就准备", "Retry achievement preparation")) { model.reconcileAutomaticAchievements(force: true) }.disabled(model.busy || model.automaticAchievementsTask != nil || model.preferences.automaticallyPrepareAchievements == false)
             }
             Panel {
                 HStack {
@@ -28,6 +35,7 @@ struct AchievementsPage: View {
                 }
                 if model.loadedAchievementApp == nil && !model.achievementStatus.isEmpty { Text(model.achievementStatus).font(.caption).textSelection(.enabled) }
             }
+            if let id = TextUtil.validID(model.achievementApp), let installed = model.games.first(where: { $0.id == id })?.installed { GameStartupPanel(game: installed) }
             if let id = model.loadedAchievementApp {
                 Panel {
                     HStack {

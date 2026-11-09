@@ -674,6 +674,39 @@ bool WebDavProvider::Download(const std::string& path, std::vector<uint8_t>& out
     return true;
 }
 
+ICloudProvider::ExistsStatus WebDavProvider::ReadVersioned(const std::string& path,
+        std::vector<uint8_t>& data, std::string& version) {
+    data.clear(); version.clear();
+    if (!m_ready.load()) return ExistsStatus::Error;
+    auto r = SendWithRetry("GET", path, false, "", {"Cache-Control: no-cache"});
+    if (r.status == 404 || r.status == 409) return ExistsStatus::Missing;
+    if (r.status != 200 || !IsStrongETag(r.headers["etag"])) {
+        LOG("[WebDAV] Versioned GET unavailable (status %d, strong ETag required)", r.status);
+        return ExistsStatus::Error;
+    }
+    version = r.headers["etag"]; data.assign(r.body.begin(), r.body.end());
+    return ExistsStatus::Exists;
+}
+
+ICloudProvider::ConditionalResult WebDavProvider::WriteConditional(const std::string& path,
+        const std::string& data, const std::string& version) {
+    if (!m_ready.load() || (!version.empty() && !IsStrongETag(version)) ||
+        !EnsureParentCollections(path)) return ConditionalResult::Error;
+    auto r = SendWithRetry("PUT", path, false, data,
+        {"Content-Type: application/json", version.empty() ? "If-None-Match: *" : "If-Match: " + version});
+    if (r.status == 412) return ConditionalResult::Conflict;
+    if (r.status == 409) {
+        // A remote directory may have disappeared after our MKCOL cache was
+        // populated. Re-read the version and rebuild collections on retry.
+        std::lock_guard<std::mutex> lock(m_dirMutex);
+        m_knownDirs.clear();
+        return ConditionalResult::Conflict;
+    }
+    if (r.status == 200 || r.status == 201 || r.status == 204) return ConditionalResult::Written;
+    LOG("[WebDAV] Conditional PUT failed: status %d", r.status);
+    return ConditionalResult::Error;
+}
+
 bool WebDavProvider::Remove(const std::string& path) {
     if (!m_ready.load()) return false;
     HttpUtil::HttpResp r = SendWithRetry("DELETE", path, false, "", {});

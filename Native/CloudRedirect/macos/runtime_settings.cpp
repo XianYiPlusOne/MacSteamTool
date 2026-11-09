@@ -3,6 +3,7 @@
 #include "xdg.h"
 #include "ticket_hooks.h"
 #include "ownership_hooks.h"
+#include "onlinefix.h"
 #include "manifest_provider.h"
 #include "cloud_hooks.h"
 #include "access_tokens.h"
@@ -59,7 +60,8 @@ void Reload(){
             next.tickets[id]=std::move(t);
         }
     }
-    if(next.presence=="automatic")next.presenceApps=PresenceApps::Read();
+    next.managedApps=PresenceApps::Read();
+    if(next.presence=="automatic")next.presenceApps=next.managedApps;
     else if(next.presence=="selected"){
         auto names=PresenceApps::Read();for(auto& [id,name]:next.presenceApps)if(names.count(id))name=names.at(id);
     }
@@ -72,6 +74,7 @@ static void WriteStatus(){
     auto path=XdgConfigHome()+"/CloudRedirect/runtime-status.json";auto tmp=path+".tmp";
     std::string text="{\"pid\":"+std::to_string(getpid())+",\"tickets\":"+(TicketHooks::Installed()?"true":"false")+",\"presence\":"+(GamesPlayedHook::Installed()?"true":"false")+",\"playtimeWriter\":"+(LivePlaytime::Ready()?"true":"false")+",\"statistics\":"+(MetadataSync::AchievementsEnabled()?"true":"false")+",\"playtime\":"+(MetadataSync::PlaytimeEnabled()?"true":"false")+",\"ownershipServed\":"+std::to_string(TicketHooks::OwnershipServed())+",\"encryptedServed\":"+std::to_string(TicketHooks::EncryptedServed())+",\"callbacksServed\":"+std::to_string(TicketHooks::CallbacksServed())+",\"gamesObserved\":"+std::to_string(GamesPlayedHook::Observed())+",\"presenceChanged\":"+std::to_string(GamesPlayedHook::Rewritten())+",\"manifestProvider\":"+(ManifestProvider::Installed()?"true":"false")+",\"manifestServed\":"+std::to_string(ManifestProvider::Served())+",\"manifestFallbacks\":"+std::to_string(ManifestProvider::Fallbacks())+",\"accessTokenRequests\":"+std::to_string(GamesPlayedHook::TokenRequests())+",\"accessTokensLoaded\":"+std::to_string(Current()->accessTokens.size())+"}";
     auto current=Current();text.pop_back();
+    text+=",\"onlineFix\":"+std::string(OnlineFix::Installed()?"true":"false")+",\"onlineFixAppID\":"+std::to_string(OnlineFix::ActiveApp());
     text+=",\"ownershipFix\":"+std::string(OwnershipHooks::Installed()?"true":"false")+",\"ownershipChecks\":"+std::to_string(OwnershipHooks::Repaired())+",\"ownershipMissingOwner\":"+std::to_string(OwnershipHooks::MissingOwner());
     text+=",\"presenceMode\":\""+current->presence+"\",\"presenceAppsLoaded\":"+std::to_string(current->presenceApps.size())+
         ",\"presenceSent\":"+std::to_string(GamesPlayedHook::Sent())+",\"presenceFailures\":"+std::to_string(GamesPlayedHook::Failed())+

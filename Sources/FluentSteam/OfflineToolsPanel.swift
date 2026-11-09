@@ -64,7 +64,11 @@ struct OfflineToolsPanel: View {
                     }
                     Text(model.tr("用于 Goldberg 本地模拟器；不会写入 Steam 在线库存。未导入时从 Steam 获取公开定义。", "Used by the local Goldberg emulator. Does not write Steam inventory. Fetches public definitions when no file is imported.")).font(.caption).foregroundStyle(.secondary)
                 }
-                Button(model.tr("生成 Goldberg 配置并预览", "Prepare Goldberg & review"), action: prepareGoldberg).buttonStyle(.borderedProminent).disabled(model.busy || goldberg == nil || appID == 0 || gameRoot == nil)
+                HStack {
+                    Button(model.tr("一键处理并部署预览", "Prepare complete offline launch")) { prepareGoldberg(combined: true) }.buttonStyle(.borderedProminent).disabled(model.busy || steamless == nil || goldberg == nil || appID == 0 || gameRoot == nil || executable.isEmpty)
+                    Button(model.tr("仅生成 Goldberg 配置", "Prepare Goldberg only")) { prepareGoldberg() }.disabled(model.busy || goldberg == nil || appID == 0 || gameRoot == nil)
+                }
+                Text(model.tr("一键流程将 Steamless 输出与 Goldberg 配置合并为一次预览、备份和还原。成就与统计优先读取本地定义；没有定义时可不勾选该项。", "The complete workflow combines Steamless and Goldberg into one preview, backup and restore. Reads local achievement/stat definitions when available; uncheck definitions if unavailable.")).font(.caption).foregroundStyle(.secondary)
             }
         }.onAppear { reload() }.onChange(of: appID) { _, _ in importedInventory = nil; executable = "" }.onChange(of: gameRoot) { _, _ in importedInventory = nil; executable = "" }
     }
@@ -91,7 +95,7 @@ struct OfflineToolsPanel: View {
             preview(try await OfflineTools.steamless(package: steamless, executable: URL(fileURLWithPath: executable), gameRoot: gameRoot, appID: appID, paths: model.paths, bridge: bridge, destination: model.paths.cache.appendingPathComponent("OfflineStages/\(UUID().uuidString)")))
         }
     }
-    private func prepareGoldberg() {
+    private func prepareGoldberg(combined: Bool = false) {
         guard let goldberg, let gameRoot else { return }
         let id = appID, dlcs = model.games.first(where: { $0.id == appID })?.dlcIDs ?? [], nickname = account, language = model.language, network = lan
         let key = webAPIKey.trimmingCharacters(in: .whitespacesAndNewlines), wantInventory = withInventory, wantAchievements = withAchievements, images = withImages, imported = importedInventory
@@ -105,6 +109,8 @@ struct OfflineToolsPanel: View {
             var schema: OfflineSchema?
             if wantAchievements && !key.isEmpty {
                 schema = try await OfflineSchema.fetch(appID: id, apiKey: key, language: language, withImages: images)
+            } else if wantAchievements, FileStore.fm.fileExists(atPath: model.paths.steam.appendingPathComponent("appcache/stats/UserGameStatsSchema_\(id).bin").path) {
+                schema = try OfflineSchema.fromBinary(FileStore.read(model.paths.steam.appendingPathComponent("appcache/stats/UserGameStatsSchema_\(id).bin")), appID: id, language: language)
             } else if wantAchievements {
                 guard model.steamRunning else { throw AppFailure("读取成就定义需要 Steam 正在运行；也可取消该选项，仅生成离线配置 / Steam must be running to read achievement definitions; uncheck this option to generate offline configuration only") }
                 let request = AchievementRequest(appID: id, library: model.paths.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib").path)
@@ -112,7 +118,13 @@ struct OfflineToolsPanel: View {
             }
             let achievements = definitions, offlineSchema = schema
             let destination = model.paths.cache.appendingPathComponent("OfflineStages/\(UUID().uuidString)/Goldberg")
-            preview(try await Task.detached { try OfflineTools.goldberg(package: goldberg, gameRoot: gameRoot, appID: id, dlcs: dlcs, accountName: nickname, language: language, lan: network, achievements: achievements, inventory: inventory, schema: offlineSchema, destination: destination) }.value)
+            let plan = try await Task.detached { try OfflineTools.goldberg(package: goldberg, gameRoot: gameRoot, appID: id, dlcs: dlcs, accountName: nickname, language: language, lan: network, achievements: achievements, inventory: inventory, schema: offlineSchema, destination: destination) }.value
+            if combined {
+                guard let steamless else { throw AppFailure("请先下载 Steamless / Download Steamless first") }
+                let bridge = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/SteamlessBridge/SteamlessBridge.exe")
+                let unpacked = try await OfflineTools.steamless(package: steamless, executable: URL(fileURLWithPath: executable), gameRoot: gameRoot, appID: id, paths: model.paths, bridge: bridge, destination: destination.deletingLastPathComponent().appendingPathComponent("Steamless"))
+                preview(try OfflineTools.combined([unpacked, plan]))
+            } else { preview(plan) }
         }
     }
 }

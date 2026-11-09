@@ -44,6 +44,26 @@ public:
     virtual bool Download(const std::string& path,
                           std::vector<uint8_t>& outData) = 0;
 
+    // Version and bytes must come from the same read. An empty version denotes
+    // a missing object; existing HTTP objects require a strong ETag.
+    enum class ConditionalResult { Written, Conflict, Error };
+    virtual bool SupportsConditionalWrites() const { return false; }
+    // Providers without a documented name-based create/replace CAS publish
+    // immutable account-stat snapshots instead of racing on stats.json.
+    virtual bool UsesImmutableStats() const { return false; }
+    virtual ExistsStatus ReadVersioned(const std::string&, std::vector<uint8_t>&,
+                                      std::string&) { return ExistsStatus::Error; }
+    virtual ConditionalResult WriteConditional(const std::string&, const std::string&,
+                                                const std::string&) { return ConditionalResult::Error; }
+    static bool IsStrongETag(const std::string& tag) {
+        if (tag.size() < 2 || tag.size() > 1024 || tag.front() != '"' || tag.back() != '"') return false;
+        for (size_t i = 1; i + 1 < tag.size(); ++i) {
+            const auto c = static_cast<unsigned char>(tag[i]);
+            if (c < 0x21 || c == 0x22 || c == 0x7f) return false;
+        }
+        return true;
+    }
+
     virtual bool Remove(const std::string& path) = 0;
 
     virtual ExistsStatus CheckExists(const std::string& path) = 0;

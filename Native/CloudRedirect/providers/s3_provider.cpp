@@ -2,6 +2,7 @@
 #include "sigv4.h"
 #include "sha256_hmac.h"
 #include "http_util.h"
+#include "log.h"
 
 #include <ctime>
 #include <cstdio>
@@ -266,6 +267,34 @@ bool S3Provider::Download(const std::string& path, std::vector<uint8_t>& outData
     if (r.status != 200) return false;
     outData.assign(r.body.begin(), r.body.end());
     return true;
+}
+
+ICloudProvider::ExistsStatus S3Provider::ReadVersioned(const std::string& path,
+        std::vector<uint8_t>& data, std::string& version) {
+    data.clear(); version.clear();
+    if (!m_ready) return ExistsStatus::Error;
+    auto r = SignedRequest("GET", ToObjectKey(path), "", "");
+    if (r.status == 404) return ExistsStatus::Missing;
+    if (r.status != 200 || !IsStrongETag(r.headers["etag"])) {
+        LOG("[S3] Versioned GET unavailable (status %d, strong ETag required)", r.status);
+        return ExistsStatus::Error;
+    }
+    version = r.headers["etag"]; data.assign(r.body.begin(), r.body.end());
+    return ExistsStatus::Exists;
+}
+
+ICloudProvider::ConditionalResult S3Provider::WriteConditional(const std::string& path,
+        const std::string& data, const std::string& version) {
+    // Account statistics are bounded metadata, never multipart uploads.
+    if (!m_ready || data.size() > 16 * 1024 * 1024 ||
+        (!version.empty() && !IsStrongETag(version))) return ConditionalResult::Error;
+    auto headers = ChecksumHeader(reinterpret_cast<const uint8_t*>(data.data()), data.size());
+    headers.emplace_back(version.empty() ? "if-none-match" : "if-match", version.empty() ? "*" : version);
+    auto r = SignedRequest("PUT", ToObjectKey(path), "", data, headers);
+    if (r.status == 412 || r.status == 409) return ConditionalResult::Conflict;
+    if (r.status == 200) return ConditionalResult::Written;
+    LOG("[S3] Conditional PUT failed: status %d", r.status);
+    return ConditionalResult::Error;
 }
 
 bool S3Provider::Remove(const std::string& path) {

@@ -8,6 +8,7 @@
 #include "local_storage.h"
 #include "pending_ops_journal.h"
 #include "cloud_provider.h"
+#include "stats_journal.h"
 #include "file_util.h"
 #include "json.h"
 #include "log.h"
@@ -516,6 +517,13 @@ std::string CmdListAllStats(const std::string& provider) {
         }
     }
 
+    if(prov->UsesImmutableStats()) {
+        for(auto& hit:hits)if(hit.path.ends_with("/0/stats.json")) {
+            StatsJournal::Snapshot snapshot;
+            if(!StatsJournal::Read(*prov,hit.path,snapshot)){prov->Shutdown();return JsonError("Statistics snapshot listing is incomplete; retry later");}
+            hit.content.assign(snapshot.merged.begin(),snapshot.merged.end());
+        }
+    }
     prov->Shutdown();
 
     const std::string accountScope = "0";

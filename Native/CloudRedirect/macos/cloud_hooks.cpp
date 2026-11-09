@@ -316,53 +316,29 @@ static void EnsureInitialized() {
                 }
                 return true;
             },
-            // pushAll: RMW-merge our snapshot onto the live blob (don't clobber
-            // another device) and upload once; skip if nothing changed.
+            // Merge against the exact downloaded version. WebDAV/S3/R2 reject
+            // stale writers; a retry re-reads and merges both devices' progress.
             [](uint32_t accountId, const std::unordered_map<uint32_t, std::string>& all) -> bool {
-                // Detached worker: register with the in-flight drain so
-                // CloudStorage::Shutdown waits for the provider read below before
-                // tearing g_provider down (UAF guard).
-                CloudStorage::InflightSyncScope guard;
-                if (!guard.entered) return false;
-
-                if (accountId == 0) return false;
-
-                Json::Value root = Json::Object();
-                std::vector<uint8_t> cur;
-                auto fetch = CloudStorage::FetchCloudMetadataStatus(accountId, CloudIntercept::kAccountScopeAppId, "stats.json", cur);
-                if(fetch == CloudStorage::MetadataFetch::Error)return false;
-                if (!cur.empty()) {
-                    Json::Value parsed = Json::Parse(
-                        std::string(reinterpret_cast<const char*>(cur.data()), cur.size()));
-                    if (parsed.type != Json::Type::Object)return false;
-                    root = std::move(parsed);
-                }
-
                 auto resetApps = StatsStore::ConsumeResetApps();
-
-                bool changed = false;
-                for (const auto& [appId, json] : all) {
-                    if (appId == 0) continue;
-                    std::string key = std::to_string(appId);
-                    std::string mergedEntry;
-                    if (resetApps.count(appId)) {
-                        mergedEntry = json;
-                    } else {
-                        std::string baseEntry = root.has(key)
-                            ? Json::Stringify(root.objVal[key]) : std::string();
-                        mergedEntry = StatsStore::MergeAppStatsJson(baseEntry, json);
-                    }
-                    Json::Value appVal = Json::Parse(mergedEntry);
-                    if (!root.has(key) || !Json::DeepEqual(root.objVal[key], appVal)) {
-                        root.objVal[key] = std::move(appVal);
-                        changed = true;
-                    }
-                }
-                if (!changed) return true;
-
-                std::string merged = Json::Stringify(root);
-                bool ok=CloudStorage::UploadCloudMetadataText(accountId, CloudIntercept::kAccountScopeAppId, "stats.json", merged);
-                if(!ok)StatsStore::RestoreResetApps(resetApps);
+                bool ok = CloudStorage::MergeCloudMetadataText(accountId,
+                    CloudIntercept::kAccountScopeAppId, "stats.json",
+                    [&all](const std::string& current, std::string& merged) {
+                        Json::Value root = current.empty() ? Json::Object() : Json::Parse(current);
+                        if (root.type != Json::Type::Object) return false;
+                        for (const auto& [appId, json] : all) {
+                            if (!appId) continue;
+                            const auto key = std::to_string(appId);
+                            auto base = root.has(key) ? Json::Stringify(root.objVal[key]) : std::string();
+                            // Durable reset revisions arbitrate even if another
+                            // device resets while this write is being retried.
+                            auto entry = Json::Parse(StatsStore::MergeAppStatsJson(base, json));
+                            if (entry.type != Json::Type::Object) return false;
+                            root.objVal[key] = std::move(entry);
+                        }
+                        merged = Json::Stringify(root);
+                        return true;
+                    });
+                if (!ok) StatsStore::RestoreResetApps(resetApps);
                 return ok;
             },
             // pullLegacy: read one app's old per-app blob for migration into the account blob.

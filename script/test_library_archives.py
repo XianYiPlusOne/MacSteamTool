@@ -15,6 +15,23 @@ def rar(files):
         n=name.encode();body=struct.pack('<IIBIIBBHI',len(data),len(data),3,zlib.crc32(data),0,20,0x30,len(n),0o100644)+n
         out+=header(0x74,0x8000,body)+data
     return out+header(0x7b,0,b'')
+def vint(value):
+    out=bytearray()
+    while value>=128:out.append((value&127)|128);value>>=7
+    out.append(value);return bytes(out)
+def rar5(files):
+    # Independent stored-format writer based on https://www.rarlab.com/technote.htm.
+    # Validate with macOS libarchive before exercising SharpCompress below.
+    def block(data):
+        data=vint(len(data))+data
+        return struct.pack('<I',zlib.crc32(data)&0xffffffff)+data
+    out=b'Rar!\x1a\x07\x01\x00'+block(b'\x01\x00\x00')
+    for name,data in files:
+        n=name.encode('utf8')
+        fields=b'\x02\x02'+vint(len(data))+b'\x04'+vint(len(data))+vint(0o100644)
+        fields+=struct.pack('<I',zlib.crc32(data)&0xffffffff)+b'\x00\x01'+vint(len(n))+n
+        out+=block(fields)+data
+    return out+block(b'\x05\x00\x00')
 def section(kind,data): return struct.pack('<II',kind,len(data))+data
 with tempfile.TemporaryDirectory(prefix='FluentLibraryArchives-') as directory:
     temp=Path(directory); source=temp/'source'; source.mkdir()
@@ -36,6 +53,11 @@ with tempfile.TemporaryDirectory(prefix='FluentLibraryArchives-') as directory:
     listing=subprocess.run(['/usr/bin/tar','-tf',str(archive)],capture_output=True,text=True,check=True).stdout
     assert all(n in listing for n in files);run(archive)
     corrupt=temp/'corrupt.rar';corrupt.write_bytes(archive.read_bytes().replace(b'Archive integration',b'Changed integration'));run(corrupt,False)
+    archive5=temp/'valid-rar5.rar';archive5.write_bytes(rar5(list(files.items())))
+    listing=subprocess.run(['/usr/bin/tar','-tf',str(archive5)],capture_output=True,text=True,check=True).stdout
+    assert all(n in listing for n in files);run(archive5)
+    corrupt5=temp/'corrupt-rar5.rar';corrupt5.write_bytes(archive5.read_bytes().replace(b'Archive integration',b'Changed integration'));run(corrupt5,False)
+    traversal5=temp/'traversal-rar5.rar';traversal5.write_bytes(rar5([('../100.lua',b'addappid(100)')]));run(traversal5,False)
     traversal=temp/'traversal.rar';traversal.write_bytes(rar([('../100.lua',b'addappid(100)')]));run(traversal,False)
     for name,link in [('symlink',tarfile.SYMTYPE),('hardlink',tarfile.LNKTYPE)]:
         path=temp/(name+'.tar')
@@ -50,4 +72,4 @@ with tempfile.TemporaryDirectory(prefix='FluentLibraryArchives-') as directory:
         run(path,False)
     empty=temp/'empty.7z'
     subprocess.run(['/usr/bin/tar','--format=7zip','-cf',str(empty),'a-readme.txt'],cwd=source,check=True);run(empty,False)
-    print('PASS: TAR, solid 7z and independently listed RAR4 -> Lua/Manifest/Bin -> preview -> isolated library transaction -> verified rollback; nonselected entries, RAR CRC damage, traversal, symlinks, hardlinks, case aliases, flattened name conflicts and no-importable-files rejection')
+    print('PASS: TAR, solid 7z and independently listed stored RAR4/RAR5 -> Lua/Manifest/Bin -> preview -> isolated library transaction -> verified rollback; nonselected entries, RAR CRC damage, traversal, symlinks, hardlinks, case aliases, flattened name conflicts and no-importable-files rejection')

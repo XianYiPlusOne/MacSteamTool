@@ -41,6 +41,7 @@ public struct Preferences: Codable, Sendable {
     public var layout = "cards"
     public var autoRefresh = true
     public var autoMetadata = true
+    public var automaticallyPrepareAchievements: Bool?
     public var depotKeysURL = "https://api.993499094.xyz/depotkeys.json"
     public var tokensURL = "https://api.993499094.xyz/appaccesstokens.json"
     public var manifestURL = "https://steamapi.993499094.xyz/manifest/{depot}/{manifest}"

@@ -1,10 +1,10 @@
 import Foundation
+import CryptoKit
 
 extension InstallSession {
     static func kernel(_ r: InstallRequest, requireIdle: () throws -> Void = InstallSession.requireIdle, register: (URL) -> Void = SteamBundle.register, progress: @escaping @Sendable (String) -> Void) throws -> String {
         try configure(r); try requireIdle()
         guard let kernel = r.kernel, ["macsteam.dylib", "cloud_redirect.dylib", "notproton.dylib", "fluent_manifest.dylib"].contains(kernel),
-              kernel != "notproton.dylib" || r.remove == true,
               SteamBundle.readInfoPlist(at: SupportPaths.Steam.infoPlist)?["CFBundleIdentifier"] as? String == "com.valvesoftware.steam" else {
             throw StepFailure(step: "Install kernel", detail: "Invalid kernel or Steam bundle")
         }
@@ -23,6 +23,7 @@ extension InstallSession {
                 source = URL(filePath: path)
             }
             guard let source, try Shell.run("/usr/bin/lipo", ["-archs", source.path]).stdout.contains("arm64") else { throw StepFailure(step: "Install kernel", detail: "Kernel must support ARM64") }
+            if kernel == "notproton.dylib" { try validateNotProtonRepair(source) }
         }
         guard r.cleanRunners != true || (kernel == "notproton.dylib" && r.remove == true) else { throw StepFailure(step: "Remove runners", detail: "Runner cleanup requires NotProton removal") }
         let cleanup = r.cleanRunners == true ? [SupportPaths.runners, SupportPaths.bridge, SupportPaths.toolList] + SupportPaths.Steam.notprotonTools() : []
@@ -45,7 +46,7 @@ extension InstallSession {
             libraries.append(app.appending(path: "Contents/MacOS/" + kernel).path)
         }
         if libraries.isEmpty { env.removeValue(forKey: SteamBundle.insertKey) } else { env[SteamBundle.insertKey] = libraries.joined(separator: ":") }
-        if kernel == "notproton.dylib", env[SteamBundle.controllerBlockKey] as? String == SteamBundle.controllerBlockValue { env.removeValue(forKey: SteamBundle.controllerBlockKey) }
+        if kernel == "notproton.dylib", r.remove == true, env[SteamBundle.controllerBlockKey] as? String == SteamBundle.controllerBlockValue { env.removeValue(forKey: SteamBundle.controllerBlockKey) }
         if kernel == "fluent_manifest.dylib" {
             if r.remove == true {
                 for key in ["FLUENT_PINS_CONFIG", "FLUENT_PINS_CACHE", "FLUENT_PINS_STATUS"] { env.removeValue(forKey: key) }
@@ -92,6 +93,18 @@ extension InstallSession {
         try? fm.removeItem(at: holding)
         register(app)
         return backup.path
+    }
+    private static func validateNotProtonRepair(_ source: URL) throws {
+        let version = try String(contentsOf: SupportPaths.deployedVersion, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard version == "1.2.3", FileManager.default.fileExists(atPath: SupportPaths.Steam.app.appending(path: "Contents/MacOS/notproton.dylib").path) else {
+            throw StepFailure(step: "Repair NotProton", detail: "This repair requires an existing NotProton 1.2.3 installation; runners and profiles will not be downgraded")
+        }
+        let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: source.deletingLastPathComponent().appending(path: "fluent-notproton-repair.json"))) as? [String: String]
+        let hash = SHA256.hash(data: try Data(contentsOf: source)).map { String(format: "%02x", $0) }.joined()
+        guard receipt?["upstream"] == "692b470e73d0d497ee9e474038efda819a037772", receipt?["repair"] == "webui-capacity-1", receipt?["sha256"] == hash,
+              try Shell.run("/usr/bin/codesign", ["--verify", "--strict", source.path]).succeeded else {
+            throw StepFailure(step: "Repair NotProton", detail: "NotProton repair payload or receipt verification failed")
+        }
     }
     static func restoreKernel(_ r: InstallRequest, requireIdle: () throws -> Void = InstallSession.requireIdle, register: (URL) -> Void = SteamBundle.register) throws -> String {
         try configure(r); try requireIdle()

@@ -1,4 +1,5 @@
 #include "gamesplayed_hook.h"
+#include "onlinefix.h"
 #include "runtime_profile.h"
 #include "runtime_settings.h"
 #include "stats_handlers.h"
@@ -88,8 +89,13 @@ bool FilterPresence(uint32_t message,const std::vector<uint8_t>& input,std::vect
         // Never reinterpret a shortcut/mod GameID as an ordinary app.
         if(!game||game->wireType!=PB::Fixed64||game->varintVal>0xffffff){copy(out,f);continue;}
         uint32_t id=(uint32_t)game->varintVal;
-        auto found=c->presenceApps.find(id);if(found==c->presenceApps.end()){copy(out,f);continue;}
+        const uint32_t lobbyApp=id==480?OnlineFix::ActiveApp():0;
+        auto found=c->presenceApps.find(lobbyApp?lobbyApp:id);if(found==c->presenceApps.end()){copy(out,f);continue;}
         if(c->presence=="none"){changed=true;continue;}
+        if(lobbyApp){
+            PB::Writer renamed;for(auto& sf:sub)if(sf.fieldNum!=7)copy(renamed,sf);
+            renamed.WriteString(7,found->second.empty()?"App "+std::to_string(lobbyApp):found->second);out.WriteSubmessage(1,renamed);changed=true;continue;
+        }
         if(i!=top||!alias||id==480){copy(out,f);continue;}
         changed=true;
         // The compatibility entry carries the original title but is explicitly
@@ -114,7 +120,11 @@ static bool send(void* cm,void* wrapper){
     void* header=nullptr;memcpy(&header,(char*)wrapper+48,8);
     if(header){size_t hn=0;auto hb=serialize(header,&hn);auto fields=PB::Parse(hb,hn);auto sid=PB::FindField(fields,1);if(sid)CloudHooks::ObserveAccount(sid->varintVal);}
     size_t len=0;auto bytes=serialize(body,&len);std::vector<uint8_t> input;if(bytes)input.assign(bytes,bytes+len);
-    if(games)observed++;
+    if(games){
+        observed++;bool alias=false;
+        for(auto& f:PB::Parse(input.data(),input.size()))if(f.fieldNum==1&&f.wireType==PB::LengthDelimited){auto sub=PB::Parse(f.data,f.dataLen);auto id=PB::FindField(sub,2);if(id&&id->wireType==PB::Fixed64&&id->varintVal==480)alias=true;}
+        OnlineFix::ObserveRunning(alias);
+    }
     if(games&&MetadataSync::PlaytimeEnabled()){
         auto platformInput=platformBody(input);auto ended=StatsHandlers::ObserveGamesPlayed(platformInput.data(),platformInput.size());
         if(!ended.empty())LivePlaytime::Queue(StatsHandlers::BuildLastPlayedNotificationBody(ended).Data());

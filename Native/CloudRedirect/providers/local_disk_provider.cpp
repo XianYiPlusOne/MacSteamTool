@@ -1,8 +1,60 @@
 #include "local_disk_provider.h"
 #include "file_util.h"
 #include "log.h"
+#include "sha256_hmac.h"
+#ifndef _WIN32
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <filesystem>
 #include <fstream>
+
+namespace {
+#ifndef _WIN32
+struct MetadataLock {
+    int fd=-1;
+    explicit MetadataLock(const std::string& full) {
+        std::error_code ec;std::filesystem::create_directories(std::filesystem::path(full).parent_path(),ec);if(ec)return;
+        fd=open((full+".lock").c_str(),O_CREAT|O_RDWR|O_NOFOLLOW|O_CLOEXEC,0600);
+        if(fd>=0&&flock(fd,LOCK_EX)){close(fd);fd=-1;}
+    }
+    ~MetadataLock(){if(fd>=0){flock(fd,LOCK_UN);close(fd);}}
+};
+#endif
+ICloudProvider::ExistsStatus readMetadata(const std::string& full,std::vector<uint8_t>& data,std::string& version) {
+    data.clear();version.clear();std::error_code ec;
+    auto status=std::filesystem::symlink_status(full,ec);
+    if(ec==std::errc::no_such_file_or_directory||(!ec&&!std::filesystem::exists(status)))return ICloudProvider::ExistsStatus::Missing;
+    if(ec||!std::filesystem::is_regular_file(status)||std::filesystem::file_size(full,ec)>16*1024*1024||ec)return ICloudProvider::ExistsStatus::Error;
+    std::ifstream file(full,std::ios::binary);if(!file)return ICloudProvider::ExistsStatus::Error;
+    data.assign(std::istreambuf_iterator<char>(file),{});if(file.bad()||data.size()>16*1024*1024)return ICloudProvider::ExistsStatus::Error;
+    version='"'+crypto::Sha256Hex(std::string(data.begin(),data.end()))+'"';return ICloudProvider::ExistsStatus::Exists;
+}
+}
+ICloudProvider::ExistsStatus LocalDiskProvider::ReadVersioned(const std::string& path,std::vector<uint8_t>& data,std::string& version) {
+#ifdef _WIN32
+    return ExistsStatus::Error;
+#else
+    auto full=ToFullPath(path);if(full.empty())return ExistsStatus::Error;
+    MetadataLock lock(full);if(lock.fd<0)return ExistsStatus::Error;
+    return readMetadata(full,data,version);
+#endif
+}
+ICloudProvider::ConditionalResult LocalDiskProvider::WriteConditional(const std::string& path,const std::string& data,const std::string& version) {
+#ifdef _WIN32
+    return ConditionalResult::Error;
+#else
+    if(data.size()>16*1024*1024||(!version.empty()&&!IsStrongETag(version)))return ConditionalResult::Error;
+    auto full=ToFullPath(path);if(full.empty())return ConditionalResult::Error;
+    MetadataLock lock(full);if(lock.fd<0)return ConditionalResult::Error;
+    std::vector<uint8_t> current;std::string actual;
+    if(readMetadata(full,current,actual)==ExistsStatus::Error)return ConditionalResult::Error;
+    if(actual!=version)return ConditionalResult::Conflict;
+    return FileUtil::AtomicWriteBinary(full,reinterpret_cast<const uint8_t*>(data.data()),data.size())?ConditionalResult::Written:ConditionalResult::Error;
+#endif
+}
 
 bool LocalDiskProvider::Init(const std::string& rootPath) {
     // UTF-8; every fs call routes through FileUtil::Utf8ToPath.

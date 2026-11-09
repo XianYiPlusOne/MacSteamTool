@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, unquote, quote, parse_qs
 from xml.sax.saxutils import escape
 import argparse, base64, hashlib, hmac, json, os, re, ssl, subprocess, tempfile, threading
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -29,6 +30,10 @@ class State:
         self.requests = []
         self.mode = ''
         self.redirect = ''
+        self.lock = threading.Lock()
+        self.race = None
+        self.race_waiters = 0
+        self.conflicts = 0
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -137,7 +142,29 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == 'PUT':
             if require_parent and path.rsplit('/', 1)[0] + '/' not in state.dirs:
                 return self.reply(409)
-            state.files[path] = body
+            barrier = None
+            if path.endswith('/12345/0/stats.json') and state.race:
+                value = json.loads(body).get('900004', {})
+                bits = sum(block['bits'] for block in value.get('achievements', []))
+                with state.lock:
+                    if bits in (1, 2) and state.race_waiters < 2:
+                        state.race_waiters += 1
+                        barrier = state.race
+            if barrier:
+                barrier.wait(timeout=20)  # Both clients have already read the same version.
+            with state.lock:
+                if path.endswith('/12345/0/stats.json') and state.mode in ('cas-busy', 'cas-once-409'):
+                    state.conflicts += 1
+                    status = 409 if state.mode == 'cas-once-409' else 412
+                    if status == 409: state.mode = ''
+                    return self.reply(status)
+                current = state.files.get(path)
+                etag = '"' + hashlib.sha256(current).hexdigest() + '"' if current is not None else None
+                if ((self.headers.get('If-None-Match') == '*' and current is not None) or
+                    (self.headers.get('If-Match') and self.headers['If-Match'] != etag)):
+                    state.conflicts += 1
+                    return self.reply(412)
+                state.files[path] = body
             return self.reply(200 if state.kind == 's3' else 201)
         if self.command == 'DELETE':
             state.files.pop(path, None)
@@ -148,7 +175,11 @@ class Handler(BaseHTTPRequestHandler):
             data = state.files[path]
             if self.command == 'GET' and (state.mode == 'corrupt' or (state.mode == 'corrupt-blob' and '/blobs/' in path)):
                 data += b'corrupt'
-            return self.reply(200, data)
+            headers = {'ETag': '"' + hashlib.sha256(data).hexdigest() + '"'}
+            if path.endswith('/12345/0/stats.json'):
+                if state.mode == 'no-etag': headers = {}
+                if state.mode == 'weak-etag': headers['ETag'] = 'W/' + headers['ETag']
+            return self.reply(200, data, headers)
         return self.reply(405)
 
     def s3(self, path, parsed, body):
@@ -287,6 +318,68 @@ def scenario(base, provider, auth='basic', tls=False):
             assert 'PASS:' in result.stdout
             assert 'WriteFileNoIncrement failed' not in result.stdout + result.stderr
         state.mode = ''
+        def stats(mode, suffix=None):
+            command = [str(PROBE), provider, str(base / f'device-a/CloudRedirect/{provider}_credentials.json'), str(base / ('rpc-' + (suffix or mode))), mode]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=100)
+            assert result.returncode == 0, (provider, mode, result.stdout[-2000:], result.stderr[-2000:])
+        stats('stats-a'); stats('stats-b'); stats('stats-a', 'stats-a-repeat'); stats('stats-verify')
+        before_offline = dict(state.files)
+        state.mode = 'read-only'
+        stats('stats-offline')
+        assert state.files == before_offline, 'failed write changed remote statistics'
+        state.mode = ''
+        stats('stats-retry', 'stats-offline')
+        stats('stats-verify-retry')
+        stats('stats-reset'); stats('stats-verify-reset')
+        stale = base / 'rpc-stats-stale'
+        stale_stats = stale / f'CloudRedirect/stats/{ACCOUNT}'
+        stale_stats.mkdir(parents=True)
+        (stale / '.stats-offline-fixture').touch()
+        (stale_stats / '900004.json').write_bytes((base / f'rpc-stats-a/CloudRedirect/stats/{ACCOUNT}/900004.json').read_bytes())
+        (stale_stats / '900004.json.pending').write_text('pending')
+        # A disabled app and another account must not join the recovery scope.
+        for foreign in [stale_stats / '900005.json', stale / 'CloudRedirect/stats/54321/900004.json']:
+            foreign.parent.mkdir(parents=True, exist_ok=True)
+            foreign.write_text('{"stats":[],"achievements":[],"playtime":{}}')
+            foreign.with_name(foreign.name + '.pending').write_text('pending')
+        stats('stats-retry', 'stats-stale'); stats('stats-verify-reset', 'stats-reset-after-stale')
+        assert (stale_stats / '900005.json.pending').exists()
+        assert (stale / 'CloudRedirect/stats/54321/900004.json.pending').exists()
+        stats_blob = next(value for name, value in state.files.items() if name.endswith('/12345/0/stats.json'))
+        assert set(json.loads(stats_blob)) == {'900004'}, 'recovery uploaded an out-of-scope app'
+        print(f'PASS: {provider}/{auth}: independent-client achievement/stat union, platform-time merge, idempotency, failed-upload restart recovery, durable reset and account/app scope.')
+        for failure in ('no-etag', 'weak-etag', 'cas-busy'):
+            stats('stats-reset', 'reset-' + failure)
+            remote_before = dict(state.files)
+            state.mode = failure
+            stats('stats-offline', 'pending-' + failure)
+            assert state.files == remote_before, 'unsafe write despite missing validator or exhausted conflicts'
+            state.mode = ''
+            stats('stats-retry', 'pending-' + failure)
+            recovered = json.loads(next(value for name, value in state.files.items() if name.endswith('/12345/0/stats.json')))['900004']
+            assert recovered['achievements'][0]['bits'] == 4
+        state.mode = 'cas-once-409'
+        stats('stats-concurrent-a', '409-retry')
+        assert state.mode == '', '409 retry was not exercised'
+        print(f'PASS: {provider}/{auth}: missing/weak ETag and exhausted conflicts preserve pending progress; later recovery succeeds.')
+        # Force both writers to read the same base before either can commit.
+        # Test both object creation and replacement, then read with a fresh client.
+        stats_key = next(name for name in state.files if name.endswith('/12345/0/stats.json'))
+        for existing in (False, True):
+            if existing:
+                stats('stats-reset', 'race-reset')
+            else:
+                del state.files[stats_key]
+            state.race = threading.Barrier(2); state.race_waiters = 0
+            conflicts_before = state.conflicts
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(stats, 'stats-concurrent-' + who, f'race-{existing}-{who}') for who in ('a', 'b')]
+                for future in futures: future.result()
+            state.race = None
+            stats('stats-verify-concurrent', f'race-{existing}-verify')
+            assert state.race_waiters == 2, 'concurrent write barrier was not reached'
+            assert state.conflicts > conflicts_before, 'no conditional conflict was exercised'
+        print(f'PASS: {provider}/{auth}: simultaneous create/update collide; losing writer re-reads and merges; fresh client sees both achievements and 8 minutes.')
         assert any(method == 'PUT' for method, _ in state.requests)
         assert any(method == 'GET' for method, _ in state.requests)
         print(f'PASS: {provider}/{auth}/{"HTTPS" if tls else "HTTP"}: full save RPC batch/manifest/clean-client restore; authenticated upload, independent-client listing/download, binary/empty/Unicode equality, account scope, conflicts, failed auth/write/read/delete/list; source and config unchanged.')

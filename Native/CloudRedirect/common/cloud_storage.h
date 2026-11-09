@@ -12,6 +12,7 @@
 #include <atomic>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 
 namespace CloudStorage {
 
@@ -107,6 +108,9 @@ bool DownloadLegacyPlaytimeBlob(uint32_t accountId, uint32_t appId,
     std::vector<uint8_t>& outData);
 bool UploadCloudMetadataText(uint32_t accountId, uint32_t appId,
     const char* name, const std::string& content);
+// Re-read/re-merge on conditional-write conflicts. The callback must be pure.
+bool MergeCloudMetadataText(uint32_t accountId, uint32_t appId, const char* name,
+    const std::function<bool(const std::string&, std::string&)>& merge);
 // Queued (thread-safe) variant: serializes on the cloud work queue.
 void UploadCloudMetadataTextAsync(uint32_t accountId, uint32_t appId,
     const char* name, const std::string& content);

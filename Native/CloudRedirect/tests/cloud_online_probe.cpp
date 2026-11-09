@@ -8,6 +8,8 @@
 #include "json.h"
 #include "file_util.h"
 #include "local_disk_provider.h"
+#include "stats_store.h"
+#include <ctime>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -19,6 +21,50 @@
 static constexpr uint32_t account = 12345, app = 900003;
 static void require(bool ok, const char* message) { if (!ok) { fprintf(stderr, "FAIL: %s\n", message); fflush(nullptr); _Exit(1); } }
 static std::vector<PB::Field> fields(const PB::Writer& value) { return PB::Parse(value.Data().data(), value.Size()); }
+static void statistics(const std::string& mode, const std::string& root) {
+    constexpr uint32_t statsApp = 900004;
+    require(StatsStore::WaitForSeed(30000), "statistics startup seeded");
+    StatsStore::DrainCloudWrites();
+    auto value = StatsStore::Snapshot(statsApp);
+    if (mode == "stats-a" || mode == "stats-b" || mode == "stats-concurrent-a" || mode == "stats-concurrent-b" || mode == "stats-offline") {
+        const bool a = mode == "stats-a" || mode == "stats-concurrent-a", offline = mode == "stats-offline";
+        const uint32_t bit = offline ? 2 : a ? 0 : 1;
+        if (value.achievements.empty()) value.achievements.push_back({});
+        auto& block = value.achievements[0]; block.statId = 3;
+        block.bits |= 1u << bit; block.unlockTimes[bit] = (uint32_t)time(nullptr);
+        value.stats = {{3, block.bits, StatsStore::StatMerge::BitwiseOr}, {4, offline ? 30u : a ? 10u : 20u, StatsStore::StatMerge::Overwrite}};
+        auto& device = value.playtime.perDevice[offline ? "fixture-c" : a ? "fixture-a" : "fixture-b"];
+        if (a) device.windows = 3; else if (offline) device.lin = 7; else device.mac = 5;
+        value.playtime.lastPlayedTime = (uint32_t)time(nullptr);
+        // Synthetic contributions exercise real serialization/merge, without
+        // reporting fake sessions to a Steam client or waiting fake minutes.
+        StatsStore::SaveAppStats(statsApp, value);
+        StatsStore::FlushAll(); StatsStore::DrainCloudWrites();
+    } else if (mode == "stats-reset") {
+        StatsStore::ResetStats(statsApp);
+        StatsStore::FlushAll(); StatsStore::DrainCloudWrites();
+    } else if (mode == "stats-retry") {
+        // No new gameplay. A restarted client must retry durable local progress.
+        StatsStore::FlushAll(); StatsStore::DrainCloudWrites();
+    } else {
+        const uint32_t expected = mode == "stats-verify-retry" ? 7 : mode == "stats-verify-reset" ? 0 : 3;
+        uint32_t bits = 0; for (const auto& block : value.achievements) bits |= block.bits;
+        require(bits == expected, "independent client receives expected merged achievement bits");
+        const bool afterRecovery = mode != "stats-verify" && mode != "stats-verify-concurrent";
+        require(value.playtime.playtimeWindows == 3 && value.playtime.playtimeMac == 5 &&
+                value.playtime.playtimeLinux == (afterRecovery ? 7u : 0u), "per-device platform minutes merge without double counting");
+        require(value.playtime.minutesForever == (afterRecovery ? 15u : 8u), "derived total equals independent device contributions");
+        if (expected) {
+            auto stat = std::find_if(value.stats.begin(), value.stats.end(), [](const auto& s) { return s.statId == 4; });
+            require(stat != value.stats.end() && (mode == "stats-verify-concurrent" ? (stat->value == 10 || stat->value == 20) : stat->value == (afterRecovery ? 30u : 10u)), "pending overwrite-stat survives stale cloud refresh");
+        }
+    }
+    CloudHooks::BeginShutdown(); CloudHooks::ShutdownStorage();
+    const auto pending = root + "/CloudRedirect/stats/12345/900004.json.pending";
+    if (mode == "stats-offline") require(std::filesystem::is_regular_file(pending), "failed upload remains durably pending");
+    if (mode == "stats-retry") require(!std::filesystem::exists(pending), "acknowledged payload clears its own retry marker");
+    printf("PASS: %s isolated online account statistics; synthetic progress only.\n", mode.c_str());
+}
 static std::string http(const std::string& method, const std::string& path, const std::string& body = "") {
     int fd = socket(AF_INET, SOCK_STREAM, 0); require(fd >= 0, "socket");
     int one = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
@@ -35,8 +81,10 @@ int main(int argc, char** argv) {
     require(argc == 5, "usage: online-probe provider fixture-credentials new-client-root upload|download");
     const std::string provider = argv[1], credentials = argv[2], root = argv[3], mode = argv[4];
     require(provider == "webdav" || provider == "s3" || provider == "r2" || provider == "folder", "isolated supported providers only");
-    require(mode == "upload" || mode == "download" || mode == "reject-corrupt", "known mode");
-    require(root.starts_with("/") && !std::filesystem::exists(root), "client root must be new");
+    const bool stats = mode == "stats-a" || mode == "stats-b" || mode == "stats-concurrent-a" || mode == "stats-concurrent-b" || mode == "stats-offline" || mode == "stats-reset" || mode == "stats-retry" || mode == "stats-verify" || mode == "stats-verify-retry" || mode == "stats-verify-reset" || mode == "stats-verify-concurrent";
+    require(stats || mode == "upload" || mode == "download" || mode == "reject-corrupt", "known mode");
+    const bool retry = mode == "stats-retry";
+    require(root.starts_with("/") && (retry ? std::filesystem::is_regular_file(root + "/.stats-offline-fixture") : !std::filesystem::exists(root)), "client root is new or an explicit offline fixture");
     require(std::filesystem::exists(std::filesystem::path(credentials).parent_path() / ".fluent-cloud-online-fixture"), "explicit disposable credential marker");
     std::filesystem::create_directories(root + "/CloudRedirect");
     std::filesystem::create_directories(root + "/Steam/config");
@@ -44,6 +92,8 @@ int main(int argc, char** argv) {
     setenv("FLUENT_CLOUD_STEAM", (root + "/Steam").c_str(), 1);
     setenv("MACSTEAM_CONFIG", (root + "/unused-macsteam.yaml").c_str(), 1);
     auto config = Json::Parse("{\"enabled\":true,\"apps\":[900003],\"stats_sync_enabled\":false}");
+    if (stats) config = Json::Parse("{\"enabled\":true,\"apps\":[900003],\"stats_sync_enabled\":true,\"stats_apps\":[900004],\"sync_achievements\":true,\"sync_playtime\":true}");
+    if (mode == "stats-offline") std::ofstream(root + "/.stats-offline-fixture") << "disposable";
     config.objVal["provider"] = Json::String(provider);
     config.objVal["token_paths"] = Json::Object();
     config.objVal["token_paths"].objVal[provider] = Json::String(credentials);
@@ -51,6 +101,7 @@ int main(int argc, char** argv) {
     std::ofstream(root + "/Steam/config/loginusers.vdf") << "\"users\"\n{\n\"76561197960278073\"\n{\n\"MostRecent\" \"1\"\n}\n}\n";
     CloudHooks::InitializeStorage();
     require(CloudStorage::IsCloudActive() && CloudIntercept::GetAccountId() == account, "fixture provider active and account scoped");
+    if (stats) { statistics(mode, root); return 0; }
     const std::string filename = "fixture/slot.bin", payload("binary\0save\xff", 12);
     const auto sha = FileUtil::SHA1(reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
     if (mode == "upload") {

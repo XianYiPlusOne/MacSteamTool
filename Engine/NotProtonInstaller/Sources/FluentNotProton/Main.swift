@@ -10,6 +10,7 @@ import Darwin
         do {
             if args.count == 2, args[0] == "--test-kernel" { try InstallerSelfTest.kernelIntegration(companion: args[1]); return }
             if args == ["--self-test"] { try InstallerSelfTest.run(); return }
+            if args.count == 2, args[0] == "--test-notproton-repair" { try InstallerSelfTest.notProtonRepair(source: args[1]); return }
             if args.count == 2, args[0] == "--inspect" {
                 try InstallSession.companion(args[1])
                 let payload = try InstallPayload.locate(); let bridge = try BridgePayload.locate()

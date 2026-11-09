@@ -1,4 +1,5 @@
 #include "cloud_storage.h"
+#include "stats_journal.h"
 #include "app_state.h"
 #include "local_storage.h"
 #include "local_disk_provider.h"
@@ -553,6 +554,43 @@ bool UploadCloudMetadataText(uint32_t accountId, uint32_t appId,
     return uploaded;
 }
 
+bool MergeCloudMetadataText(uint32_t accountId, uint32_t appId, const char* name,
+        const std::function<bool(const std::string&, std::string&)>& merge) {
+    InflightSyncScope guard;
+    if (!guard || !accountId || !g_provider || !g_provider->IsAuthenticated()) return false;
+    const auto path = CloudMetadataPath(accountId, appId, name);
+    if(appId==0&&std::string_view(name)=="stats.json"&&g_provider->UsesImmutableStats()) {
+        const bool ok=StatsJournal::Publish(*g_provider,path,merge);
+        if(ok)ClearMissingMetadataPath(path);
+        return ok;
+    }
+    const bool conditional = g_provider->SupportsConditionalWrites();
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        std::vector<uint8_t> data;
+        std::string version;
+        if (conditional) {
+            if (g_provider->ReadVersioned(path, data, version) == ICloudProvider::ExistsStatus::Error)
+                return false; // No strong validator: retain pending data, never blind-overwrite.
+        } else if (FetchCloudMetadataStatus(accountId, appId, name, data) == MetadataFetch::Error) return false;
+        if (data.size() > 16 * 1024 * 1024) return false;
+        const std::string current(data.begin(), data.end());
+        std::string merged;
+        if (!merge(current, merged) || merged.size() > 16 * 1024 * 1024) return false;
+        if (merged == current) return true;
+        if (!conditional) return UploadCloudMetadataText(accountId, appId, name, merged);
+        const auto result = g_provider->WriteConditional(path, merged, version);
+        if (result == ICloudProvider::ConditionalResult::Written) {
+            ClearMissingMetadataPath(path);
+            return true;
+        }
+        if (result != ICloudProvider::ConditionalResult::Conflict) return false;
+        LOG("[CloudStorage] Metadata changed during upload; re-reading before retry %d", attempt + 1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(25 * (attempt + 1)));
+    }
+    LOG("[CloudStorage] Metadata remained busy; pending upload retained");
+    return false;
+}
+
 // Queue an upload on the cloud work queue: thread-safe, unlike the sync variant
 // which races other curl calls off the work thread (libcurl init isn't reentrant).
 void UploadCloudMetadataTextAsync(uint32_t accountId, uint32_t appId,
@@ -654,6 +692,13 @@ MetadataFetch FetchCloudMetadataStatus(uint32_t accountId, uint32_t appId,
                                        std::vector<uint8_t>& outData) {
     outData.clear();
     if (!g_provider || !g_provider->IsAuthenticated()) return MetadataFetch::Error;
+
+    if(appId==0&&std::string_view(canonicalName)=="stats.json"&&g_provider->UsesImmutableStats()) {
+        StatsJournal::Snapshot snapshot;
+        if(!StatsJournal::Read(*g_provider,CloudMetadataPath(accountId,appId,canonicalName),snapshot))return MetadataFetch::Error;
+        outData.assign(snapshot.merged.begin(),snapshot.merged.end());
+        return snapshot.exists?MetadataFetch::Ok:MetadataFetch::Missing;
+    }
 
     std::string canonicalPath = CloudMetadataPath(accountId, appId, canonicalName);
     const bool cacheableMissing =

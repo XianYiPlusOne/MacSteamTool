@@ -21,7 +21,7 @@ struct CloudPanel: View {
     var body: some View {
         Panel {
             HStack { Label(model.tr("云存档重定向", "Cloud save redirection"), systemImage: "icloud").font(.headline); Spacer(); Button(model.tr("打开云缓存", "Open cloud cache")) { model.openFolder(model.paths.data.appendingPathComponent("CloudRedirect")) } }
-            Text(model.tr("默认接管到独立本地文件夹，不再向 Valve 云存储上传这些游戏。本地接管不是跨设备云同步；跨设备需要自行配置云服务或同步文件夹。保存配置前请退出 Steam。", "By default, managed games use a separate local folder instead of Valve cloud storage. Local storage is not cross-device sync; configure your own cloud provider or synced folder for that. Quit Steam before saving configuration.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("默认接管到独立本地文件夹。更改或重置文件夹后保存，会先复制并校验旧目录内容，成功后切换；原目录保留，同名不同内容不会覆盖。保存前请退出 Steam。跨设备请配置云服务或同步文件夹。", "Managed saves use a separate folder. Changing or resetting it copies and verifies existing data before switching; the original is retained and conflicts are not overwritten. Quit Steam before saving. Configure a cloud provider or synced folder for cross-device use.")).font(.caption).foregroundStyle(.secondary)
             Button(model.tr("使用原版式本地配置（待保存）", "Use upstream-style local defaults (save to apply)")) {
                 let defaults = CloudConfiguration.localDefaults(paths: model.paths)
                 config.enabled = true; config.automaticApps = true; config.provider = defaults.provider; config.folder = defaults.folder
@@ -37,10 +37,16 @@ struct CloudPanel: View {
             if !runtimeStatus.isEmpty { Text(runtimeStatus).font(.caption).textSelection(.enabled).foregroundStyle(.secondary) }
             Divider()
             Text(model.tr("成就、统计与游戏时长", "Achievements, statistics and playtime")).font(.subheadline.bold())
-            TextField(model.tr("统计 AppID（独立于存档列表），例如 480", "Statistics AppIDs (separate from saves), e.g. 480"), text: $config.statsApps).textFieldStyle(.roundedBorder)
+            TextField(model.tr("统计 AppID（独立于存档列表，逗号分隔）", "Statistics AppIDs (separate from saves, comma-separated)"), text: $config.statsApps).textFieldStyle(.roundedBorder)
             Toggle(model.tr("同步成就与统计", "Sync achievements and statistics"), isOn: $config.syncAchievements)
             Toggle(model.tr("记录并同步游戏时长", "Track and sync playtime"), isOn: $config.syncPlaytime)
             Text(model.tr("只处理统计列表中的游戏；不需要开启存档重定向。更改开关后需重启 Steam。", "Only games in the statistics list are included. Save redirection can remain off. Restart Steam after changing these switches.")).font(.caption).foregroundStyle(.secondary)
+            if [.folder, .webdav, .s3, .r2].contains(config.provider) {
+                Text(model.tr("这些服务商的统计上传会校验远端版本，发生同时写入时重新合并。服务器缺少可靠的版本标记或持续冲突时，保留本地待传数据，稍后重试。", "Statistics uploads check the remote version and re-merge concurrent changes. If reliable version tags are unavailable or conflicts persist, local pending progress is retained for retry.")).font(.caption).foregroundStyle(.secondary)
+            }
+            if [.gdrive, .onedrive].contains(config.provider) {
+                Text(model.tr("统计通过独立快照合并各设备进度；发布并校验完整快照后才清理旧记录。列举不完整或上传失败时保留本地待传数据。", "Statistics merge device progress through separate snapshots. Old records are compacted only after a complete snapshot is published and verified. Incomplete listings or failed uploads keep local progress pending.")).font(.caption).foregroundStyle(.secondary)
+            }
             if !config.automaticApps && !config.apps.isEmpty {
                 Text(model.tr("管理中的存档 AppID：", "Managed save AppIDs: ") + config.apps).font(.caption).foregroundStyle(.secondary)
             }
@@ -48,6 +54,7 @@ struct CloudPanel: View {
             Picker(model.tr("服务商", "Provider"), selection: $config.provider) { ForEach(CloudProvider.allCases) { p in Text(p.title).tag(p) } }.onChange(of: config.provider) { _, _ in credentials = [:] }
             if config.provider == .folder {
                 HStack { TextField(model.tr("独立文件夹路径", "Separate folder path"), text: $config.folder).textFieldStyle(.roundedBorder); Button(model.tr("选择…", "Choose…")) { let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true; if p.runModal() == .OK, let u = p.url { config.folder = u.path } } }
+                Button(model.tr("恢复默认目录（保存时迁移）", "Reset folder to default (migrate on save)")) { config.folder = CloudConfiguration.localDefaults(paths: model.paths).folder }
             }
             if config.provider == .webdav {
                 field("URL", "url")

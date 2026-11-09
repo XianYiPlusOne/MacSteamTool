@@ -169,11 +169,11 @@ public actor ContentService {
         guard count > 0 || main.depots.isEmpty else { throw AppFailure("该游戏没有可用 depot 密钥；无法生成可下载的清单 / No depot keys available; cannot generate a downloadable manifest") }
         return GenerationResult(lua: lua, warnings: warnings, depots: count)
     }
-    public func fetchManifest(depot: Int, manifest: String, template: String, fallbacks: Bool = true) async throws -> Data {
+    public func fetchManifest(depot: Int, manifest: String, template: String, fallbacks: Bool = true, probe: Bool = false) async throws -> Data {
         guard TextUtil.validID(String(depot)) != nil, UInt64(manifest) != nil else { throw AppFailure("无效的 DepotID / ManifestID") }
         var providers = [template]
         if fallbacks {
-            for source in ["https://20770407.xyz/manifest/{depot}/{manifest}", "https://steamapi.993499094.xyz/manifest/{depot}/{manifest}", "https://manifest.manifestdex.com/{depot}", "https://manifest.steam.run/api/manifest/{depot}"] where !providers.contains(source) { providers.append(source) }
+            for source in DownloadSources.manifestTemplates where !providers.contains(source) { providers.append(source) }
         }
         var errors: [String] = []
         for provider in providers {
@@ -182,10 +182,10 @@ public actor ContentService {
             if fallbacks, let until = providerCooldown[provider], until > Date() { errors.append("\(name): 暂时冷却"); continue }
             do {
                 let result = try await fetchFromProvider(depot: depot, manifest: manifest, template: provider)
-                providerCooldown.removeValue(forKey: provider); return result
+                if !probe { providerCooldown.removeValue(forKey: provider) }; return result
             } catch {
                 if Task.isCancelled { throw CancellationError() }
-                providerCooldown[provider] = Date().addingTimeInterval(60)
+                if !probe { providerCooldown[provider] = Date().addingTimeInterval(60) }
                 errors.append("\(name): \(error.localizedDescription)")
             }
         }

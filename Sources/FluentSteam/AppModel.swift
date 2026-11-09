@@ -73,11 +73,15 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var originalAchievements: [Achievement] = []
     @Published var achievementStatus = ""
     @Published var achievementBackend = "steam"
+    @Published var automaticAchievementsStatus = ""
+    var automaticAchievementsTask: Task<Void, Never>?
+    var automaticAchievementsChecked = Date.distantPast
     @Published var loginQR = ""
     @Published var onlineAccount = ""
     @Published var ownedGames: [OwnedGame] = []
     let defaults: AppPaths
-    var paths: AppPaths { preferences.applying(to: defaults) }
+    private var savedPaths: AppPaths?
+    var paths: AppPaths { savedPaths ?? defaults }
     var service: LibraryService { LibraryService(paths: paths) }
     var api: SteamAPI
     var content: ContentService
@@ -114,6 +118,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 FileStore.fm.fileExists(atPath: settings.path) ? try FileStore.decode(Preferences.self, at: settings) : Preferences()
             }.value
         } catch { message = Message(title: "设置读取失败", detail: error.localizedDescription + "。原文件保留，请检查后重新保存。") }
+        savedPaths = preferences.applying(to: defaults)
         await content.configure(preferredCDN: preferences.preferredCDN)
         busy = false; refresh(); AppDelegate.model = self; reconcileTrainerMonitors()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
@@ -122,6 +127,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 self.reconcileTrainerMonitors()
                 guard !self.busy else { return }
                 self.reconcileAutomaticCompatibility()
+                self.reconcileAutomaticAchievements()
                 let pids = SteamProcesses.pids()
                 if pids != self.observedSteamPIDs { self.observedSteamPIDs = pids; self.refresh(); return }
                 guard self.preferences.autoRefresh else { return }
@@ -158,6 +164,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             if let selected = selectedGame { selectedGame = games.first { $0.id == selected.id } }
             loadMetadata()
             reconcileAutomaticCompatibility()
+            reconcileAutomaticAchievements()
         } catch { fail(error) }
     }
     func loadMetadata() {
@@ -213,7 +220,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         }
     }
     func cancel() { if canCancelOperation { operation?.cancel() } }
-    func savePreferences() {
+    func savePreferences(migrateLua: Bool = true) {
         do {
             for value in [preferences.steamPath, preferences.macSteamPath, preferences.luaPath, preferences.notProtonPath] where !value.isEmpty {
                 guard value.hasPrefix("/") else { throw AppFailure("目录必须是绝对路径；可以使用右侧选择按钮 / Directory must be an absolute path; use the selection button on the right") }
@@ -224,12 +231,16 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             let feed = preferences.updateFeed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard feed.isEmpty || URL(string: feed)?.scheme == "https" else { throw AppFailure("更新源必须使用 HTTPS / Update feed requires HTTPS") }
             preferences.updateFeed = feed
-            Task { await content.configure(preferredCDN: cdn) }
-            stopManifestMonitor()
-            try FileStore.json(preferences, to: defaults.settings)
-            metadata.removeAll(); metadataTask?.cancel(); metadataTask = nil; metadataGeneration = UUID(); refresh()
-            reconcileTrainerMonitors()
-            log(tr("设置已保存", "Settings saved"))
+            let saved = preferences, defaults = defaults
+            run(tr("保存设置", "Save settings"), cancellable: false) {
+                self.stopManifestMonitor()
+                let result = try await Task.detached { try PreferenceStore.save(saved, defaults: defaults, migrateLua: migrateLua) }.value
+                self.savedPaths = saved.applying(to: defaults)
+                await self.content.configure(preferredCDN: cdn)
+                self.metadata.removeAll(); self.metadataTask?.cancel(); self.metadataTask = nil; self.metadataGeneration = UUID(); self.refresh()
+                self.reconcileTrainerMonitors()
+                if let result { self.log(self.tr("Lua 已迁移 \(result.copied) 个，一致 \(result.identical) 个；原目录保留。", "Lua: copied \(result.copied), identical \(result.identical); original folder retained.")) }
+            }
         } catch { fail(error) }
     }
     func chooseImport() {
@@ -294,6 +305,10 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         run(tr("启动 Steam", "Launch Steam")) { try await self.launchPreparedSteam() }
     }
     private func launchPreparedSteam() async throws {
+        if let task = automaticAchievementsTask { await task.value }
+        if preferences.automaticallyPrepareAchievements != false && !steamRunning {
+            publishAutomaticAchievements(try await AutomaticAchievements.process(paths: paths) { _ in })
+        }
         if let task = automaticCompatibilityTask { await task.value }
         let report = try await AutomaticCompatibility.process(paths: paths) { id in try await self.api.compatibilityInfo(id) }
         publishAutomaticCompatibility(report)

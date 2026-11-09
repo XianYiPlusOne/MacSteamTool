@@ -38,7 +38,8 @@ public enum RuntimeInstaller {
         guard #available(macOS 15, *) else { throw AppFailure("macSteam / NotProton 内核安装需要 macOS 15 或更新版本") }
         let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NotProton/FluentNotProton")
         guard FileStore.fm.isExecutableFile(atPath: executable.path) else { throw AppFailure("未找到内核安装器，请重新完整打包应用 / Kernel installer missing; rebuild the complete application") }
-        let r = Request(companion: companion?.path ?? "/Applications/NotProton.app", steamApp: paths.steamApp.path, steamData: paths.steam.path, notProton: paths.notProton.path, data: paths.data.path, crossOver: crossOver?.path, backup: restoring?.folder.path, kernel: kernel, source: source?.path, macSteam: paths.macSteam.path, remove: remove, cleanRunners: cleanRunners, recoverInterrupted: restoring?.interrupted)
+        let repair = kernel == "notproton.dylib" && !remove ? Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/NotProtonRepair/notproton.dylib") : nil
+        let r = Request(companion: companion?.path ?? "/Applications/NotProton.app", steamApp: paths.steamApp.path, steamData: paths.steam.path, notProton: paths.notProton.path, data: paths.data.path, crossOver: crossOver?.path, backup: restoring?.folder.path, kernel: kernel, source: (source ?? repair)?.path, macSteam: paths.macSteam.path, remove: remove, cleanRunners: cleanRunners, recoverInterrupted: restoring?.interrupted)
         let command = restoring.map { $0.isNotProton ? "--restore" : "--restore-kernel" } ?? (kernel == nil ? "--install" : "--kernel")
         // Installation cannot be killed halfway through signing or swapping Steam.app.
         // The helper owns rollback and continues to completion even if this UI task is cancelled.

@@ -180,6 +180,9 @@ public final class LibraryService {
         if let pending = try AutomaticCompatibility.queueChange(paths: paths, config: config, apps: apps, removing: removing) {
             changes.append((pending.url, pending.data)); expectations[pending.url] = pending.expected
         }
+        if let pending = try AutomaticAchievements.queueChange(paths: paths, config: config, apps: apps, removing: removing) {
+            changes.append((pending.url, pending.data)); expectations[pending.url] = pending.expected
+        }
         try FileTransaction(backupRoot: paths.backups).apply(changes, reason: reason, expectations: expectations)
     }
     public func synchronizeManifestPins() throws {

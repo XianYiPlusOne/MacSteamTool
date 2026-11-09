@@ -213,8 +213,9 @@ final class CoreTests {
         let files = try ArchiveIO.importFiles([zip]); assertEqual(files.count, 1); assertEqual(String(decoding: files[0].data, as: UTF8.self), lua())
         let journal = FileTransaction(backupRoot: p.backups)
         let first = try requireValue(journal.records().last)
-        try journal.restore(first, allowedRoots: [p.macSteam, p.lua, p.steam, AutomaticCompatibility.file(p)])
+        try journal.restore(first, allowedRoots: [p.macSteam, p.lua, p.steam, AutomaticCompatibility.file(p), AutomaticAchievements.file(p)])
         assertTrue(try AutomaticCompatibility.state(paths: p).jobs.isEmpty)
+        assertTrue(try AutomaticAchievements.state(paths: p).jobs.isEmpty)
         assertEqual(try FileStore.read(p.config), original)
         assertFalse(FileStore.fm.fileExists(atPath: p.lua.appendingPathComponent("480.lua").path))
     }

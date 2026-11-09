@@ -13,6 +13,7 @@
 class GoogleDriveProvider : public CloudProviderBase {
 public:
     const char* Name() const override { return "Google Drive"; }
+    bool UsesImmutableStats() const override { return true; }
 
     bool Upload(const std::string& path, const uint8_t* data, size_t len) override;
     bool UploadBatch(const std::vector<UploadItem>& items) override;

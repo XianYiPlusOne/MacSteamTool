@@ -9,6 +9,11 @@ import FluentCore
     }
     static func run() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.first == "--game-startup", args.count == 2, let id = TextUtil.validID(args[1]) {
+            guard let game = SteamLibrary.installed(AppPaths()).first(where: { $0.id == id }) else { throw AppFailure("Installed game not found") }
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            print(String(decoding: try encoder.encode(GameStartupDiagnostics.inspect(game)), as: UTF8.self)); return
+        }
         if ["--verify-library-import", "--exercise-library-import"].contains(args.first ?? ""), args.count >= 3 {
             let files = try await ArchiveIO.importFiles(args.dropFirst(2).map { URL(fileURLWithPath: $0) }, engine: URL(fileURLWithPath: args[1]))
             if args.first == "--exercise-library-import" {
@@ -23,7 +28,7 @@ import FluentCore
                 }
                 let journal = FileTransaction(backupRoot: paths.backups)
                 guard let backup = journal.records().first else { throw AppFailure("Import backup missing") }
-                try journal.restore(backup, allowedRoots: [paths.macSteam, paths.lua, paths.steam, AutomaticCompatibility.file(paths)])
+                try journal.restore(backup, allowedRoots: [paths.macSteam, paths.lua, paths.steam, AutomaticCompatibility.file(paths), AutomaticAchievements.file(paths)])
                 guard try FileStore.read(paths.config) == baseline, try SteamLibrary.games(paths).isEmpty else { throw AppFailure("Import rollback mismatch") }
             }
             let report = files.map { ["name": $0.name, "sha256": FileStore.hash($0.data)] }

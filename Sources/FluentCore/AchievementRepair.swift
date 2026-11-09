@@ -11,13 +11,24 @@ public enum AchievementRepair {
         return id
     }
     public static func prepare(appID: Int, paths: AppPaths, worker: URL) async throws {
+        try await fetchSchema(appID: appID, paths: paths, worker: worker)
+        try enable(appID: appID, paths: paths)
+    }
+    /// Fetch definitions without changing the active cloud/statistics configuration.
+    public static func fetchSchema(appID: Int, paths: AppPaths, worker: URL) async throws {
         try checkManaged(appID, paths: paths)
         let data = try await HTTP.get(HTTP.url("https://stats.luastools.xyz/\(appID)"), limit: 128)
         var request = AchievementRequest(appID: appID, library: paths.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib").path)
         request.operation = "schema"; request.schemaSourceSteamID = try sourceID(data)
         let result = try await AchievementWorker.run(request, executable: worker)
         guard result.schemaLoaded == true, result.achievements.isEmpty, !result.stored else { throw AppFailure("成就定义初始化失败 / Achievement schema bootstrap failed") }
-        try enable(appID: appID, paths: paths)
+        guard schemaAvailable(appID: appID, paths: paths) else { throw AppFailure("Steam 未缓存有效成就定义 / Steam did not cache valid achievement definitions") }
+    }
+    public static func schemaAvailable(appID: Int, paths: AppPaths) -> Bool {
+        let url = paths.steam.appendingPathComponent("appcache/stats/UserGameStatsSchema_\(appID).bin")
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 16 * 1024 * 1024,
+              let blob = try? FileStore.read(url) else { return false }
+        return blob.starts(with: Data([0] + Array(String(appID).utf8) + [0])) && blob.last == 8
     }
     static func checkManaged(_ appID: Int, paths: AppPaths) throws {
         guard TextUtil.validID(String(appID)) != nil else { throw AppFailure("Invalid AppID") }
@@ -26,7 +37,8 @@ public enum AchievementRepair {
     }
     /// Preserve every save/provider/playtime setting. Persist only the explicit
     /// selected app's achievement scope, with an ordinary restorable backup.
-    public static func enable(appID: Int, paths: AppPaths) throws {
+    public static func enable(appID: Int, paths: AppPaths, validate: () throws -> Void = {}) throws {
+        try validate()
         try checkManaged(appID, paths: paths)
         let schema = paths.steam.appendingPathComponent("appcache/stats/UserGameStatsSchema_\(appID).bin")
         let blob = try FileStore.read(schema)
@@ -47,6 +59,7 @@ public enum AchievementRepair {
         let new = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         if let old, NSDictionary(dictionary: json).isEqual(to: (try JSONSerialization.jsonObject(with: old) as? [String: Any]) ?? [:]) { return }
         try FileTransaction(backupRoot: paths.backups).apply([(url, new)], reason: "初始化兼容成就 App \(appID)", expectations: [url: old.map(FileStore.hash) ?? "missing"]) {
+            try validate()
             try checkManaged(appID, paths: paths)
             let current = FileStore.fm.fileExists(atPath: url.path) ? try FileStore.read(url) : nil
             guard current == old else { throw AppFailure("统计配置已变化，请重试 / Statistics configuration changed; retry") }

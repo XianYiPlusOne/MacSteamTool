@@ -31,6 +31,10 @@ struct RuntimeActions: View {
                 }
                 Button(model.tr("卸载 NotProton 并清理运行器…", "Remove NotProton and clean runners…")) { confirmCleanup = true }.disabled(model.steamRunning || model.busy)
                 HStack {
+                    Button(model.tr("修复 NotProton 日志入口", "Repair NotProton log action")) { install(kernel: "notproton.dylib") }.disabled(model.steamRunning || model.busy)
+                    Text(model.tr("适用于已安装的 1.2.3；备份后安装 Fluent 修复版。", "For installed 1.2.3; backs up Steam and installs the Fluent repair.")).font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
                     Text("CrossOver").frame(width: 90, alignment: .leading)
                     TextField(model.tr("可选：选择 CrossOver.app 以添加运行器", "Optional: choose CrossOver.app to add a runner"), text: $crossOver)
                     Button(model.tr("选择…", "Choose…")) { choose(&crossOver) }
