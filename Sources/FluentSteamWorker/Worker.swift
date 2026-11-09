@@ -47,14 +47,20 @@ import NativeSteam
             rows.append(Achievement(id: id, name: attribute("name"), detail: attribute("desc"), achieved: value == 1, unlockedAt: time))
         }
         // Validate the complete edit set before staging any changes in Steam's cache.
+        // A concurrent save/retry may already have applied the requested boolean.
+        // Accept that state without setting it again (and changing its unlock time).
+        var pendingChanges: [AchievementChange] = []
         for change in request.changes {
-            guard let row = rows.first(where: { $0.id == change.id }), row.achieved == change.expected else { throw AppFailure("Achievement changed since it was loaded: \(change.id). Reload before saving.") }
+            guard let row = rows.first(where: { $0.id == change.id }) else { throw AppFailure("成就已不存在，请重新读取 / Achievement no longer exists: \(change.id). Reload before saving.") }
+            if row.achieved == change.achieved { continue }
+            guard row.achieved == change.expected else { throw AppFailure("成就状态已变化，请重新读取 / Achievement changed since it was loaded: \(change.id). Reload before saving.") }
+            pendingChanges.append(change)
         }
         var serverResult: Int?
         if !request.changes.isEmpty {
-            for change in request.changes {
+            for (index, change) in pendingChanges.enumerated() {
                 guard fs_set(context, change.id, change.achieved ? 1 : 0) != 0 else {
-                    for prior in request.changes { _ = fs_set(context, prior.id, prior.expected ? 1 : 0) }
+                    for prior in pendingChanges.prefix(index) { _ = fs_set(context, prior.id, prior.expected ? 1 : 0) }
                     throw AppFailure("Steam refused an achievement change: \(change.id)")
                 }
             }
@@ -69,6 +75,11 @@ import NativeSteam
                 let value = fs_get(context, rows[i].id, &time)
                 guard value >= 0 else { throw AppFailure("Saved, but could not reload the achievement state") }
                 rows[i].achieved = value == 1; rows[i].unlockedAt = time
+            }
+            for change in request.changes {
+                guard rows.first(where: { $0.id == change.id })?.achieved == change.achieved else {
+                    throw AppFailure("保存后成就状态与请求不一致，请重新读取 / Saved achievement state did not match the request: \(change.id). Reload before editing.")
+                }
             }
             if compatible, let root = compatibilityRoot {
                 guard CompatibilityAchievements.active(root: root, appID: request.appID) else { throw AppFailure("Compatibility configuration changed while saving; reload first") }

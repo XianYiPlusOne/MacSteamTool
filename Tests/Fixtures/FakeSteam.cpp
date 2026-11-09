@@ -28,9 +28,10 @@ static bool get(void *, const char *name, bool *value, uint32_t *time) {
     else return false;
     *time = *value ? 100 : 0; return true;
 }
-static bool set(void *, const char *name) { if (std::strcmp(name, "FIRST") == 0) first = true; else second = true; return true; }
-static bool clear(void *, const char *name) { if (std::strcmp(name, "FIRST") == 0) first = false; else second = false; return true; }
-static bool store(void *) { pending = 1102; return true; }
+// App 489 rejects redundant writes, proving retries preserve existing records.
+static bool set(void *, const char *name) { bool &value = std::strcmp(name, "FIRST") == 0 ? first : second; if (app() == 489 && value) return false; value = true; return true; }
+static bool clear(void *, const char *name) { bool &value = std::strcmp(name, "FIRST") == 0 ? first : second; if (app() == 489 && !value) return false; value = false; return true; }
+static bool store(void *) { pending = 1102; if (app() == 490) first = false; return true; }
 static const char *attribute(void *, const char *name, const char *key) { return std::strcmp(key, "name") == 0 ? name : "Fixture achievement"; }
 static uint32_t count(void *) { return app() == 484 ? 20000 : 2; }
 static const char *name(void *, uint32_t index) { return index == 0 ? "FIRST" : "SECOND"; }
