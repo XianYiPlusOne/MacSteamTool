@@ -29,6 +29,8 @@ struct ImportSession: Identifiable { let id = UUID(); var plan: ImportPlan }
 struct Message: Identifiable { let id = UUID(); var title: String; var detail: String }
 
 @MainActor final class AppModel: ObservableObject {
+    @Published var runtimeReleases: [String: OfficialRuntimeRelease] = [:]
+    @Published var runtimeUpdateStatus = ""
     @Published var availableUpdate: SignedUpdate?
     @Published var preparedUpdate: PreparedUpdate?
     @Published var updateStatus = ""
@@ -63,6 +65,11 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     var automaticCompatibilityChecked = Date.distantPast
     var automaticCompatibilityError = ""
     @Published var lastRefresh = Date()
+    @Published var hubMonitorRunning = false
+    @Published var hubMonitorCompleted = 0
+    @Published var hubMonitorFailed = 0
+    @Published var hubMonitorStatus = ""
+    var hubMonitorTask: Task<Void, Never>?
     @Published var monitorRunning = false
     @Published var monitorCompleted = 0
     @Published var monitorFailed = 0
@@ -98,11 +105,17 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     var metadataGeneration = UUID()
     var monitorTask: Task<Void, Never>?
     var didBootstrap = false
+    var bootstrapFinished = false
+    var pendingTrainerShortcut: URL?
+    var remotePackageFetch: (Int, Preferences, URL) async throws -> [ImportFile] = { try await RemoteLuaPackage.fetch(appID: $0, preferences: $1, engine: $2) }
+    var hubCredentialLoad: () throws -> ManifestHubCredential? = { try ManifestHubCredential.load() }
+    var manifestFetch: ((Int, String, String) async throws -> Data)?
+    var trainerLaunchOverride: ((TrainerBinding) throws -> Void)?
     var testing: Bool
     var language: String { preferences.language == "en" ? "english" : "schinese" }
     var steamRunning: Bool { !testing && SteamProcesses.isRunning }
-    init() {
-        let fixture = ProcessInfo.processInfo.environment["FLUENT_FIXTURE_HOME"]
+    init(fixtureHome: URL? = nil) {
+        let fixture = fixtureHome?.path ?? ProcessInfo.processInfo.environment["FLUENT_FIXTURE_HOME"]
         testing = fixture != nil
         defaults = fixture.map { AppPaths(home: URL(fileURLWithPath: $0)) } ?? AppPaths()
         api = SteamAPI(cache: defaults.cache.appendingPathComponent("Metadata"))
@@ -136,7 +149,10 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             }
         }
         if let timer { RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .modalPanel) }
+        if !testing && preferences.automaticallyCheckRuntimeUpdates == true { Task { await checkRuntimeUpdates() } }
         if !testing && preferences.automaticallyCheckUpdates == true { Task { await checkForUpdates(silent: true) } }
+        bootstrapFinished = true
+        if let pending = pendingTrainerShortcut { pendingTrainerShortcut = nil; handleShortcut(pending) }
     }
     func tr(_ zh: String, _ en: String) -> String { preferences.language == "en" ? en : zh }
     func title(_ page: Page) -> String { tr(page.titles.0, page.titles.1) }
@@ -220,7 +236,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         }
     }
     func cancel() { if canCancelOperation { operation?.cancel() } }
-    func savePreferences(migrateLua: Bool = true) {
+    func savePreferences(migrateLua: Bool = true, stopManifest: Bool = true) {
         do {
             for value in [preferences.steamPath, preferences.macSteamPath, preferences.luaPath, preferences.notProtonPath] where !value.isEmpty {
                 guard value.hasPrefix("/") else { throw AppFailure("目录必须是绝对路径；可以使用右侧选择按钮 / Directory must be an absolute path; use the selection button on the right") }
@@ -233,11 +249,22 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             preferences.updateFeed = feed
             let saved = preferences, defaults = defaults
             run(tr("保存设置", "Save settings"), cancellable: false) {
-                self.stopManifestMonitor()
+                if stopManifest { self.stopManifestMonitor() }
                 let result = try await Task.detached { try PreferenceStore.save(saved, defaults: defaults, migrateLua: migrateLua) }.value
                 self.savedPaths = saved.applying(to: defaults)
                 await self.content.configure(preferredCDN: cdn)
                 self.metadata.removeAll(); self.metadataTask?.cancel(); self.metadataTask = nil; self.metadataGeneration = UUID(); self.refresh()
+                if !self.testing {
+                    if saved.independentTrainerMonitor == true { self.stopTrainerMonitors() }
+                    let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/FluentTrainerAgent")
+                    do {
+                        try TrainerAgentService.configure(enabled: saved.independentTrainerMonitor == true, executable: helper, settings: defaults.settings, log: self.paths.data.appendingPathComponent("Logs/trainer-agent.log"))
+                    } catch {
+                        self.preferences.independentTrainerMonitor = false
+                        _ = try PreferenceStore.save(self.preferences, defaults: defaults, migrateLua: false)
+                        self.reconcileTrainerMonitors(); throw error
+                    }
+                }
                 self.reconcileTrainerMonitors()
                 if let result { self.log(self.tr("Lua 已迁移 \(result.copied) 个，一致 \(result.identical) 个；原目录保留。", "Lua: copied \(result.copied), identical \(result.identical); original folder retained.")) }
             }
@@ -259,6 +286,13 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         run(tr("导入游戏清单", "Import game manifests")) {
             try Task.checkCancellation()
             try self.service.perform(pending.plan); self.pendingImport = nil; self.needsRestart = true; self.refresh()
+        }
+    }
+    func batchLibrary(_ games: [Game], action: LibraryService.BatchAction) {
+        guard !games.isEmpty else { return }
+        run(tr("批量更新游戏库", "Update selected library entries"), cancellable: false) {
+            try self.service.batch(games, action: action)
+            self.needsRestart = true; self.refresh()
         }
     }
     func toggle(_ game: Game) {
@@ -290,6 +324,10 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     }
     func generate(_ id: Int, dlc: Bool, existing: Game? = nil) {
         run(tr("生成游戏清单", "Generate game manifest")) {
+            if self.preferences.librarySource == "remote", existing == nil {
+                let files = try await self.remotePackageFetch(id, self.preferences, self.engineExecutable)
+                self.pendingImport = ImportSession(plan: try self.service.plan(files)); return
+            }
             let generated = try await self.content.generate(id: id, includeDLC: dlc, preferences: self.preferences) { text in
                 await MainActor.run { self.progress = text }
             }
@@ -374,6 +412,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         }
     }
     func launchTrainer(_ binding: TrainerBinding) {
+        if let trainerLaunchOverride { do { try trainerLaunchOverride(binding) } catch { fail(error) }; return }
         guard !testing else { log("测试环境不启动 Wine 进程"); return }
         do {
             guard FileStore.fm.fileExists(atPath: binding.executable) else { throw AppFailure("修改器文件已移动或删除 / Trainer file was moved or deleted") }
@@ -393,13 +432,17 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             preferences.trainers.append(TrainerBinding(appID: appID, name: file.deletingPathExtension().lastPathComponent, executable: file.path)); savePreferences()
         }
     }
+    func loadTrainerChart(_ kind: String) { run(tr("获取修改器榜单", "Load trainer charts")) {
+        self.trainerResults = try await TrainerSearch.chart(kind)
+        guard !self.trainerResults.isEmpty else { throw AppFailure("修改器榜单为空或页面格式已变化 / Trainer chart is empty or the page format changed") }
+    } }
     func searchTrainers(_ q: String) { run(tr("搜索风灵月影修改器", "Search FLiNG trainers")) { self.trainerResults = try await TrainerSearch.search(q) } }
     func downloadTrainer(_ item: WebDownload) {
         run(tr("下载修改器压缩包", "Download trainer archive")) {
             let link = try await TrainerSearch.downloadLink(item.url)
             let data = try await HTTP.get(link, limit: 128 * 1024 * 1024)
             let destination = self.paths.data.appendingPathComponent("Downloads/\(UUID().uuidString.prefix(8))-\(link.lastPathComponent)")
-            try FileStore.write(data, to: destination); NSWorkspace.shared.activateFileViewerSelecting([destination])
+            try FileStore.write(data, to: destination); self.refresh(); NSWorkspace.shared.activateFileViewerSelecting([destination])
         }
     }
     func backupSave(_ save: SaveLocation) {
@@ -468,9 +511,19 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             try Accounts.select(account, paths: self.paths); self.refresh(); try await self.launchPreparedSteam()
         }
     }
+    func fetchSelectedManifest(depot: Int, manifest: String, source: String? = nil, template: String? = nil, fallbacks: Bool? = nil) async throws -> Data {
+        let selected = source ?? preferences.manifestSource ?? "code"
+        if let manifestFetch { return try await manifestFetch(depot, manifest, selected) }
+        if selected == "hub" {
+            guard let key = try hubCredentialLoad() else { throw AppFailure("请先保存 ManifestHub API Key / Save a ManifestHub API key first") }
+            return try await ManifestHub.fetch(depot: depot, manifest: manifest, credential: key)
+        }
+        return try await content.fetchManifest(depot: depot, manifest: manifest, template: template ?? preferences.manifestURL, fallbacks: fallbacks ?? (preferences.manifestFallbacks != false))
+    }
     func repairManifest(depot: Int, manifest: String) {
         run(tr("获取并校验 Manifest", "Download and verify manifest")) {
-            let data = try await self.content.fetchManifest(depot: depot, manifest: manifest, template: self.preferences.manifestURL, fallbacks: self.preferences.manifestFallbacks != false)
+            let data = try await self.fetchSelectedManifest(depot: depot, manifest: manifest)
+            try SteamManifest.validate(data, depot: depot, manifest: manifest)
             let url = self.paths.depotCache.appendingPathComponent("\(depot)_\(manifest).manifest")
             try FileTransaction(backupRoot: self.paths.backups).apply([(url, data)], reason: "下载 Manifest \(depot)")
             self.refresh()
@@ -527,46 +580,67 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             self.achievementStatus = response.backend == "compatibility" ? self.tr("兼容记录已保存、重读并校验；非 Valve 服务器确认", "Compatibility record saved, reread and verified; not a Valve server acknowledgement") : self.tr("Steam 已返回保存成功回调", "Steam acknowledged that the changes were stored")
         }
     }
-    func stopManifestMonitor() {
-        monitorTask?.cancel(); monitorTask = nil; monitorRunning = false
-        monitorStatus = tr("已停止", "Stopped")
+    func stopManifestMonitor(source: String? = nil) {
+        if source == nil || source == "code" { monitorTask?.cancel(); monitorTask = nil; monitorRunning = false; monitorStatus = tr("已停止", "Stopped") }
+        if source == nil || source == "hub" { hubMonitorTask?.cancel(); hubMonitorTask = nil; hubMonitorRunning = false; hubMonitorStatus = tr("已停止", "Stopped") }
     }
-    func startManifestMonitor() {
-        guard !monitorRunning else { return }
+    private func publishMonitor(_ source: String, status: String? = nil, running: Bool? = nil, completed: Int? = nil, failed: Int? = nil) {
+        if source == "hub" {
+            if let status { hubMonitorStatus = status }; if let running { hubMonitorRunning = running }
+            if let completed { hubMonitorCompleted = completed }; if let failed { hubMonitorFailed = failed }
+        } else {
+            if let status { monitorStatus = status }; if let running { monitorRunning = running }
+            if let completed { monitorCompleted = completed }; if let failed { monitorFailed = failed }
+        }
+    }
+    func startManifestMonitor(source requested: String? = nil) {
+        let source = requested ?? preferences.manifestSource ?? "code"
+        guard !(source == "hub" ? hubMonitorRunning : monitorRunning) else { return }
         let p = paths, template = preferences.manifestURL, fallbacks = preferences.manifestFallbacks != false
         do {
+            if source == "hub" {
+                guard let key = try hubCredentialLoad(), key.expiry > Date() else { throw AppFailure("请先保存有效的 ManifestHub Key / Save a valid ManifestHub key first") }
+            }
             var tail = try ContentLogTail(url: p.steam.appendingPathComponent("logs/content_log.txt"))
-            monitorRunning = true; monitorCompleted = 0; monitorFailed = 0
-            monitorStatus = tr("监听新请求；在 Steam 中重试下载", "Watching new requests; retry the download in Steam")
-            monitorTask = Task {
+            stopManifestMonitor(source: source == "hub" ? "code" : "hub")
+            publishMonitor(source, status: tr("监听新请求；在 Steam 中重试下载", "Watching new requests; retry the download in Steam"), running: true, completed: 0, failed: 0)
+            let task = Task {
+                var completed = 0, failed = 0
                 do {
                     while !Task.isCancelled {
-                        let requests = try tail.poll()
-                        for request in requests {
+                        for request in try tail.poll() {
                             try Task.checkCancellation()
-                            guard self.games.contains(where: { $0.id == request.app && $0.enabled }) else { continue }
+                            guard self.games.contains(where: { $0.id == request.app && $0.enabled }) else { tail.allowRetry(request); continue }
                             let target = p.depotCache.appendingPathComponent(request.key + ".manifest")
                             if let existing = try? FileStore.read(target), (try? SteamManifest.validate(existing, depot: request.depot, manifest: request.manifest)) != nil { continue }
-                            self.monitorStatus = "App \(request.app) · Depot \(request.depot)"
+                            self.publishMonitor(source, status: "App \(request.app) · Depot \(request.depot)")
                             do {
-                                let data = try await self.content.fetchManifest(depot: request.depot, manifest: request.manifest, template: template, fallbacks: fallbacks)
+                                let data = try await self.fetchSelectedManifest(depot: request.depot, manifest: request.manifest, source: source, template: template, fallbacks: fallbacks)
                                 try Task.checkCancellation()
-                                try FileTransaction(backupRoot: p.backups).apply([(target, data)], reason: "监听修复 Manifest \(request.depot)")
-                                self.monitorCompleted += 1
-                                self.log("Manifest \(request.key) · " + self.tr("校验并写入成功，请重试 Steam 下载", "Verified and saved; retry the download in Steam"))
+                                try SteamManifest.validate(data, depot: request.depot, manifest: request.manifest)
+                                // The other monitor may already have fulfilled the same request.
+                                if (try? FileStore.read(target)) != data {
+                                    try FileTransaction(backupRoot: p.backups).apply([(target, data)], reason: "\(source) 监听修复 Manifest \(request.depot)")
+                                }
+                                completed += 1; self.publishMonitor(source, completed: completed)
+                                self.log("\(source) Manifest \(request.key) · " + self.tr("已校验写入，请重试 Steam 下载", "Verified and saved; retry Steam download"))
                             } catch is CancellationError { throw CancellationError() }
                             catch {
                                 if Task.isCancelled { throw CancellationError() }
-                                self.monitorFailed += 1; self.log("Manifest \(request.key) · \(error.localizedDescription)")
+                                tail.allowRetry(request)
+                                failed += 1; self.publishMonitor(source, failed: failed)
+                                self.log("\(source) Manifest \(request.key) · \(error.localizedDescription)")
+                                if source == "hub", let hubError = error as? ManifestHubFailure, hubError.stopsMonitor { throw error }
                             }
                             try await Task.sleep(for: .milliseconds(800))
                         }
-                        self.monitorStatus = self.tr("正在监听新增请求", "Watching new requests")
+                        self.publishMonitor(source, status: self.tr("正在监听新增请求", "Watching new requests"))
                         try await Task.sleep(for: .milliseconds(500))
                     }
                 } catch is CancellationError { }
-                catch { self.monitorRunning = false; self.monitorStatus = error.localizedDescription; self.log(error.localizedDescription) }
+                catch { self.publishMonitor(source, status: error.localizedDescription, running: false); self.log(error.localizedDescription) }
             }
+            if source == "hub" { hubMonitorTask = task } else { monitorTask = task }
         } catch { fail(error) }
     }
     func openURL(_ string: String) { if let url = URL(string: string) { NSWorkspace.shared.open(url) } }

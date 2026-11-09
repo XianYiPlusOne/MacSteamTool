@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using System.Text.Json.Serialization;
 
-internal sealed record RuntimeRelease(string Provider, string Tag, string Version, string AssetName, string URL, [property: JsonPropertyName("sha256")] string SHA256, string ReleaseURL);
+internal sealed record RuntimeRelease(string Provider, string Tag, string Version, string AssetName, string URL, [property: JsonPropertyName("sha256")] string SHA256, string ReleaseURL, string? Notes = null);
 internal static class RuntimeReleases
 {
     internal static string Repository(string provider) => provider switch {
@@ -34,6 +34,28 @@ internal static class RuntimeReleases
         var release = new RuntimeRelease(provider, tag, version, filename, "https://github.com" + path, digest[7..], prefix + tag);
         Validate(release); return release;
     }
+    internal static string? ReleaseNotes(string html)
+    {
+        if (html.Length > 2 * 1024 * 1024) return null;
+        var document = new HtmlDocument(); document.LoadHtml(html);
+        var body = document.DocumentNode.SelectSingleNode("//*[contains(concat(' ',normalize-space(@class),' '),' markdown-body ')]");
+        if (body == null) return null;
+        string Render(HtmlNode node) {
+            if (node.NodeType == HtmlNodeType.Text) return HtmlEntity.DeEntitize(node.InnerText);
+            if (node.Name is "script" or "style") return "";
+            var children = string.Concat(node.ChildNodes.Select(Render));
+            return node.Name switch {
+                "h1" or "h2" or "h3" or "h4" or "h5" or "h6" => "\n\n" + new string('#', node.Name[1]-'0') + " " + children.Trim() + "\n",
+                "p" or "div" => "\n" + children + "\n",
+                "li" => "\n- " + children.Trim(), "br" => "\n",
+                "strong" or "b" => "**" + children + "**", "em" or "i" => "*" + children + "*",
+                "code" => "`" + children + "`",
+                "a" when Uri.TryCreate(node.GetAttributeValue("href", ""), UriKind.Absolute, out var link) && link.Scheme == "https" => "[" + children.Trim() + "](" + link.AbsoluteUri + ")",
+                _ => children
+            };
+        }
+        return Render(body).Trim();
+    }
     public static async Task<object> Run(Request r, CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
@@ -46,9 +68,20 @@ internal static class RuntimeReleases
             if (!location.AbsoluteUri.StartsWith(prefix, StringComparison.Ordinal)) throw new Exception("Unexpected official release redirect");
             var tag = location.AbsoluteUri[prefix.Length..];
             if (!Regex.IsMatch(tag, "^v?[0-9]+(?:\\.[0-9]+){1,3}$")) throw new Exception("Unsupported release tag");
+            var page = await latest.Content.ReadAsStringAsync(ct);
             var html = await http.GetStringAsync($"https://github.com/{repo}/releases/expanded_assets/{tag}", ct);
             if (html.Length > 2 * 1024 * 1024) throw new Exception("Release metadata exceeds limit");
-            return new { ok = true, runtimeRelease = Parse(r.Provider, location, html) };
+            var found = Parse(r.Provider, location, html) with { Notes = ReleaseNotes(page) };
+            try {
+                var notesData = await http.GetByteArrayAsync($"https://api.github.com/repos/{repo}/releases/tags/{tag}", ct);
+                if (notesData.Length <= 2 * 1024 * 1024) {
+                    using var notesJson = System.Text.Json.JsonDocument.Parse(notesData);
+                    var body = notesJson.RootElement.GetProperty("body").GetString();
+                    if (!string.IsNullOrWhiteSpace(body)) found = found with { Notes = body };
+                }
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch { /* Missing release notes must not prevent validated version checks. */ }
+            return new { ok = true, runtimeRelease = found };
         }
         var release = r.RuntimeRelease ?? throw new Exception("Release metadata required"); Validate(release);
         if (!Path.IsPathFullyQualified(r.Destination) || Path.Exists(r.Destination)) throw new Exception("Download requires a new absolute destination");

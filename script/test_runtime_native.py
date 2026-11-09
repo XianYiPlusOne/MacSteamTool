@@ -3,7 +3,7 @@
 from pathlib import Path
 import os, json, struct, subprocess, tempfile, shutil, hashlib, base64, argparse
 root=Path(__file__).resolve().parents[1]
-p=argparse.ArgumentParser();p.add_argument('--tickets',type=Path);args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--tickets',type=Path);p.add_argument('--layout', choices=['standard','descriptor','unaligned'], default='standard');args=p.parse_args()
 steam=Path.home()/'Library/Application Support/Steam'
 client=steam/'Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib'
 mac=Path('/Applications/Steam.app/Contents/MacOS/macsteam.dylib')
@@ -14,6 +14,11 @@ with tempfile.TemporaryDirectory(prefix='runtime-fixture-',dir=root/'work') as t
     fixture=Path(tmp);(fixture/'.fluent-fixture').touch();(fixture/'CloudRedirect').mkdir();(fixture/'Steam/config').mkdir(parents=True);(fixture/'Steam/appcache/stats').mkdir(parents=True)
     sid=76561197960265729
     ownership=bytearray(178);struct.pack_into('<I',ownership,0,50);struct.pack_into('<Q',ownership,8,sid);struct.pack_into('<I',ownership,16,480)
+    if args.layout != 'standard':
+        ownership=bytearray(220);struct.pack_into('<Q',ownership,8,sid)
+        offset=50 if args.layout=='descriptor' else 51
+        struct.pack_into('<II',ownership,0,offset if args.layout=='descriptor' else 92,4 if args.layout=='descriptor' else 0)
+        struct.pack_into('<I',ownership,offset,480)
     encrypted=b'\x08\x01\x12\x01\0'
     if args.tickets:
         private=json.loads(args.tickets.read_text());ownership=base64.b64decode(private['ownershipTicket']);encrypted=base64.b64decode(private['encryptedTicket']);sid=struct.unpack_from('<Q',ownership,8)[0]

@@ -53,7 +53,7 @@ struct UpdatePanel: View {
                 if model.preparedUpdate != nil { Button(model.tr("安装并重启应用", "Install and restart app")) { model.installUpdate() }.buttonStyle(.borderedProminent) }
             }.disabled(model.busy)
             Text(model.tr("仅接受此移植版公钥签名的更新。安装前检查内容与应用签名，并保留上一版本，可在 Finder 中恢复。", "Accepts updates signed by this port's public key. Verifies contents and code signatures, and retains the previous application for Finder recovery.")).font(.caption).foregroundStyle(.secondary)
-            if !model.updateStatus.isEmpty { Text(model.updateStatus).font(.caption).textSelection(.enabled) }
+            if !model.updateStatus.isEmpty { ReleaseNotes(markdown: model.updateStatus) }
         }
     }
     private func importLocal() {
@@ -65,7 +65,7 @@ struct UpdatePanel: View {
             let zip = NSOpenPanel(); zip.message = model.tr("选择对应 ZIP 更新包", "Select the matching ZIP archive"); zip.allowedFileTypes = ["zip"]
             guard zip.runModal() == .OK, let archive = zip.url else { return }
             model.preparedUpdate = try await AppUpdates.prepare(signed, publicKey: AppUpdates.publicKey(), archive: archive, staging: model.paths.data.appendingPathComponent("Updates"), currentBuild: model.currentBuild)
-            model.updateStatus = model.tr("本地更新已验证，可以安装。", "Local update verified and ready to install.")
+            model.updateStatus = model.tr("本地更新已验证，可以安装。", "Local update verified and ready to install.") + (model.preparedUpdate.map { "\n" + $0.release.notes } ?? "")
         }
     }
 }

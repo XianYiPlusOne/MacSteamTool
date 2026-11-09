@@ -9,6 +9,7 @@ struct FluentSteamApp: App {
     var body: some Scene {
         WindowGroup("Fluent Steam · Mac", id: "main") {
             RootView().environmentObject(model)
+                .onOpenURL { url in Task { await model.bootstrap(); model.handleShortcut(url) } }
                 .preferredColorScheme(model.preferences.theme == "dark" ? .dark : model.preferences.theme == "light" ? .light : nil)
                 .frame(minWidth: 1060, minHeight: 700)
         }
@@ -37,7 +38,7 @@ struct TrayMenu: View {
         Divider()
         Button(model.tr("启动 Steam", "Launch Steam")) { model.launchSteam() }
         Button(model.tr("刷新游戏库", "Refresh library")) { model.refresh() }
-        if model.monitorRunning { Button(model.tr("停止 Manifest 监听", "Stop manifest monitoring")) { model.stopManifestMonitor() } }
+        if model.monitorRunning || model.hubMonitorRunning { Button(model.tr("停止 Manifest 监听", "Stop manifest monitoring")) { model.stopManifestMonitor() } }
         else { Button(model.tr("启动 Manifest 监听", "Start manifest monitoring")) { model.startManifestMonitor() } }
         Divider()
         Button(model.tr("退出", "Quit")) { NSApp.terminate(nil) }.keyboardShortcut("q")

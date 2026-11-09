@@ -41,6 +41,8 @@ struct RuntimeActions: View {
                     if !crossOver.isEmpty { Button(model.tr("清除", "Clear")) { crossOver = "" } }
                 }
                 Divider()
+                Toggle(model.tr("启动时检查内核更新", "Check runtime updates at launch"), isOn: Binding(get: { model.preferences.automaticallyCheckRuntimeUpdates == true }, set: { model.preferences.automaticallyCheckRuntimeUpdates = $0; model.savePreferences() }))
+                if !model.runtimeUpdateStatus.isEmpty { Text(model.runtimeUpdateStatus).font(.caption).foregroundStyle(.secondary) }
                 RuntimeUpdatePanel(provider: "macsteam", companion: $macSteam)
                 RuntimeUpdatePanel(provider: "notproton", companion: $notProton)
                 Text(model.tr("下载会校验官方摘要、应用签名与内核资源；安装仍会先备份。", "Downloads verify the official digest, app signatures and kernel resources. Installation creates a backup first.")).font(.caption).foregroundStyle(.secondary)

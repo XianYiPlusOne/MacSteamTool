@@ -47,6 +47,7 @@ struct AchievementsPage: View {
                         Menu(model.tr("批量编辑", "Bulk edit")) {
                             Button(model.tr("全部解锁", "Unlock all")) { for i in model.achievements.indices { model.achievements[i].achieved = true } }
                             Button(model.tr("全部锁定", "Lock all")) { for i in model.achievements.indices { model.achievements[i].achieved = false } }
+                            Button(model.tr("反选全部", "Invert all")) { model.invertAchievements() }
                             Button(model.tr("撤销本次编辑", "Discard edits")) { model.achievements = model.originalAchievements }
                         }.disabled(model.busy)
                         Button((model.achievementBackend == "compatibility" ? model.tr("保存兼容记录", "Save compatibility record") : model.tr("保存到 Steam", "Save to Steam")) + " (\(model.achievementChanges.count))") { model.saveAchievements() }.buttonStyle(.borderedProminent).disabled(model.busy || model.achievementChanges.isEmpty || !model.steamRunning)
@@ -71,4 +72,8 @@ struct AchievementsPage: View {
             }
         }
     }
+}
+
+extension AppModel {
+    func invertAchievements() { guard !busy else { return }; for index in achievements.indices { achievements[index].achieved.toggle() } }
 }

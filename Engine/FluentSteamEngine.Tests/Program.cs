@@ -43,3 +43,45 @@ try {
     Check(File.ReadAllText(Path.Combine(temp,"extracted/100.lua"))=="addappid(100)","TAR adapter");
     Console.WriteLine("PASS: TAR library adapter");
 } finally { Directory.Delete(temp,true); }
+static void WriteReply(string path,object value) { var temp=path+".new"; File.WriteAllText(temp,System.Text.Json.JsonSerializer.Serialize(value)); File.Move(temp,path,true); }
+// Synthetic cached credentials only: no local Steam cache or account is read.
+var now=DateTimeOffset.UtcNow;
+string Jwt(string subject,long expiry) {
+    var json=System.Text.Json.JsonSerializer.Serialize(new { sub=subject, exp=expiry });
+    return "eyJhbGciOiJSUzI1NiJ9."+Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json)).TrimEnd('=').Replace('+','-').Replace('/','_')+".fixture";
+}
+byte[] Envelope(string account,string token) {
+    using var aes=System.Security.Cryptography.Aes.Create();aes.Key=System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(account));
+    var iv=Enumerable.Range(0,16).Select(x=>(byte)x).ToArray();
+    return aes.EncryptEcb(iv,System.Security.Cryptography.PaddingMode.None).Concat(aes.EncryptCbc(System.Text.Encoding.UTF8.GetBytes(token),iv,System.Security.Cryptography.PaddingMode.PKCS7)).ToArray();
+}
+var jwt=Jwt("76561197960265729",now.AddHours(1).ToUnixTimeSeconds());var envelope=Envelope("fixture",jwt);
+Check(LocalSteamLogin.Decrypt(envelope,"fixture","76561197960265729",now)==jwt,"macOS cached-token envelope");
+Check(LocalSteamLogin.Decrypt(envelope,"other","76561197960265729",now)==null,"different account encryption");
+Check(LocalSteamLogin.Decrypt(envelope,"fixture","76561197960265730",now)==null,"cached-token subject isolation");
+Check(LocalSteamLogin.Decrypt(envelope,"fixture","76561197960265729",now.AddHours(2))==null,"expired cached-token rejection");
+Check(LocalSteamLogin.Decrypt(new byte[17],"fixture","76561197960265729",now)==null,"malformed cached-token rejection");
+var fixtureDir=Path.Combine(Path.GetTempPath(),"FluentAuth-"+Guid.NewGuid());Directory.CreateDirectory(fixtureDir);
+try {
+    var hex=Convert.ToHexString(envelope);
+    File.WriteAllText(Path.Combine(fixtureDir,"local.vdf"),$"\"MachineUserConfigStore\" {{ \"Software\" {{ \"Valve\" {{ \"Steam\" {{ \"ConnectCache\" {{ \"bad\" \"bad\" \"fixture\" \"{hex}\" }} }} }} }} }}");
+    Check(LocalSteamLogin.Read(new Request("login-local",Account:"fixture",SteamPath:fixtureDir,SteamID:"76561197960265729"))==jwt,"local VDF credential envelope traversal");
+    var status=Path.Combine(fixtureDir,"status");using var authTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var authenticator=new LoginAuthenticator(status,authTimeout.Token);
+    var answer=authenticator.GetDeviceCodeAsync(false);
+    using(var message=System.Text.Json.JsonDocument.Parse(File.ReadAllText(status))) {
+        WriteReply(status+".reply",new { requestID=message.RootElement.GetProperty("requestID").GetString(),code="ABCDE" });
+    }
+    Check(await answer=="ABCDE","interactive Guard code roundtrip");
+    answer=authenticator.GetEmailCodeAsync("fixture@example.invalid",true);
+    using(var message=System.Text.Json.JsonDocument.Parse(File.ReadAllText(status))) {
+        Check(message.RootElement.GetProperty("prompt").GetString()!.Contains("Incorrect"),"incorrect Guard code prompt");
+        WriteReply(status+".reply",new { requestID=message.RootElement.GetProperty("requestID").GetString(),code="" });
+    }
+    await Fails(async ()=>{await answer;});
+} finally { Directory.Delete(fixtureDir,true); }
+Console.WriteLine("PASS: macOS cached-token envelope, account/expiry/malformed rejection, local VDF traversal, interactive Guard code roundtrip, retry and cancellation");
+
+var notes=RuntimeReleases.ReleaseNotes("<div class='markdown-body'><h2>Fixes</h2><p>Updated <strong>runtime</strong>.</p><ul><li>Safe update</li></ul><a href='https://example.invalid/release'>Details</a></div>");
+Check(notes!=null && notes.Contains("## Fixes") && notes.Contains("**runtime**") && notes.Contains("- Safe update") && notes.Contains("[Details](https://example.invalid/release)"),"GitHub HTML release notes fallback to Markdown");
+Console.WriteLine("PASS: release notes Markdown fallback");

@@ -27,13 +27,40 @@ extension AppModel {
         run(tr("等待 Steam Guard 扫码", "Waiting for Steam Guard")) {
             self.loginQR = ""; defer { self.loginQR = "" }
             let state = self
-            let result = try await SteamEngine.run(SteamEngineRequest("login"), executable: self.engineExecutable) { url in
+            let result = try await SteamEngine.run(SteamEngineRequest("login"), executable: self.engineExecutable, status: { url in
                 await state.setLoginQR(url)
-            }
-            guard let account = result.account, let token = result.token, !token.isEmpty else { throw AppFailure("Steam 未返回登录凭证 / Steam returned no sign-in credentials") }
-            try SteamKeychain.save(SteamCredential(account: account, token: token))
-            self.onlineAccount = account; self.log(self.tr("SteamKit 登录成功，凭证已保存在钥匙串", "SteamKit signed in; credential saved in Keychain"))
+            })
+            try self.completeOnlineAuthentication(result)
+            self.log(self.tr("SteamKit 登录成功，凭证已保存在钥匙串", "SteamKit signed in; credential saved in Keychain"))
         }
+    }
+    func onlinePasswordLogin(account: String, password: String) {
+        var request = SteamEngineRequest("login-password"); request.account = account; request.password = password
+        authenticate(request)
+    }
+    func onlineLocalLogin(_ account: SteamAccount) {
+        var request = SteamEngineRequest("login-local"); request.account = account.name; request.steamID = account.id; request.steamPath = paths.steam.path
+        authenticate(request)
+    }
+    private func authenticate(_ request: SteamEngineRequest) {
+        run(tr("登录 SteamKit", "Sign in to SteamKit")) {
+            guard !self.testing else { throw AppFailure("隔离环境不连接真实账号 / Fixture does not connect to real accounts") }
+            let result = try await SteamEngine.run(request, executable: self.engineExecutable, challenge: { prompt in
+                await MainActor.run {
+                    let alert = NSAlert(); alert.messageText = prompt
+                    let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 290, height: 24)); alert.accessoryView = field
+                    alert.addButton(withTitle: "提交 / Submit"); alert.addButton(withTitle: "取消 / Cancel")
+                    alert.window.initialFirstResponder = field
+                    return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+                }
+            })
+            try self.completeOnlineAuthentication(result)
+        }
+    }
+    func completeOnlineAuthentication(_ result: SteamEngineResponse, persist: (SteamCredential) throws -> Void = SteamKeychain.save) throws {
+        guard let account = result.account, !account.isEmpty, let token = result.token, !token.isEmpty else { throw AppFailure("Steam 未返回完整凭证 / Steam returned incomplete credentials") }
+        try persist(SteamCredential(account: account, token: token))
+        ownedGames = []; onlineAccount = account
     }
     private func setLoginQR(_ url: String) { loginQR = url }
     func onlineLibrary() {
@@ -87,6 +114,8 @@ extension AppModel {
 
 struct OnlineAccountPanel: View {
     @EnvironmentObject var model: AppModel
+    @ViewState<String> private var username = ""
+    @ViewState<String> private var password = ""
     @ViewState<String> private var filter = ""
     @ViewState<String> private var app = ""
     @ViewState<Set<Int>> private var selected = []
@@ -106,7 +135,16 @@ struct OnlineAccountPanel: View {
                     do { try SteamKeychain.remove(); model.onlineAccount = ""; model.ownedGames = []; selected = [] } catch { model.fail(error) }
                 }.disabled(model.busy)
             }
-            Text(model.tr("使用手机 Steam Guard 扫码。登录凭证仅保存在 macOS 钥匙串；可批量导出当前账号有权读取的 Lua、密钥与 Manifest。", "Scan with Steam Guard. Credentials are stored in macOS Keychain. Export Lua, keys and manifests accessible to this account.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("支持 Steam Guard 扫码、密码登录或复用本机凭证。登录令牌仅保存在 macOS 钥匙串；可批量导出当前账号有权读取的 Lua、密钥与 Manifest。", "Use Steam Guard QR, password sign-in or a local credential. Tokens are stored in macOS Keychain. Export Lua, keys and manifests accessible to this account.")).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField(model.tr("Steam 账号", "Steam account"), text: $username).textFieldStyle(.roundedBorder)
+                SecureField(model.tr("密码（不保存）", "Password (not saved)"), text: $password).textFieldStyle(.roundedBorder)
+                Button(model.tr("密码登录", "Password sign in")) { model.onlinePasswordLogin(account: username, password: password); password = "" }.disabled(model.busy || username.isEmpty || password.isEmpty)
+                Menu(model.tr("复用 Steam 本机登录", "Use local Steam sign-in")) {
+                    ForEach(model.accounts) { account in Button(account.persona + " · " + account.name) { model.onlineLocalLogin(account) } }
+                }.disabled(model.busy || model.accounts.isEmpty)
+            }
+            Text(model.tr("本机登录仅在点击后读取所选账号的 macOS Steam 缓存；密码和验证码只用于本次会话，成功后的令牌存入钥匙串。", "Local sign-in reads the selected account's macOS Steam cache only when clicked. Passwords and Guard codes are session-only; successful tokens go to Keychain.")).font(.caption).foregroundStyle(.secondary)
             if !model.loginQR.isEmpty {
                 HStack {
                     if let qr = qrImage(model.loginQR) { Image(nsImage: qr).interpolation(.none).resizable().frame(width: 190, height: 190).padding(12).background(.white) }
@@ -139,7 +177,7 @@ struct OnlineAccountPanel: View {
                     }
                 }.frame(height: 240)
             }
-        }
+        }.onChange(of: model.onlineAccount) { _, _ in selected = [] }
     }
     private func qrImage(_ string: String) -> NSImage? {
         let filter = CIFilter.qrCodeGenerator(); filter.message = Data(string.utf8)

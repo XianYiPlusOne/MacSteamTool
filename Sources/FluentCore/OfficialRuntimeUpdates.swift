@@ -8,6 +8,7 @@ public struct OfficialRuntimeRelease: Codable, Sendable, Equatable {
     public var assetName: String
     public var url: String
     public var sha256: String
+    public var notes: String? = nil
     public var releaseURL: String
     public var appName: String { provider == "macsteam" ? "macSteam Config.app" : "NotProton.app" }
     public func validate() throws {

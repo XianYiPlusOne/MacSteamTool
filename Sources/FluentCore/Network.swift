@@ -1,22 +1,48 @@
 import Foundation
 import ZIPFoundation
 
+public struct HTTPStatusFailure: LocalizedError {
+    public let status: Int
+    public let retryAfter: Double?
+    public var errorDescription: String? { "HTTP \(status)" }
+}
+private final class SourceRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        let sensitive = task.originalRequest?.url?.query?.contains("apikey=") == true || task.originalRequest?.value(forHTTPHeaderField: "Authorization") != nil
+        let allowed = request.url?.scheme == "https" && (!sensitive || request.url?.host == task.originalRequest?.url?.host)
+        completionHandler(allowed ? request : nil)
+    }
+}
 public enum HTTP {
     private static let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 25; cfg.timeoutIntervalForResource = 120
         cfg.httpCookieStorage = nil; cfg.httpShouldSetCookies = false
         cfg.httpAdditionalHeaders = ["User-Agent": "FluentSteamMac/0.1 (+https://github.com/huanyuejue/Fluent-Steam-Lua)"]
-        return URLSession(configuration: cfg)
+        return URLSession(configuration: cfg, delegate: SourceRedirects(), delegateQueue: nil)
     }()
     public static func get(_ url: URL, limit: Int = 64 * 1024 * 1024, headers: [String: String] = [:], timeout: TimeInterval = 25) async throws -> Data {
         guard url.scheme == "https" else { throw AppFailure("数据源必须使用 HTTPS / Data source must use HTTPS") }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        return try await send(request, limit: limit)
+    }
+    public static func form(_ url: URL, fields: [String: String], headers: [String: String] = [:]) async throws -> Data {
+        guard url.scheme == "https" else { throw AppFailure("Data source must use HTTPS") }
+        var encoded = URLComponents(); encoded.queryItems = fields.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var request = URLRequest(url: url, timeoutInterval: 30); request.httpMethod = "POST"
+        request.httpBody = Data((encoded.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        return try await send(request, limit: 1024 * 1024)
+    }
+    private static func send(_ request: URLRequest, limit: Int) async throws -> Data {
         let (temp, response) = try await session.download(for: request)
         defer { try? FileStore.fm.removeItem(at: temp) }
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            throw AppFailure("\(url.host ?? "Request")：HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            let http = response as? HTTPURLResponse
+            let retry = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init).map { min(30, max(1, $0)) }
+            throw HTTPStatusFailure(status: http?.statusCode ?? 0, retryAfter: retry)
         }
         guard response.url?.scheme == "https" else { throw AppFailure("数据源重定向到了不安全连接 / Data source redirected to an insecure connection") }
         let size = (try FileStore.fm.attributesOfItem(atPath: temp.path)[.size] as? NSNumber)?.intValue ?? 0

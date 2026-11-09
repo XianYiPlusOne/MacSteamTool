@@ -2,6 +2,7 @@
 #include "json.h"
 #include "xdg.h"
 #include "ticket_hooks.h"
+#include "ticket_layout.h"
 #include "ownership_hooks.h"
 #include "onlinefix.h"
 #include "manifest_provider.h"
@@ -55,8 +56,7 @@ void Reload(){
             auto id=appID(key);if(!id||!val["enabled"].boolean())continue;
             Ticket t;t.app=id;t.ownership=hex(val["ownership"].str());t.encrypted=hex(val["encrypted"].str());
             if(t.ownership.size()<148||t.encrypted.empty())continue;
-            uint32_t embedded=0;memcpy(&embedded,t.ownership.data()+16,4);memcpy(&t.signature,t.ownership.data(),4);memcpy(&t.steamID,t.ownership.data()+8,8);
-            if(embedded!=id||t.signature<20||uint64_t(t.signature)+128!=t.ownership.size()||!t.steamID)continue;
+            if(!TicketLayout::Locate(t.ownership,id,t.appOffset,t.signature,t.steamID))continue;
             next.tickets[id]=std::move(t);
         }
     }

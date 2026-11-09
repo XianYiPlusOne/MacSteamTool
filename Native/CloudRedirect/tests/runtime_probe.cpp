@@ -62,7 +62,7 @@ int main(int argc,char** argv){
     alignas(16) unsigned char reader[64]={},writer[64]={};ctor(reader);ctor(writer);uint32_t req[]={480,4096,0};put(reader,req,sizeof(req));
     auto extended=(int(*)(void*,void*,void*))dlsym(mac,"sx_ticket_serve_extended");check(extended&&extended(user,reader,writer)==1,"actual macSteam ownership handler detour");
     auto bytes=*(uint8_t**)writer;uint32_t total=0;memcpy(&total,bytes+1,4);check(bytes[0]==11&&total==ticket.ownership.size()&&!memcmp(bytes+5,ticket.ownership.data(),total),"ownership bytes and framing");
-    uint32_t offsets[4]={};memcpy(offsets,bytes+5+4096,16);check(offsets[0]==16&&offsets[1]==8&&offsets[2]==ticket.signature&&offsets[3]==128,"ownership offsets and signature boundary");dtor(reader);dtor(writer);
+    uint32_t offsets[4]={};memcpy(offsets,bytes+5+4096,16);check(offsets[0]==ticket.appOffset&&offsets[1]==8&&offsets[2]==ticket.signature&&offsets[3]==128,"ownership offsets and signature boundary");dtor(reader);dtor(writer);
     unsigned char out[4096]={};uint32_t count=0;auto get=(bool(*)(void*,void*,int,uint32_t*))(base+RuntimeProfile::getETicket);
     check(!get(user,out,1,&count)&&count==ticket.encrypted.size(),"small encrypted buffer rejected");
     check(get(user,out,sizeof(out),&count)&&count==ticket.encrypted.size()&&!memcmp(out,ticket.encrypted.data(),count),"actual Steam encrypted ticket detour");

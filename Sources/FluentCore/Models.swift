@@ -46,6 +46,12 @@ public struct Preferences: Codable, Sendable {
     public var tokensURL = "https://api.993499094.xyz/appaccesstokens.json"
     public var manifestURL = "https://steamapi.993499094.xyz/manifest/{depot}/{manifest}"
     public var manifestFallbacks: Bool? = true
+    public var librarySource: String?
+    public var remotePackageURL: String?
+    public var remotePackageMode: String?
+    public var manifestSource: String?
+    public var automaticallyCheckRuntimeUpdates: Bool?
+    public var independentTrainerMonitor: Bool?
     public var updateFeed: String?
     public var automaticallyCheckUpdates: Bool?
     public var downloadMirror: String?

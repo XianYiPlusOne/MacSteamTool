@@ -20,7 +20,7 @@ internal static class Program
         try
         {
             var request = JsonSerializer.Deserialize<Request>(await File.ReadAllTextAsync(args[0]), Json) ?? throw new Exception("Invalid request");
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(request.Operation is "login" or "cloud-oauth" ? 180 : request.Operation is "onlinefix-download" or "patch-extract" or "library-import" or "tool-download" or "runtime-download" or "extract" ? 900 : 120));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(request.Operation is "login" or "login-password" or "login-local" or "cloud-oauth" ? 180 : request.Operation is "onlinefix-download" or "patch-extract" or "library-import" or "tool-download" or "runtime-download" or "extract" ? 900 : 120));
             if (request.Operation.StartsWith("onlinefix-"))
             {
                 using var online = new OnlineFix(); Write(args[1], await online.Execute(request, timeout.Token)); return 0;
@@ -48,7 +48,7 @@ internal static class Program
     }
 }
 
-internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, RuntimeRelease? RuntimeRelease = null);
+internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null);
 
 internal sealed class Session : IDisposable
 {
@@ -94,6 +94,20 @@ internal sealed class Session : IDisposable
             auth.ChallengeURLChanged = Update; Update();
             var result = await auth.PollingWaitForResultAsync(ct);
             return new { ok = true, account = result.AccountName, token = result.RefreshToken };
+        }
+        if (r.Operation == "login-password") {
+            var auth = await client.Authentication.BeginAuthSessionViaCredentialsAsync(new AuthSessionDetails {
+                Username = r.Account, Password = r.Password, IsPersistentSession = true,
+                DeviceFriendlyName = "Fluent Steam Mac", Authenticator = new LoginAuthenticator(status, ct)
+            });
+            var result = await auth.PollingWaitForResultAsync(ct);
+            await LogOn(r with { Token = result.RefreshToken, Account = result.AccountName }, ct);
+            return new { ok = true, account = result.AccountName, token = result.RefreshToken };
+        }
+        if (r.Operation == "login-local") {
+            var token = LocalSteamLogin.Read(r);
+            await LogOn(r with { Token = token }, ct);
+            return new { ok = true, account = r.Account, token };
         }
         await LogOn(r, ct);
         if (r.Operation == "anonymous") return new { ok = true, protocol = "SteamKit2 3.4.0", connected = true };

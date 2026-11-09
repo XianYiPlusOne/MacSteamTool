@@ -21,6 +21,12 @@ struct RootView: View {
                     Text(model.steamRunning ? model.tr("Steam 运行中", "Steam running") : model.tr("Steam 未运行", "Steam stopped")).foregroundStyle(.secondary)
                     Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).help(model.tr("刷新", "Refresh"))
                 }.font(.system(size: 11)).padding(.horizontal, 30).padding(.vertical, 18)
+                if !model.runtimeUpdateProviders.isEmpty {
+                    HStack {
+                        Label(model.tr("运行内核有更新：", "Runtime updates: ") + model.runtimeUpdateProviders.joined(separator: ", "), systemImage: "arrow.down.circle")
+                        Spacer(); Button(model.tr("查看更新", "View updates")) { model.page = .runtime }
+                    }.font(.caption).padding(12).background(Palette.accent.opacity(0.08)).padding(.horizontal, 30)
+                }
                 if model.needsRestart {
                     HStack {
                         Image(systemName: "arrow.triangle.2.circlepath")
@@ -126,6 +132,13 @@ struct RootView: View {
 
 struct LibraryPage: View {
     @EnvironmentObject var model: AppModel
+    @ViewState<Bool> private var selecting = false
+    @ViewState<Set<Int>> private var selected = []
+    @ViewState<Bool> private var confirmRemoval = false
+    var chosen: [Game] { model.games.filter { selected.contains($0.id) && $0.source != "Steam" } }
+    private func selection(_ game: Game) -> some View {
+        Toggle("App \(game.id)", isOn: Binding(get: { selected.contains(game.id) }, set: { if $0 { selected.insert(game.id) } else { selected.remove(game.id) } })).toggleStyle(.checkbox).disabled(game.source == "Steam" || model.busy)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             PageHeader(title: model.tr("你的游戏，一处管理。", "Your games. One library."), subtitle: model.tr("管理 Lua 清单，连接原生 Steam 与 Windows 游戏。", "Manage Lua manifests for native Steam and Windows games.")) {
@@ -147,16 +160,31 @@ struct LibraryPage: View {
                     Image(systemName: "square.grid.2x2").tag("cards"); Image(systemName: "rectangle.grid.1x2").tag("compact"); Image(systemName: "list.bullet").tag("list")
                 }.pickerStyle(.segmented).frame(width: 106).onChange(of: model.preferences.layout) { _, _ in model.savePreferences() }
             }
+            HStack {
+                Toggle(model.tr("选择模式", "Selection mode"), isOn: $selecting).toggleStyle(.checkbox)
+                if selecting {
+                    Button(model.tr("全选筛选结果", "Select filtered")) { selected.formUnion(model.visibleGames.filter { $0.source != "Steam" }.map(\.id)) }
+                    Button(model.tr("清除选择", "Clear selection")) { selected = [] }
+                    Text("\(chosen.count)").foregroundStyle(.secondary)
+                    Spacer()
+                    Button(model.tr("启用所选", "Enable selected")) { model.batchLibrary(chosen, action: .enable) }.disabled(chosen.isEmpty)
+                    Button(model.tr("禁用所选", "Disable selected")) { model.batchLibrary(chosen, action: .disable) }.disabled(chosen.isEmpty)
+                    Button(model.tr("删除所选…", "Delete selected…"), role: .destructive) { confirmRemoval = true }.disabled(chosen.isEmpty)
+                }
+            }.disabled(model.busy)
+            .confirmationDialog(model.tr("备份后删除所选清单？游戏安装文件保留。", "Back up and delete selected entries? Installed games are retained."), isPresented: $confirmRemoval) {
+                Button(model.tr("删除 \(chosen.count) 个清单", "Delete \(chosen.count) entries"), role: .destructive) { model.batchLibrary(chosen, action: .remove); selected = [] }
+            }
             if model.visibleGames.isEmpty {
                 Panel {
                     EmptyMessage(icon: "tray.and.arrow.down", title: model.tr("从一份 Lua 清单开始", "Start with a Lua manifest"), detail: model.tr("拖入 Lua 或 ZIP 文件，也可以通过游戏名、AppID 搜索。已有 macSteam 入库记录会自动显示。", "Drop a Lua or ZIP file, or search by game name and AppID. Existing macSteam entries appear automatically."))
                     HStack { Spacer(); Button(model.tr("搜索游戏", "Find games")) { model.page = .discover }; Button(model.tr("导入本地文件", "Import local files")) { model.chooseImport() }.buttonStyle(.borderedProminent); Spacer() }.padding(.bottom, 25)
                 }
             } else if model.preferences.layout == "list" {
-                Panel(padding: 8) { VStack(spacing: 0) { ForEach(model.visibleGames) { game in GameRow(game: game); if game.id != model.visibleGames.last?.id { Divider().padding(.leading, 85) } } } }
+                Panel(padding: 8) { VStack(spacing: 0) { ForEach(model.visibleGames) { game in HStack { if selecting { selection(game) }; GameRow(game: game) }; if game.id != model.visibleGames.last?.id { Divider().padding(.leading, 85) } } } }
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: model.preferences.layout == "compact" ? 185 : 245), spacing: 18)], spacing: 18) {
-                    ForEach(model.visibleGames) { game in GameCard(game: game) }
+                    ForEach(model.visibleGames) { game in VStack(alignment: .leading) { if selecting { selection(game) }; GameCard(game: game) } }
                 }
             }
             HStack {

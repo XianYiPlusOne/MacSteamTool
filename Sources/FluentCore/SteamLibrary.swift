@@ -150,6 +150,30 @@ public final class LibraryService {
         for file in [paths.lua.appendingPathComponent("\(game.id).lua"), paths.disabled.appendingPathComponent("\(game.id).lua")] where FileStore.fm.fileExists(atPath: file.path) { changes.append((file, nil)) }
         try applyLibraryChanges(changes, config: config, hash: hash, apps: [], removing: [game.id], reason: "移除 \(game.name)")
     }
+    public enum BatchAction { case enable, disable, remove }
+    public func batch(_ games: [Game], action: BatchAction) throws {
+        guard !games.isEmpty, Set(games.map(\.id)).count == games.count, games.allSatisfy({ $0.source != "Steam" }) else { throw AppFailure("请选择受管游戏 / Select managed games") }
+        var (config, hash) = try configSnapshot()
+        var changes: [(URL, Data?)] = [], enabled: [Int] = [], removed: [Int] = []
+        for game in games {
+            let active = paths.lua.appendingPathComponent("\(game.id).lua"), disabled = paths.disabled.appendingPathComponent("\(game.id).lua")
+            if action == .remove {
+                config.remove(game.id); removed.append(game.id)
+                for file in [active, disabled] where FileStore.fm.fileExists(atPath: file.path) { changes.append((file, nil)) }
+            } else {
+                let content = try game.luaURL.map { try FileStore.text($0) } ?? config.lua(for: game.id)
+                let doc = try LuaDocument.parse(content, suggestedID: game.id)
+                guard doc.appID == game.id else { throw AppFailure("Lua AppID 不匹配 / Lua AppID mismatch") }
+                if action == .enable { try config.merge(doc, name: game.name); enabled.append(game.id) }
+                else { config.remove(game.id); removed.append(game.id) }
+                changes.append((action == .enable ? active : disabled, Data(content.utf8)))
+                let opposite = action == .enable ? disabled : active
+                if FileStore.fm.fileExists(atPath: opposite.path) { changes.append((opposite, nil)) }
+            }
+        }
+        changes.append((paths.config, Data(config.serialized().utf8)))
+        try applyLibraryChanges(changes, config: config, hash: hash, apps: enabled, removing: removed, reason: "批量管理 \(games.count) 个游戏")
+    }
     public func export(_ games: [Game], to url: URL) throws {
         let (config, _) = try configSnapshot(); var files: [ImportFile] = []; var names = Set<String>()
         for game in games {

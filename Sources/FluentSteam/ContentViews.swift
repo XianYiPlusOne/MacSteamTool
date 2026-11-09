@@ -17,6 +17,8 @@ struct DiscoverPage: View {
                 Divider().padding(.vertical, 10)
                 HStack { Toggle(model.tr("同时查询 DLC", "Include DLC"), isOn: $dlc).toggleStyle(.checkbox); Spacer(); Text(model.tr("简体中文名称 · 支持原生 / Windows depot", "Localized names · native / Windows depots")).font(.system(size: 10)).foregroundStyle(.secondary) }
             }
+            LibrarySourcePanel()
+            DiscoveryChartsPanel()
             if model.results.isEmpty {
                 EmptyMessage(icon: "sparkle.magnifyingglass", title: model.tr("搜索，然后添加到你的游戏库", "Search, then add to your library"), detail: model.tr("生成依赖所选数据源。没有密钥的内容会明确标出；导入不会自动下载游戏。", "Generation depends on your content source. Missing depot keys are reported. Importing does not download the game."))
             } else {
@@ -228,15 +230,20 @@ struct ManifestPage: View {
             PageHeader(title: model.tr("清单管理", "Manifest manager"), subtitle: model.tr("导入 depot 清单，或按指定版本获取并校验下载数据。", "Import depot manifests or download and verify a specific version.")) {
                 Button(model.tr("打开 depotcache", "Open depotcache")) { model.openFolder(model.paths.depotCache) }
             }
-            Panel {
-                HStack {
-                    Label(model.tr("自动监听与修复", "Monitor and repair"), systemImage: "waveform.path").font(.headline)
-                    Spacer()
-                    if model.monitorRunning { Button(model.tr("停止监听", "Stop monitoring")) { model.stopManifestMonitor() } }
-                    else { Button(model.tr("开始监听", "Start monitoring")) { model.startManifestMonitor() }.buttonStyle(.borderedProminent) }
+            ManifestHubPanel()
+            ForEach(["code", "hub"], id: \.self) { source in
+                Panel {
+                    let running = source == "hub" ? model.hubMonitorRunning : model.monitorRunning
+                    HStack {
+                        Label(source == "hub" ? "ManifestHub" : "Code / CDN", systemImage: "waveform.path").font(.headline)
+                        Spacer()
+                        if running { Button(model.tr("停止监听", "Stop monitoring")) { model.stopManifestMonitor(source: source) } }
+                        else { Button(model.tr("开始监听", "Start monitoring")) { model.startManifestMonitor(source: source) }.buttonStyle(.borderedProminent) }
+                    }
+                    Text(source == "hub" ? model.hubMonitorStatus : model.monitorStatus).font(.caption)
+                    Text(model.tr("成功", "Completed") + " \(source == "hub" ? model.hubMonitorCompleted : model.monitorCompleted) · " + model.tr("失败", "Failed") + " \(source == "hub" ? model.hubMonitorFailed : model.monitorFailed)").font(.caption)
+                    Text(model.tr("仅处理已启用游戏的新请求。两个来源保留各自状态，启动一个会停止另一个；关闭窗口继续监听，退出应用后停止。", "Handles new requests for enabled games. Each source keeps its own status; starting one stops the other; monitoring continues with the window closed and stops when the app quits.")).font(.caption).foregroundStyle(.secondary)
                 }
-                Text(model.tr("只处理 macSteam 已启用游戏的新 Manifest 请求。启动监听后在 Steam 重试下载；完成后再次重试。关闭窗口可继续监听，退出应用即停止。", "Handles new manifest requests for enabled macSteam games. Retry the Steam download after starting and after repairs finish. Monitoring continues when the window closes and stops when the app quits.")).font(.caption).foregroundStyle(.secondary)
-                HStack { Text(model.monitorStatus); Spacer(); Text(model.tr("成功", "Completed") + " \(model.monitorCompleted) · " + model.tr("失败", "Failed") + " \(model.monitorFailed)") }.font(.system(size: 11)).padding(.top, 6)
             }
             Panel {
                 Text(model.tr("获取缺失的 Manifest", "Fetch a missing manifest")).font(.headline)

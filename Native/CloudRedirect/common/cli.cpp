@@ -8,6 +8,7 @@
 #include "local_storage.h"
 #include "pending_ops_journal.h"
 #include "cloud_provider.h"
+#include "app_delete.h"
 #include "stats_journal.h"
 #include "file_util.h"
 #include "json.h"
@@ -1366,6 +1367,8 @@ static void PrintUsage() {
     fprintf(stderr, "  list-remote-app-ids <provider> <account_id>  List app IDs in cloud (fast)\n");
     fprintf(stderr, "  list-remote-app-files <provider> <account_id> <app_id>  List every file path in one remote app\n");
     fprintf(stderr, "  delete-remote-app <provider> <account_id> <app_id>  Delete app from cloud\n");
+    fprintf(stderr, "  backup-app-checked <provider> <account> <app> <plan.json> <new-folder>  Back up a checked app snapshot\n");
+    fprintf(stderr, "  delete-app-checked <provider> <account> <app> <backup-folder> <receipt-sha256>  Delete only verified backed-up objects\n");
     fprintf(stderr, "  list-blobs <provider> <account_id> <app_id>  List blob files in app\n");
     fprintf(stderr, "  download-blob <provider> <account_id> <app_id> <blob>  Download a single blob's content\n");
     fprintf(stderr, "  list-all-stats <provider>  Search the cloud for every app's stats.json\n");
@@ -1398,7 +1401,11 @@ int RunCli(int argc, char** argv) {
     }
 #endif
     
-    if (strcmp(command, "auth-status") == 0) {
+    if (strcmp(command,"backup-app-checked")==0 || strcmp(command,"delete-app-checked")==0) {
+        if(argc!=8){fprintf(stderr,"checked app command requires provider/account/app/input/output-or-hash\n");return 1;}
+        result=AppDelete::Run(strcmp(command,"delete-app-checked")==0,argv[3],GetTokenPath(argv[3]),GetConfigDir()+"config.json",argv[4],argv[5],argv[6],argv[7]);
+    }
+    else if (strcmp(command, "auth-status") == 0) {
         if (argc < 4) {
             fprintf(stderr, "Error: auth-status requires <provider>\n");
             return 1;

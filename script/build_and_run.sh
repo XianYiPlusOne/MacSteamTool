@@ -15,6 +15,7 @@ BIN_DIR="$(swift build --show-bin-path)"
 STAGING="$ROOT_DIR/work/app-staging"
 mkdir -p "$STAGING/Contents/MacOS" "$STAGING/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$STAGING/Contents/MacOS/$APP_NAME"
+cp "$BIN_DIR/FluentTrainerAgent" "$STAGING/Contents/MacOS/FluentTrainerAgent"
 cp "$BIN_DIR/FluentUpdater" "$STAGING/Contents/MacOS/FluentUpdater"
 cp "$ROOT_DIR/Resources/UpdatePublicKey.txt" "$STAGING/Contents/Resources/UpdatePublicKey.txt"
 cp "$BIN_DIR/FluentSteamWorker" "$STAGING/Contents/MacOS/FluentSteamWorker"
@@ -54,13 +55,14 @@ cat > "$STAGING/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Fluent Steam Mac</string>
 <key>CFBundleDisplayName</key><string>Fluent Steam Mac</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.14</string>
-<key>CFBundleVersion</key><string>16</string>
+<key>CFBundleShortVersionString</key><string>0.2.17</string>
+<key>CFBundleVersion</key><string>19</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>Trainer shortcut</string><key>CFBundleURLSchemes</key><array><string>fluentsteam</string></array></dict></array>
 </dict></plist>
 PLIST
 # PE/.NET payloads belong in Resources, where their integrity is sealed as data.

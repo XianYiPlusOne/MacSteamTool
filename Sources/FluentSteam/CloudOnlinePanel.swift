@@ -8,6 +8,8 @@ struct CloudOnlinePanel: View {
     @ViewState<String> private var account = ""
     @ViewState<String> private var status = ""
     @ViewState<[CloudRemoteApp]> private var apps = []
+    @ViewState<CloudDeleteSelection?> private var deleting = nil
+    @ViewState<String> private var loadedAccount = ""
     @ViewState<Bool> private var confirmProbe = false
 
     var body: some View {
@@ -21,17 +23,24 @@ struct CloudOnlinePanel: View {
                 Button(model.tr("读取远端存档", "Read remote saves")) { listRemote() }.disabled(account.isEmpty)
             }
             Text(model.tr("远端清单包含文件和同步元数据；读取不会还原、覆盖或删除游戏存档。", "Remote counts include save data and sync metadata. Listing does not restore, overwrite or delete game saves.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("预览、备份和删除前请先退出游戏与 Steam；只处理所选账号。", "Quit the game and Steam before preview, backup or deletion; only the selected account is included.")).font(.caption).foregroundStyle(.secondary)
             ForEach(apps) { app in
                 HStack {
                     Text("AppID \(app.appID)")
                     Spacer()
                     Text(model.tr("\(app.fileCount) 个文件", "\(app.fileCount) files"))
                     Text(ByteCountFormatter.string(fromByteCount: app.totalSize, countStyle: .file))
+                    if let id = TextUtil.validID(app.appID) {
+                        Button(model.tr("预览 / 备份 / 删除…", "Preview / back up / delete…")) { deleting = CloudDeleteSelection(account: loadedAccount, app: id) }.disabled(loadedAccount.isEmpty)
+                    }
                 }.font(.caption).textSelection(.enabled)
             }
+            Button(model.tr("打开云存档删除备份", "Open cloud-deletion backups")) { model.openFolder(CloudGameDeletion.backupRoot(model.paths)) }
             if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
         }
         .disabled(model.busy || model.steamRunning)
+        .onChange(of: account) { _, _ in apps = []; loadedAccount = "" }
+        .sheet(item: $deleting) { value in CloudGameDeleteSheet(provider: provider, selection: value, paths: model.paths, engine: engine, fixture: model.testing, onDeleted: { listRemote() }).environmentObject(model) }
         .task {
             if let accounts = try? Accounts.list(model.paths), let current = accounts.first(where: \.recent) ?? accounts.first {
                 account = (try? CloudOnline.accountID(current.id)) ?? ""
@@ -59,7 +68,7 @@ struct CloudOnlinePanel: View {
             let output = try await CloudEngine.run(["list-remote-apps", provider.rawValue, id], executable: engine, paths: model.paths)
             let inventory = try CloudOnline.decodeLast(CloudRemoteInventory.self, from: output)
             guard inventory.success else { throw AppFailure("远端清单读取失败 / Remote listing failed") }
-            apps = inventory.apps
+            loadedAccount = id; apps = inventory.apps
             status = model.tr("该账号的远端存档：\(apps.count) 款游戏。", "Remote saves for this account: \(apps.count) games.")
         }
     }

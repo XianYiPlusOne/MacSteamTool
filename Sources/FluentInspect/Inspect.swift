@@ -9,6 +9,59 @@ import FluentCore
     }
     static func run() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.first == "--exercise-cloud-delete", args.count == 4 {
+            let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath().standardizedFileURL
+            guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-cloud-delete-fixture").path) else { throw AppFailure("Explicit isolated cloud-delete fixture required") }
+            let paths = AppPaths(home: root, data: root.appendingPathComponent("Data"))
+            let config = try CloudConfiguration.load(paths: paths)
+            if ![.local, .folder].contains(config.provider) {
+                let credentials = try CloudEngine.effectiveCredentialsURL(config.provider, paths: paths).resolvingSymlinksInPath()
+                guard credentials.path.hasPrefix(root.path + "/") else { throw AppFailure("Fixture credentials must be isolated") }
+                let json = try JSONSerialization.jsonObject(with: FileStore.read(credentials)) as? [String: Any] ?? [:]
+                let endpoint = (json["url"] ?? json["endpoint"]) as? String ?? ""
+                guard URLComponents(string: endpoint)?.host == "127.0.0.1" else { throw AppFailure("Cloud-delete fixture supports loopback providers only") }
+            }
+            if config.provider == .folder {
+                guard URL(fileURLWithPath: config.folder).resolvingSymlinksInPath().path.hasPrefix(root.path + "/") else { throw AppFailure("Fixture sync folder must be isolated") }
+            }
+            let service = CloudGameDeletion(paths: paths, engine: URL(fileURLWithPath: args[2]), steamRunning: { false })
+            let planFile = root.appendingPathComponent("preview.json"), readyFile = root.appendingPathComponent("ready.json")
+            switch args[3] {
+            case "preview":
+                let preview = try await service.preview(provider: config.provider, account: "12345", app: 900001)
+                try FileStore.json(preview, to: planFile)
+                print("PASS: preview \(preview.fileCount) files; \(preview.local.count) local targets; \(preview.remote.count) remote objects")
+            case "backup":
+                let preview = try FileStore.decode(CloudDeletePreview.self, at: planFile)
+                guard preview.app == 900001, preview.account == "12345" else { throw AppFailure("Synthetic account/app required") }
+                let backup = try await service.backup(preview); try FileStore.json(backup, to: readyFile)
+                print("PASS: complete backup and readback verification; no source deleted")
+            case "delete":
+                let backup = try FileStore.decode(CloudGameBackup.self, at: readyFile)
+                guard backup.preview.app == 900001, backup.preview.account == "12345" else { throw AppFailure("Synthetic account/app required") }
+                try await service.delete(backup)
+                print("PASS: checked deletion and final remote/local verification")
+            default: throw AppFailure("Unknown fixture phase")
+            }
+            return
+        }
+        if args.first == "--verify-remote-package", args.count >= 3, let id = TextUtil.validID(args[1]) {
+            var preferences = Preferences()
+            if args.count == 4 { preferences.remotePackageMode = "direct"; preferences.remotePackageURL = args[3] }
+            let files = try await RemoteLuaPackage.fetch(appID: id, preferences: preferences, engine: URL(fileURLWithPath: args[2]))
+            let home = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentRemoteFlow-\(UUID().uuidString)")
+            defer { try? FileStore.fm.removeItem(at: home) }
+            let service = LibraryService(paths: AppPaths(home: home))
+            let plan = try service.plan(files); try service.perform(plan)
+            guard try SteamLibrary.games(service.paths).contains(where: { $0.id == id && $0.enabled }) else { throw AppFailure("Remote import did not reach the fixture library") }
+            print("PASS: remote HTTP -> ZIP -> AppID validation -> plan -> isolated import; \(files.count) Lua files, AppID \(id)"); return
+        }
+        if args.first == "--verify-public-charts", args.count == 1 {
+            let games = try await DiscoveryCharts.load()
+            let popular = try await TrainerSearch.chart("popular"), recent = try await TrainerSearch.chart("recent")
+            guard !games.isEmpty, !popular.isEmpty, !recent.isEmpty else { throw AppFailure("Public chart empty") }
+            print("PASS: Swift HTTP + production parsers: \(games.count) games, \(popular.count) popular trainers, \(recent.count) recent trainers"); return
+        }
         if args.first == "--game-startup", args.count == 2, let id = TextUtil.validID(args[1]) {
             guard let game = SteamLibrary.installed(AppPaths()).first(where: { $0.id == id }) else { throw AppFailure("Installed game not found") }
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

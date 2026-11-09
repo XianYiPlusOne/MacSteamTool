@@ -5,13 +5,31 @@ public struct CachedSteamTicket: Codable, Sendable {
     public var enabled: Bool
     public let ownership: String
     public let encrypted: String
-    public var appID: Int { guard let d = try? Self.decodeHex(ownership), d.count >= 20 else { return 0 }; return Int(Self.u32(d, 16)) }
+    public private(set) var embeddedAppID: Int?
+    public private(set) var appIDOffset: Int?
+    public private(set) var signatureOffset: Int?
+    public var appID: Int { embeddedAppID ?? ((try? Self.decodeHex(ownership)).map { $0.count >= 20 ? Int(Self.u32($0, 16)) : 0 } ?? 0) }
     public var steamID: UInt64 { guard let d = try? Self.decodeHex(ownership), d.count >= 16 else { return 0 }; return (0..<8).reduce(0) { $0 | UInt64(d[8 + $1]) << ($1 * 8) } }
+    public static func layout(_ data: Data, appID: Int) throws -> (app: Int, signature: Int) {
+        guard let id = UInt32(exactly: appID), id > 0, (148...4096).contains(data.count),
+              data[8..<16].contains(where: { $0 != 0 }) else { throw AppFailure("票据长度或账号无效 / Invalid ticket size or account") }
+        let signature = data.count - 128
+        let descriptor = Self.u32(data, 4) == 4
+        if descriptor {
+            let offset = Int(Self.u32(data, 0))
+            guard offset >= 16, offset <= signature - 4, Self.u32(data, offset) == id else { throw AppFailure("票据描述头无效 / Invalid ticket descriptor") }
+            return (offset, signature)
+        }
+        guard Int(Self.u32(data, 0)) == signature, signature >= 20 else { throw AppFailure("票据签名边界无效 / Invalid ticket signature boundary") }
+        if Self.u32(data, 16) == id { return (16, signature) }
+        let matches = (16...(signature - 4)).filter { Self.u32(data, $0) == id }
+        guard matches.count == 1, let offset = matches.first else { throw AppFailure("票据 AppID 缺失或位置不唯一 / Missing or ambiguous ticket AppID") }
+        return (offset, signature)
+    }
     public init(appID: Int, ownership: Data, encrypted: Data, enabled: Bool = false) throws {
-        guard ownership.count >= 148, ownership.count <= 4096, encrypted.count > 0, encrypted.count <= 4096,
-              Self.u32(ownership, 16) == UInt32(exactly: appID), Self.u32(ownership, 0) >= 20,
-              UInt64(Self.u32(ownership, 0)) + 128 == ownership.count,
-              ownership[8..<16].contains(where: { $0 != 0 }) else { throw AppFailure("票据长度、签名边界或 AppID 不匹配 / Ticket size, signature boundary or AppID mismatch") }
+        let layout = try Self.layout(ownership, appID: appID)
+        guard !encrypted.isEmpty, encrypted.count <= 4096 else { throw AppFailure("加密票据长度无效 / Invalid encrypted ticket length") }
+        self.embeddedAppID = appID; self.appIDOffset = layout.app; self.signatureOffset = layout.signature
         self.ownership = ownership.map { String(format: "%02x", $0) }.joined()
         self.encrypted = encrypted.map { String(format: "%02x", $0) }.joined(); self.enabled = enabled
     }
@@ -39,7 +57,12 @@ public struct CachedSteamTicket: Codable, Sendable {
         guard let app, let ownership, let encrypted else { throw AppFailure("需要 appid、appticket 和 eticket 三项 / appid, appticket and eticket are all required") }
         return try Self(appID: app, ownership: ownership, encrypted: encrypted)
     }
-    public func validate(appID: Int) throws { _ = try Self(appID: appID, ownership: Self.decodeHex(ownership), encrypted: Self.decodeHex(encrypted)) }
+    public func validate(appID: Int) throws {
+        let parsed = try Self(appID: appID, ownership: Self.decodeHex(ownership), encrypted: Self.decodeHex(encrypted))
+        guard (embeddedAppID == nil || embeddedAppID == parsed.embeddedAppID),
+              (appIDOffset == nil || appIDOffset == parsed.appIDOffset),
+              (signatureOffset == nil || signatureOffset == parsed.signatureOffset) else { throw AppFailure("票据元数据与内容不符 / Ticket metadata does not match its content") }
+    }
 }
 
 public enum FriendPresence: String, Codable, CaseIterable, Sendable {

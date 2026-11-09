@@ -15,12 +15,18 @@ struct TrainersPage: View {
                 Label(model.tr("兼容性需按修改器验证", "Compatibility varies by trainer"), systemImage: "info.circle").font(.headline)
                 Text(model.tr("修改器会使用所选游戏的运行器和同一前缀。CrossOver 的进程内存读写已通过受控测试，但下载成功或进程启动不代表修改有效；请匹配游戏版本。", "Trainers use the selected game's runner and prefix. CrossOver process memory access passed a controlled test, but downloading or launching a trainer does not verify its effects. Match the game version.")).font(.caption).foregroundStyle(.secondary)
             }
+            TrainerAgentPanel()
             Panel {
+                HStack {
+                    Button(model.tr("热门修改器", "Popular trainers")) { model.loadTrainerChart("popular") }
+                    Button(model.tr("新作修改器", "Recent trainers")) { model.loadTrainerChart("recent") }
+                }.disabled(model.busy)
                 HStack { TextField(model.tr("输入英文游戏名搜索修改器", "Search by English game title"), text: $query).textFieldStyle(.roundedBorder).onSubmit { model.searchTrainers(query) }; Button(model.tr("搜索", "Search")) { model.searchTrainers(query) }.buttonStyle(.borderedProminent).disabled(model.busy || query.isEmpty) }
                 ForEach(model.trainerResults) { trainer in
                     HStack { Text(trainer.title).font(.system(size: 13)); Spacer(); Button(model.tr("原始页面", "Source page")) { NSWorkspace.shared.open(trainer.url) }; Button(model.tr("下载", "Download")) { model.downloadTrainer(trainer) }.disabled(model.busy) }.padding(.top, 10)
                 }
             }
+            TrainerDownloadsPanel()
             Panel {
                 HStack {
                     Text(model.tr("本地修改器", "Local trainers")).font(.headline); Spacer()
@@ -33,6 +39,7 @@ struct TrainersPage: View {
                         HStack {
                             Image(systemName: "gamecontroller.fill").foregroundStyle(Palette.accent)
                             Text(binding.name).font(.system(size: 13, weight: .semibold)); Pill(text: "App \(binding.appID)"); Spacer()
+                            Button(model.tr("桌面快捷方式", "Desktop shortcut")) { model.trainerShortcut(binding) }
                             Button(model.tr("运行", "Run")) { model.launchTrainer(binding) }.buttonStyle(.borderedProminent)
                             Button { model.preferences.trainers.removeAll { $0.id == binding.id }; model.savePreferences() } label: { Image(systemName: "link.badge.plus").rotationEffect(.degrees(45)) }.help(model.tr("解除绑定", "Unbind"))
                         }
@@ -47,7 +54,7 @@ struct TrainersPage: View {
                     }.padding(.vertical, 12)
                 }
             }
-            Text(model.tr("监控在本应用运行期间生效（可关闭主窗口留在菜单栏）。自动快捷键只在游戏或修改器处于前台时发送；游戏退出后，只结束本次自动启动的修改器。", "Monitoring runs while this app is open, including in the menu bar. Shortcuts are sent only while the game or trainer is in front. On game exit, only the trainer started by this monitor is stopped.")).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(model.tr("默认在本应用运行期间监控；启用独立后台后可退出主程序。自动快捷键只在游戏或修改器处于前台时发送；游戏退出后，只结束本次自动启动的修改器。", "Monitoring runs while this app is open by default, or independently when the background agent is enabled. Shortcuts are sent only while the game or trainer is in front. On game exit, only the trainer started by this monitor is stopped.")).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .sheet(item: $editing) { TrainerEditor(binding: $0).environmentObject(model) }
     }

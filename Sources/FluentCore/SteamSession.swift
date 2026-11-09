@@ -104,6 +104,8 @@ public struct SteamEngineRequest: Encodable, Sendable {
     public var referer = ""
     public var archive = ""
     public var password = ""
+    public var steamPath = ""
+    public var steamID = ""
     public var includeDLC = true
     public var runtimeRelease: OfficialRuntimeRelease?
     public init(_ operation: String, credential: SteamCredential? = nil, appID: Int = 0) {
@@ -111,7 +113,7 @@ public struct SteamEngineRequest: Encodable, Sendable {
     }
 }
 public enum SteamEngine {
-    public static func run(_ request: SteamEngineRequest, executable: URL, status: @escaping @Sendable (String) async -> Void = { _ in }) async throws -> SteamEngineResponse {
+    public static func run(_ request: SteamEngineRequest, executable: URL, status: @escaping @Sendable (String) async -> Void = { _ in }, challenge: @escaping @Sendable (String) async -> String? = { _ in nil }) async throws -> SteamEngineResponse {
         guard FileStore.fm.isExecutableFile(atPath: executable.path) else { throw AppFailure("SteamKit 引擎不存在，请重新完整打包应用 / SteamKit engine missing; rebuild the complete application") }
         let folder = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentSteamSession-\(UUID().uuidString)")
         try FileStore.fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -122,12 +124,22 @@ public enum SteamEngine {
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         let task = Task.detached {
             try Task.checkCancellation(); try process.run()
-            let deadline = Date().addingTimeInterval(["login", "cloud-oauth"].contains(request.operation) ? 190 : ["onlinefix-download", "patch-extract", "library-import", "tool-download", "runtime-download", "extract"].contains(request.operation) ? 910 : 130)
-            var last = ""
+            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() } }
+            let deadline = Date().addingTimeInterval(["login", "login-password", "login-local", "cloud-oauth"].contains(request.operation) ? 190 : ["onlinefix-download", "patch-extract", "library-import", "tool-download", "runtime-download", "extract"].contains(request.operation) ? 910 : 130)
+            var last = "", lastChallenge = ""
             while process.isRunning && Date() < deadline && !Task.isCancelled {
                 if let data = try? FileStore.read(URL(fileURLWithPath: output.path + ".status")),
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: String], let url = json["url"], url != last {
                     last = url; await status(url)
+                }
+                let statusFile = URL(fileURLWithPath: output.path + ".status")
+                if let data = try? FileStore.read(statusFile), let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                   json["state"] == "guard", let id = json["requestID"], id != lastChallenge {
+                    lastChallenge = id
+                    let code = await challenge(json["prompt"] ?? "Steam Guard")
+                    let reply = URL(fileURLWithPath: statusFile.path + ".reply")
+                    try FileStore.json(["requestID": id, "code": code ?? ""], to: reply)
+                    try FileStore.fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: reply.path)
                 }
                 try? await Task.sleep(for: .milliseconds(150))
             }

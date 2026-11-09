@@ -136,10 +136,21 @@ public enum CloudEngine {
                 if arguments.first == "probe-provider" {
                     throw AppFailure("在线测试已取消或超时；0/0 目录可能留有 fluent-connection-test 临时文件，尚未确认清理。未操作游戏存档 / Online test cancelled or timed out; a temporary fluent-connection-test object may remain under 0/0. Cleanup is unconfirmed. No game saves were used")
                 }
+                if ["backup-app-checked", "delete-app-checked"].contains(arguments.first ?? "") {
+                    throw AppFailure("云端备份或删除已中断，请检查保留的备份与删除状态 / Cloud backup or deletion interrupted; inspect the retained backup and deletion status")
+                }
                 throw AppFailure("云存档任务已取消或超时；迁移目标可能已部分写入，请检查后重试 / Cloud task cancelled or timed out; a migration destination may be partially written. Check before retrying")
             }
             p.waitUntilExit(); let text = try FileStore.text(output)
-            guard p.terminationStatus == 0 else { throw AppFailure(text.isEmpty ? "云存档引擎失败 / Cloud engine failed：\(p.terminationStatus)" : String(text.suffix(12000))) }
+            guard p.terminationStatus == 0 else {
+                if ["backup-app-checked", "delete-app-checked"].contains(arguments.first ?? ""),
+                   let line = text.split(separator: "\n").last,
+                   let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], let reason = json["error"] as? String {
+                    let deleted = json["deleted"] as? Int ?? 0
+                    throw AppFailure("云端操作未完成，已删除 \(deleted) 个对象；备份保留 / Cloud operation incomplete, \(deleted) objects deleted; backup retained.\n" + reason)
+                }
+                throw AppFailure(text.isEmpty ? "云存档引擎失败 / Cloud engine failed：\(p.terminationStatus)" : String(text.suffix(12000)))
+            }
             return text
         }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }

@@ -103,8 +103,10 @@ public struct ContentLogTail {
         let text = String(decoding: pending[...last], as: UTF8.self)
         pending = Data(pending.dropFirst(last + 1))
         if seen.count > 10_000 { seen.removeAll() }
-        return Self.parse(text).filter { seen.insert($0.key).inserted }
+        return Self.parse(text).filter { seen.insert("\($0.app):\($0.key)").inserted }
     }
+    /// A failed request can reappear in new Steam log lines after the user retries.
+    public mutating func allowRetry(_ request: ManifestRequest) { seen.remove("\(request.app):\(request.key)") }
     public static func parse(_ text: String) -> [ManifestRequest] {
         TextUtil.matches(#"BYldRequestDepotManifest\(App:\s*(\d+),\s*Depot:\s*(\d+),\s*Manifest:\s*(\d+)"#, text).compactMap {
             guard let app = TextUtil.validID($0[1]), let depot = TextUtil.validID($0[2]), let manifest = UInt64($0[3]), manifest > 0 else { return nil }

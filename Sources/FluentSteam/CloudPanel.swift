@@ -88,6 +88,8 @@ struct CloudPanel: View {
             }.disabled(model.busy)
             if ![.local, .folder].contains(config.provider) {
                 CloudOnlinePanel(provider: config.provider, engine: engine).id(config.provider)
+            } else {
+                CloudLocalGameManagementPanel(provider: config.provider, engine: engine).id(config.provider)
             }
             HStack {
                 Button(model.tr("安装 / 更新重定向模块", "Install / update redirect module")) { deploy(remove: false) }

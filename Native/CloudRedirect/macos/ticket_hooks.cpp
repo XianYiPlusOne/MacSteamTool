@@ -37,7 +37,7 @@ int extended(void* user,void* reader,void* writer){
     auto put=(void(*)(void*,const void*,int))(base+RuntimeProfile::put);
     auto tag=(void(*)(void*,unsigned))(base+RuntimeProfile::tag);
     std::vector<uint8_t> buffer(cap);memcpy(buffer.data(),t->ownership.data(),t->ownership.size());
-    uint32_t total=(uint32_t)t->ownership.size(),appOffset=16,steamOffset=8,sigSize=128;
+    uint32_t total=(uint32_t)t->ownership.size(),appOffset=t->appOffset,steamOffset=8,sigSize=128;
     tag(writer,11);put(writer,&total,4);put(writer,buffer.data(),(int)cap);put(writer,&appOffset,4);put(writer,&steamOffset,4);put(writer,&t->signature,4);put(writer,&sigSize,4);
     ownershipCount++;return 1;
 }
