@@ -72,18 +72,6 @@ import Testing
         #expect(url.absoluteString == "https://short.walftech.com/proxy.php?short=abc_123")
         #expect(throws: (any Error).self) { try RemoteLuaPackage.proxyURL(Data(#"{"short_code":"../evil?x=1"}"#.utf8)) }
     }
-    @Test func trainerChartRejectsOtherHostsAndDeduplicates() {
-        let html = #"<a class="wpp-post-title" href="https://flingtrainer.com/trainer/test/">Test Trainer</a><a class="wpp-post-title" href="https://evil.example/a">Evil</a><a class="wpp-post-title" href="https://flingtrainer.com/trainer/test/">Duplicate</a><h3 class="rpwe-title"><a href="https://flingtrainer.com/trainer/new/">New</a></h3>"#
-        #expect(TrainerSearch.parseChart(html, kind: "popular").map(\.title) == ["Test Trainer"])
-        #expect(TrainerSearch.parseChart(html, kind: "recent").map(\.title) == ["New"])
-    }
-    @Test func launchAgentUsesArgumentArrayAndNoShell() throws {
-        let binary = URL(fileURLWithPath: "/tmp/a b/FluentTrainerAgent"), settings = URL(fileURLWithPath: "/tmp/a b/settings.json")
-        let data = try TrainerAgentService.configuration(executable: binary, settings: settings, log: URL(fileURLWithPath: "/tmp/log"))
-        let plist = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        #expect(plist["ProgramArguments"] as? [String] == [binary.path, settings.path]); #expect(plist["RunAtLoad"] as? Bool == true)
-        #expect((plist["KeepAlive"] as? [String: Bool])?["SuccessfulExit"] == false)
-    }
     @Test func hubExpiryRejectionAndRetryWithoutNetwork() async throws {
         let now = Date(), credential = ManifestHubCredential(key: "secret+with/slash", saved: Date())
         #expect(credential.expiry.timeIntervalSince(credential.saved) == 86400)

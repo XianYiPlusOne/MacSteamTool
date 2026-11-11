@@ -40,7 +40,6 @@ struct RootView: View {
                         case .library: LibraryPage()
                         case .discover: DiscoverPage()
                         case .manifests: ManifestPage()
-                        case .trainers: TrainersPage()
                         case .patches: PatchesPage()
                         case .achievements: AchievementsPage()
                         case .saves: SavesPage()
@@ -50,7 +49,7 @@ struct RootView: View {
                         case .settings: SettingsPage()
                         }
                     }.padding(30).frame(maxWidth: 1450, alignment: .topLeading).frame(maxWidth: .infinity)
-                }.id(model.page)
+                }.scrollIndicators(.hidden).id(model.page)
                 bottomBar
             }.background { if model.preferences.materialBackground == true { Rectangle().fill(.regularMaterial) } else { (scheme == .dark ? Color(white: 0.085) : Color(red: 0.962, green: 0.968, blue: 0.983)) } }
         }
@@ -86,11 +85,11 @@ struct RootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(model.tr("游戏与内容", "GAMES & CONTENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.bottom, 10)
-                    ForEach([Page.library, .discover, .manifests, .trainers, .patches, .achievements, .saves]) { row($0) }
+                    ForEach([Page.library, .discover, .manifests, .patches, .achievements, .saves]) { row($0) }
                     Text(model.tr("管理", "MANAGEMENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.top, 30).padding(.bottom, 10)
                     ForEach([Page.accounts, .runtime, .compatibility, .settings]) { row($0) }
                 }
-            }
+            }.scrollIndicators(.hidden)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Image(systemName: "link").foregroundStyle(Palette.accent)

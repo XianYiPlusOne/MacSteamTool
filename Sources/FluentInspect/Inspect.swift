@@ -9,6 +9,64 @@ import FluentCore
     }
     static func run() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.first == "--verify-game-cover", args.count >= 3, let app = TextUtil.validID(args[1]) {
+            let root = URL(fileURLWithPath: args[2]).resolvingSymlinksInPath()
+            guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-cover-fixture").path) else { throw AppFailure("Explicit isolated cover cache required") }
+            let reference = args.count == 4 ? args[3] : nil
+            let data = try await GameCovers(cache: root.appendingPathComponent("Covers"), fetch: { url in
+                let start = Date()
+                do {
+                    let data = try await GameCovers.fetchImage(url)
+                    print("IMAGE \(url.host ?? "") \(data.count) bytes \(Int(Date().timeIntervalSince(start)*1000)) ms valid=\(GameCovers.validImage(data))")
+                    return data
+                } catch {
+                    let value = error as NSError
+                    print("IMAGE FAILED \(url.host ?? "") \(value.domain) \(value.code): \(value.localizedDescription)")
+                    throw error
+                }
+            }).load(appID: app, reference: reference)
+            guard GameCovers.validImage(data) else { throw AppFailure("Cover did not decode") }
+            print("PASS: cover \(app), \(data.count) bytes, decoded and persisted in isolated cache"); return
+        }
+        if args.first == "--exercise-patch-platform", args.count == 4 {
+            let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath().standardizedFileURL
+            guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-patch-fixture").path) else { throw AppFailure("Explicit isolated patch fixture required") }
+            let paths = AppPaths(home: root), game = root.appendingPathComponent("Game"), exe = game.appendingPathComponent("FixtureGame.exe")
+            let metadata = try JSONSerialization.jsonObject(with: FileStore.read(root.appendingPathComponent("runtime.json"))) as? [String: String] ?? [:]
+            let direct = metadata["kind"] == "crossOver", bottle = root.appendingPathComponent("Library/Application Support/Steam/steamapps/compatdata/900001/pfx")
+            guard bottle.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") else { throw AppFailure("Fixture bottle must be isolated") }
+            if ["preview", "deploy"].contains(args[2]) {
+                var plan = try GamePatches.onlinePlan(package: root.appendingPathComponent("Payload"), gameRoot: game, appID: 900001, executable: exe, paths: paths, bottle: direct ? bottle : nil, crossOverApp: direct ? root.appendingPathComponent("CrossOver.app") : nil)
+                plan = try GamePatches.addingOverrides(to: plan, executable: exe, libraries: ["version"], paths: paths)
+                if args[2] == "deploy" { try await PatchLoadVerification.assertStopped(target: plan.windowsTarget!, appID: plan.appID, paths: paths); try FileStore.json(GamePatches.install(plan, paths: paths), to: root.appendingPathComponent("receipt.json")) }
+                print("PASS: Windows \(plan.windowsTarget!.architecture.rawValue) / \(plan.windowsTarget!.kind.rawValue) platform and architecture validated; \(args[2])"); return
+            }
+            let receipt = try FileStore.decode(PatchReceipt.self, at: root.appendingPathComponent("receipt.json"))
+            guard receipt.appID == 900001, receipt.gameRoot == game.path, receipt.windowsTarget?.executable == exe.path,
+                  receipt.windowsTarget?.prefix == bottle.resolvingSymlinksInPath().path else { throw AppFailure("Fixture receipt escaped scope") }
+            if args[2] == "stopped" {
+                try await PatchLoadVerification.assertStopped(target: receipt.windowsTarget!, appID: receipt.appID, paths: paths); print("PASS: selected Windows bottle stopped"); return
+            }
+            if args[2] == "check" {
+                let result = try await PatchLoadVerification.check(receipt, paths: paths, helper: URL(fileURLWithPath: args[3]))
+                print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self)); return
+            }
+            if args[2] == "restore" { try await PatchLoadVerification.assertStopped(target: receipt.windowsTarget!, appID: receipt.appID, paths: paths); try GamePatches.restore(receipt, paths: paths); print("PASS: fixture patch and registry restored"); return }
+            throw AppFailure("Unknown isolated patch action")
+        }
+        if args.first == "--exercise-retired-cleanup", args.count == 3 {
+            let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath().standardizedFileURL
+            let prefix = "dev.fluentsteam.fixture-removal.", label = args[2]
+            guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path,
+                  FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-retirement-fixture").path),
+                  label.hasPrefix(prefix), UUID(uuidString: String(label.dropFirst(prefix.count))) != nil else { throw AppFailure("Explicit isolated retirement fixture and unique test service required") }
+            try RetiredFeatureCleanup.run(home: root, paths: AppPaths(home: root)) { arguments in
+                guard arguments.count == 2, ["print", "bootout"].contains(arguments[0]), arguments[1].hasSuffix("/dev.fluentsteam.mac.trainer-agent") else { throw AppFailure("Unexpected cleanup scope") }
+                let domain = arguments[1].split(separator: "/").dropLast().joined(separator: "/")
+                return try RetiredFeatureCleanup.runLaunchctl([arguments[0], domain + "/" + label])
+            }
+            print("PASS: isolated upgrade cleanup; only the unique fixture launchd service was targeted"); return
+        }
         if args.first == "--exercise-cloud-delete", args.count == 4 {
             let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath().standardizedFileURL
             guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-cloud-delete-fixture").path) else { throw AppFailure("Explicit isolated cloud-delete fixture required") }
@@ -56,11 +114,28 @@ import FluentCore
             guard try SteamLibrary.games(service.paths).contains(where: { $0.id == id && $0.enabled }) else { throw AppFailure("Remote import did not reach the fixture library") }
             print("PASS: remote HTTP -> ZIP -> AppID validation -> plan -> isolated import; \(files.count) Lua files, AppID \(id)"); return
         }
-        if args.first == "--verify-public-charts", args.count == 1 {
-            let games = try await DiscoveryCharts.load()
-            let popular = try await TrainerSearch.chart("popular"), recent = try await TrainerSearch.chart("recent")
-            guard !games.isEmpty, !popular.isEmpty, !recent.isEmpty else { throw AppFailure("Public chart empty") }
-            print("PASS: Swift HTTP + production parsers: \(games.count) games, \(popular.count) popular trainers, \(recent.count) recent trainers"); return
+        if args.first == "--verify-chart-pagination", args.count == 2 {
+            let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath()
+            guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-chart-fixture").path) else { throw AppFailure("Explicit isolated chart cache required") }
+            let store = DiscoveryChartStore(file: root.appendingPathComponent("Charts/popular.json"))
+            let first = try await store.refresh()
+            let next = try await store.loadMore()
+            guard next.games.count > first.games.count, Set(next.games.map(\.id)).count == next.games.count,
+                  Array(next.games.prefix(first.games.count).map(\.id)) == first.games.map(\.id),
+                  (next.nextOffset ?? 0) > (first.nextOffset ?? 0) else { throw AppFailure("Pagination did not append distinct games") }
+            print("PASS: production pagination \(first.games.count) -> \(next.games.count) games; offset \(first.nextOffset ?? 0) -> \(next.nextOffset ?? 0); old order preserved, unique and cached")
+            return
+        }
+        if args.first == "--verify-public-charts", args.count <= 2 {
+            let start = Date()
+            let games: [GameMetadata]
+            if args.count == 2 {
+                let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath()
+                guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-chart-fixture").path) else { throw AppFailure("Explicit isolated chart cache required") }
+                games = try await DiscoveryChartStore(file: root.appendingPathComponent("Charts/popular.json")).refresh().games
+            } else { games = try await DiscoveryCharts.load() }
+            guard !games.isEmpty else { throw AppFailure("Public chart empty") }
+            print("PASS: production single-page chart/cache: \(games.count) games, \(Int(Date().timeIntervalSince(start)*1000)) ms"); return
         }
         if args.first == "--game-startup", args.count == 2, let id = TextUtil.validID(args[1]) {
             guard let game = SteamLibrary.installed(AppPaths()).first(where: { $0.id == id }) else { throw AppFailure("Installed game not found") }

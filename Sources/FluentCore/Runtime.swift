@@ -98,6 +98,11 @@ public enum ProcessRunner {
 }
 
 public struct WineLaunch {
+    /// Convert a host path for tools running inside the selected Wine prefix.
+    public static func windowsPath(_ path: String) throws -> String {
+        guard path.hasPrefix("/"), !path.contains("\\"), !path.contains("\0") else { throw AppFailure("请选择有效的本地绝对路径 / Select a valid absolute local path") }
+        return "Z:" + URL(fileURLWithPath: path).resolvingSymlinksInPath().path.replacingOccurrences(of: "/", with: "\\")
+    }
     public var executable: URL
     public var arguments: [String]
     public var environment: [String: String]
@@ -145,6 +150,21 @@ public struct WineLaunch {
         env["PATH"] = runner.appendingPathComponent("bin").path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
         let arguments = command.lowercased().hasSuffix(".msi") ? ["msiexec", "/i", command] : [command]
         return Self(executable: loader, arguments: arguments, environment: env, prefix: prefix)
+    }
+    public static func crossOver(bottle: URL, application: URL, command: String, appID: Int) throws -> Self {
+        let prefix = bottle.resolvingSymlinksInPath(), runner = application.appendingPathComponent("Contents/SharedSupport/CrossOver")
+        try PatchWindowsTarget.validatePrefix(prefix)
+        let loader = runner.appendingPathComponent("lib/wine/x86_64-unix/wine"), server = runner.appendingPathComponent("bin/wineserver")
+        guard FileStore.fm.isExecutableFile(atPath: loader.path), FileStore.fm.isExecutableFile(atPath: server.path) else { throw AppFailure("CrossOver 运行器不完整 / CrossOver runner is incomplete") }
+        var env = ProcessInfo.processInfo.environment
+        env["WINEPREFIX"] = prefix.path; env["CX_BOTTLE"] = prefix.lastPathComponent
+        env["CX_BOTTLE_PATH"] = prefix.deletingLastPathComponent().path
+        env["CX_HOME"] = prefix.deletingLastPathComponent().deletingLastPathComponent().path
+        env["CX_ROOT"] = runner.path; env["WINELOADER"] = loader.path; env["WINESERVER"] = server.path
+        env["WINEDLLPATH"] = runner.appendingPathComponent("lib/wine/x86_64-windows").path + ":" + runner.appendingPathComponent("lib/wine/x86_64-unix").path
+        env["PATH"] = runner.appendingPathComponent("bin").path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+        env["SteamAppId"] = String(appID); env["SteamGameId"] = String(appID)
+        return Self(executable: loader, arguments: [command], environment: env, prefix: prefix)
     }
     @discardableResult public func launch(log: URL) throws -> Process {
         try FileStore.mkdir(log.deletingLastPathComponent())

@@ -2,7 +2,7 @@ import Foundation
 
 public enum CacheMaintenance {
     /// Only disposable app cache. Tools, downloads, backups, credentials and Steam data are outside this list.
-    public static let disposable = ["Metadata", "OfficialRuntimes", "OfflineStages", "Patches", "depotkeys.json"]
+    public static let disposable = ["Metadata", "Covers", "Charts", "OfficialRuntimes", "OfflineStages", "Patches", "depotkeys.json"]
     public struct Summary: Sendable { public let bytes: Int64; public let entries: Int }
     private static func targets(paths: AppPaths) throws -> [URL] {
         let cache = paths.cache.standardizedFileURL

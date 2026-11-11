@@ -26,12 +26,15 @@ public struct PatchPlan: Identifiable, Sendable {
     public let id = UUID()
     public let appID: Int; public let gameRoot: URL; public let source: String; public let entries: [PatchEntry]
     public var registry: PatchRegistry? = nil
+    public var windowsTarget: PatchWindowsTarget? = nil
 }
 public struct PatchReceipt: Codable, Identifiable, Sendable {
     public let id: String; public let appID: Int; public let gameRoot: String; public let source: String
     public let date: Date; public let backup: BackupRecord; public let deployed: [String: String]
     public var restored: Bool
     public var registry: PatchRegistryReceipt? = nil
+    public var windowsTarget: PatchWindowsTarget? = nil
+    public var executableSHA256: String? = nil
 }
 public enum GamePatches {
     public static func target(_ relative: String, root: URL) throws -> URL {
@@ -71,9 +74,16 @@ public enum GamePatches {
         guard !entries.isEmpty else { throw AppFailure("补丁目录没有文件 / Patch directory is empty") }
         return PatchPlan(appID: appID, gameRoot: root, source: source.lastPathComponent, entries: entries.sorted { $0.relative < $1.relative })
     }
+    public static func onlinePlan(package: URL, gameRoot: URL, appID: Int, executable: URL, paths: AppPaths, bottle: URL? = nil, crossOverApp: URL? = nil) throws -> PatchPlan {
+        let target = try PatchWindowsTarget.inspect(executable: executable, gameRoot: gameRoot, appID: appID, paths: paths, bottle: bottle, crossOverApp: crossOverApp)
+        var result = try plan(package: package, gameRoot: gameRoot, appID: appID)
+        try target.validateFiles(result.entries); result.windowsTarget = target; return result
+    }
     public static func addingOverrides(to plan: PatchPlan, executable: URL, libraries: [String], paths: AppPaths) throws -> PatchPlan {
         let name = try WineOverrides.executable(executable, inside: plan.gameRoot)
-        guard let prefix = SteamLibrary.prefixes(paths).first(where: { $0.id == plan.appID })?.url else { throw AppFailure("该游戏没有 NotProton 前缀 / No NotProton prefix exists for this game") }
+        let prefix = plan.windowsTarget.map { URL(fileURLWithPath: $0.prefix) } ?? SteamLibrary.prefixes(paths).first(where: { $0.id == plan.appID })?.url
+        guard let prefix else { throw AppFailure("该游戏没有 Windows 容器 / No Windows bottle exists for this game") }
+        if let target = plan.windowsTarget { guard URL(fileURLWithPath: target.executable).lastPathComponent == name else { throw AppFailure("DLL 覆盖的程序与目标不一致 / Override executable differs from target") } }
         let url = prefix.appendingPathComponent("user.reg").standardizedFileURL
         guard (try url.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true else { throw AppFailure("Wine 注册表不能是符号链接 / Wine registry cannot be a symbolic link") }
         let original = try FileStore.read(url)
@@ -88,9 +98,16 @@ public enum GamePatches {
             changes.append((file, entry.data)); expected[file] = entry.originalHash; deployed[entry.relative] = FileStore.hash(entry.data)
         }
         if let registry = plan.registry { changes.append((registry.url, registry.data)); expected[registry.url] = registry.originalHash }
+        if let target = plan.windowsTarget {
+            _ = try target.launch(appID: plan.appID, command: target.executable, paths: paths)
+            try target.validateFiles(plan.entries)
+            expected[URL(fileURLWithPath: target.executable)] = target.executableHash
+        }
         let journal = FileTransaction(backupRoot: paths.data.appendingPathComponent("PatchBackups"))
         let backup = try journal.apply(changes, reason: "游戏补丁 \(plan.appID) · \(plan.source)", expectations: expected)
         var receipt = PatchReceipt(id: plan.id.uuidString, appID: plan.appID, gameRoot: plan.gameRoot.path, source: plan.source, date: Date(), backup: backup, deployed: deployed, restored: false)
+        receipt.windowsTarget = plan.windowsTarget
+        if let target = plan.windowsTarget { receipt.executableSHA256 = deployed.first { key, _ in (try? Self.target(key, root: plan.gameRoot).path) == target.executable }?.value ?? target.executableHash }
         receipt.registry = plan.registry.map { PatchRegistryReceipt(path: $0.url.path, sha256: FileStore.hash($0.data)) }
         do { try FileStore.json(receipt, to: paths.data.appendingPathComponent("PatchRecords/\(receipt.id).json")) }
         catch { try journal.restore(backup, allowedRoots: [plan.gameRoot] + (plan.registry.map { [$0.url] } ?? [])); throw error }
@@ -105,7 +122,7 @@ public enum GamePatches {
         for (relative, hash) in receipt.deployed { expected[try target(relative, root: root)] = hash }
         var roots = [root]
         if let registry = receipt.registry {
-            guard let prefix = SteamLibrary.prefixes(paths).first(where: { $0.id == receipt.appID })?.url,
+            guard let prefix = receipt.windowsTarget.map({ URL(fileURLWithPath: $0.prefix) }) ?? SteamLibrary.prefixes(paths).first(where: { $0.id == receipt.appID })?.url,
                   prefix.appendingPathComponent("user.reg").standardizedFileURL.path == registry.path else { throw AppFailure("补丁备份中的 Wine 前缀与当前游戏不一致 / Backup Wine prefix does not match this game") }
             let file = URL(fileURLWithPath: registry.path); expected[file] = registry.sha256; roots.append(file)
         }

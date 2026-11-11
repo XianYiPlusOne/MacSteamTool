@@ -2,24 +2,19 @@ import SwiftUI
 import AppKit
 import FluentCore
 
-struct LibrarySourcePanel: View {
+struct LibraryFallbackSettings: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        Panel {
-            Picker(model.tr("入库来源", "Library source"), selection: Binding(get: { model.preferences.librarySource ?? "local" }, set: { model.preferences.librarySource = $0; model.savePreferences() })) {
-                Text(model.tr("本地密钥生成", "Generate from key cache")).tag("local")
-                Text(model.tr("远程 Lua ZIP", "Remote Lua ZIP")).tag("remote")
-            }.pickerStyle(.segmented)
-            if model.preferences.librarySource == "remote" {
-                Picker(model.tr("远程仓库", "Remote repository"), selection: Binding(get: { model.preferences.remotePackageMode ?? "repository" }, set: { model.preferences.remotePackageMode = $0; model.savePreferences() })) {
-                    Text(model.tr("原项目仓库（获取链接后下载）", "Upstream repository (resolve download link)")).tag("repository")
+        DisclosureGroup(model.tr("备用入库源（高级）", "Alternate library source (advanced)")) {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker(model.tr("远程仓库", "Remote repository"), selection: Binding(get: { model.preferences.remotePackageMode ?? "repository" }, set: { model.preferences.remotePackageMode = $0 })) {
+                    Text(model.tr("默认仓库", "Default repository")).tag("repository")
                     Text(model.tr("自定义 ZIP URL", "Custom ZIP URL")).tag("direct")
                 }
                 if model.preferences.remotePackageMode == "direct" {
-                TextField("HTTPS ZIP URL · {app}", text: Binding(get: { model.preferences.remotePackageURL ?? RemoteLuaPackage.defaultTemplate }, set: { model.preferences.remotePackageURL = $0 })).textFieldStyle(.roundedBorder)
-                Button(model.tr("保存来源", "Save source")) { model.savePreferences() }
+                    TextField("HTTPS ZIP URL · {app}", text: Binding(get: { model.preferences.remotePackageURL ?? RemoteLuaPackage.defaultTemplate }, set: { model.preferences.remotePackageURL = $0 })).textFieldStyle(.roundedBorder)
                 }
-                Text(model.tr("按 AppID 下载远程 ZIP，只提取匹配游戏的 Lua，再预览导入。第三方源可能不可用。DLC 由包内容决定。", "Downloads a ZIP by AppID, verifies matching Lua and previews import. Third-party availability varies. DLC depends on the package.")).font(.caption).foregroundStyle(.secondary)
+                Text(model.tr("入库时自动按需使用，通常无需修改。自定义地址必须使用 HTTPS，并以 {app} 代表 AppID。", "Used automatically when needed. Usually no changes are necessary. Custom URLs require HTTPS and {app} for the AppID.")).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -57,43 +52,35 @@ struct ManifestHubPanel: View {
 }
 struct DiscoveryChartsPanel: View {
     @EnvironmentObject var model: AppModel
-    @ViewState<[GameMetadata]> private var popular = []
-    @ViewState<[GameMetadata]> private var recommended = []
-    @ViewState<String> private var error = ""
+    @Binding var isExpanded: Bool
+    var body: some View { DiscoveryChartsContent(flow: model.charts, isExpanded: $isExpanded).task { model.charts.load() } }
+}
+private struct DiscoveryChartsContent: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var flow: DiscoveryChartsFlow
+    @Binding var isExpanded: Bool
     var body: some View {
         Panel {
             HStack {
-                Text(model.tr("热门与推荐 · 小黑盒", "Popular & recommended · XiaoHeiHe")).font(.headline)
+                Button { withAnimation { isExpanded.toggle() } } label: {
+                    Label(model.tr("热门榜单 · 小黑盒", "Popular · XiaoHeiHe"), systemImage: isExpanded ? "chevron.down" : "chevron.right").font(.headline)
+                }.buttonStyle(.plain).accessibilityValue(model.tr(isExpanded ? "已展开" : "已折叠", isExpanded ? "Expanded" : "Collapsed"))
+                if flow.loading { ProgressView().controlSize(.small) }
                 Spacer()
-                Button(model.tr("刷新榜单", "Refresh charts")) {
-                    model.run(model.tr("获取榜单", "Load charts")) {
-                        do {
-                            let pool = try await DiscoveryCharts.load()
-                            popular = Array(pool.prefix(10)); recommended = Array(pool.dropFirst(10).shuffled().prefix(10)); error = ""
-                        } catch { self.error = error.localizedDescription; throw error }
-                    }
-                }.disabled(model.busy)
+                Button(model.tr("刷新榜单", "Refresh charts")) { flow.load() }.disabled(flow.loading || flow.loadingMore)
             }
-            if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.secondary) }
-            if !popular.isEmpty { chart(model.tr("热门榜单", "Popular"), games: popular); chart(model.tr("为你推荐", "Recommendations"), games: recommended) }
-        }
-    }
-    private func chart(_ title: String, games: [GameMetadata]) -> some View {
-        VStack(alignment: .leading) {
-            Text(title).font(.subheadline.bold())
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(games) { game in
-                        Button { model.search = String(game.id); model.searchGames() } label: {
-                            VStack(alignment: .leading) {
-                                Cover(id: game.id, name: game.name, height: 66)
-                                Text(game.name).lineLimit(2).font(.caption)
-                            }.frame(width: 140)
-                        }.buttonStyle(.plain).disabled(model.busy)
-                    }
+            if isExpanded {
+                if flow.loading {
+                    Text(model.tr("正在获取最新热门榜单…", "Loading the latest popular games…")).font(.caption).foregroundStyle(.secondary)
+                } else if let updated = flow.updated {
+                    Text(model.tr("更新于 · ", "Updated · ") + updated.formatted(date: .abbreviated, time: .standard)).font(.caption).foregroundStyle(.secondary)
                 }
+                if !flow.error.isEmpty {
+                    Text(model.tr("榜单加载失败：", "Could not load charts: ") + flow.error).font(.caption).foregroundStyle(.secondary)
+                }
+                if !flow.popular.isEmpty { DiscoveryChartRow(flow: flow, title: model.tr("热门榜单", "Popular"), games: flow.popular) }
             }
-        }.padding(.top, 8)
+        }
     }
 }
 struct ReleaseNotes: View {

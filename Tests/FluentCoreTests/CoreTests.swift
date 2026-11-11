@@ -19,16 +19,6 @@ final class CoreTests {
     }
     func lua(_ id: Int = 480) -> String { "-- test\naddappid(\(id)) -- 测试游戏\naddappid(481, 1, \"\(key)\")\naddappid(482) -- DLC\naddappid(483,1,'\(key)')\n" }
 
-    @Test func trainerSettingsMigrateAndValidate() throws {
-        let legacy = "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"appID\":480,\"name\":\"Fixture\",\"executable\":\"/tmp/trainer.exe\",\"autoLaunch\":false}"
-        let binding = try JSONDecoder().decode(TrainerBinding.self, from: Data(legacy.utf8))
-        assertEqual(binding.appID, 480); assertEqual(binding.gameExecutable, nil)
-        assertEqual(try TrainerConfiguration.shortcuts("F1, Ctrl+Num1；Alt+F12\nNumAdd"), ["F1", "Ctrl+Num1", "Alt+F12", "NumAdd"])
-        expectThrow(try TrainerConfiguration.shortcuts("Ctrl++F1")); expectThrow(try TrainerConfiguration.shortcuts("F25"))
-        expectThrow(try TrainerConfiguration.windowsPath("relative.exe")); expectThrow(try TrainerConfiguration.windowsPath("/tmp/a\\b.exe"))
-        assertTrue(try TrainerConfiguration.windowsPath("/tmp/a game.exe").hasSuffix("\\a game.exe"))
-    }
-
     @Test func patchInstallRestoreAndConflictProtection() throws {
         let p = try fixture(), game = temp.appendingPathComponent("game"), package = temp.appendingPathComponent("patch")
         try FileStore.write(Data("original".utf8), to: game.appendingPathComponent("steam_api64.dll"))
@@ -293,7 +283,7 @@ final class CoreTests {
         let p = try fixture(); let prefix = p.steam.appendingPathComponent("steamapps/compatdata/480/pfx")
         try FileStore.mkdir(prefix)
         try FileStore.write(Data("26.3.0.39832\nRosetta\n".utf8), to: prefix.deletingLastPathComponent().appendingPathComponent("notproton-build"))
-        expectThrow(try WineLaunch.prepare(appID: 480, command: "/example/trainer.exe", paths: p))
+        expectThrow(try WineLaunch.prepare(appID: 480, command: "/example/tool.exe", paths: p))
         let runner = p.notProton.appendingPathComponent("runners/crossover-26.3.0.39832/CrossOver")
         for name in ["lib/wine/x86_64-unix/wine", "bin/wineserver"] {
             let file = runner.appendingPathComponent(name); try FileStore.write(Data("#!/bin/sh\nexit 0\n".utf8), to: file)
@@ -303,9 +293,9 @@ final class CoreTests {
         let bridge = prefix.appendingPathComponent("drive_c/Program Files (x86)/Steam")
         try FileStore.write(Data(), to: client.appendingPathComponent("steamclient.dylib"))
         try FileStore.write(Data(), to: bridge.appendingPathComponent("lsteamclient.so"))
-        let launch = try WineLaunch.prepare(appID: 480, command: "/example/trainer.exe", paths: p)
+        let launch = try WineLaunch.prepare(appID: 480, command: "/example/tool.exe", paths: p)
         assertEqual(launch.environment["WINEPREFIX"].map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, prefix.resolvingSymlinksInPath().path)
-        assertEqual(launch.arguments, ["/example/trainer.exe"])
+        assertEqual(launch.arguments, ["/example/tool.exe"])
         assertEqual(launch.executable.path, runner.appendingPathComponent("lib/wine/x86_64-unix/wine").path)
         assertEqual(launch.environment["STEAM_COMPAT_CLIENT_INSTALL_PATH"], client.path)
         assertEqual(launch.environment["SteamAppId"], "480")

@@ -67,7 +67,7 @@ public enum AutomaticCompatibility {
         // Exclude Workshop keys, DLC and unknown depots; unknown primary content
         // prevents an automatic guess. Shared depots inherit the app's OS list.
         let base = info.depots.filter { $0.dlc == nil && !info.dlc.contains($0.id) }
-        let known = Set(info.depots.map(\.id)).union(info.dlc).union([info.id])
+        let known = Set((info.depots + (info.sharedDepots ?? [])).map(\.id)).union(info.dlc).union([info.id])
         guard available.subtracting(known).isEmpty else { return .unknown }
         let selected = base.filter { available.contains($0.id) }
         guard !selected.isEmpty else { return .unknown }

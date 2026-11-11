@@ -37,7 +37,5 @@ with tempfile.TemporaryDirectory(prefix='WineAdapter-', dir=root/'work') as temp
         registry.write_bytes(original)
     if os.environ.get('FLUENT_GOLDBERG_DLL'):
         run([windows(root/'script/test_goldberg_windows.py'), windows(os.environ['FLUENT_GOLDBERG_DLL'])])
-    else:
-        run([windows(root/'script/test_trainer_windows.py')])
     subprocess.run([server,'-w'],env=env,check=True,timeout=25)
     print('PASS: app Wine adapter and isolated Windows integration; registry restored; keysSent=0')

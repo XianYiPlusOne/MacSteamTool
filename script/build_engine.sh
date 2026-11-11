@@ -9,3 +9,5 @@ fi
 "$DOTNET" publish "$ROOT_DIR/Engine/FluentSteamEngine" -p:RestoreLockedMode=true -c Release -r osx-arm64 --self-contained true -o "$ROOT_DIR/work/engine-publish"
 
 "$DOTNET" publish "$ROOT_DIR/Engine/SteamlessBridge" -p:RestoreLockedMode=true -c Release -r win-x86 --self-contained true -o "$ROOT_DIR/work/steamless-bridge-publish"
+
+"$DOTNET" publish "$ROOT_DIR/Engine/PatchProbe" -p:RestoreLockedMode=true -c Release -r win-x64 --self-contained true -o "$ROOT_DIR/work/patch-probe-publish"

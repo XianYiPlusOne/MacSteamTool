@@ -2,48 +2,6 @@ import SwiftUI
 import AppKit
 import FluentCore
 
-struct DiscoverPage: View {
-    @EnvironmentObject var model: AppModel
-    @ViewState<Bool> private var dlc = true
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            PageHeader(title: model.tr("发现下一款游戏", "Find your next game"), subtitle: model.tr("通过 Steam 名称或 AppID 查询，生成可预览的 Lua 清单。", "Search Steam by name or AppID and preview a generated Lua manifest.")) { EmptyView() }
-            Panel {
-                HStack(spacing: 13) {
-                    Image(systemName: "magnifyingglass").font(.title3).foregroundStyle(Palette.accent)
-                    TextField(model.tr("输入游戏名称或 AppID，例如 480", "Game title or AppID, e.g. 480"), text: $model.search).textFieldStyle(.plain).font(.system(size: 16)).onSubmit { model.searchGames() }
-                    Button(model.tr("搜索", "Search")) { model.searchGames() }.buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy)
-                }
-                Divider().padding(.vertical, 10)
-                HStack { Toggle(model.tr("同时查询 DLC", "Include DLC"), isOn: $dlc).toggleStyle(.checkbox); Spacer(); Text(model.tr("简体中文名称 · 支持原生 / Windows depot", "Localized names · native / Windows depots")).font(.system(size: 10)).foregroundStyle(.secondary) }
-            }
-            LibrarySourcePanel()
-            DiscoveryChartsPanel()
-            if model.results.isEmpty {
-                EmptyMessage(icon: "sparkle.magnifyingglass", title: model.tr("搜索，然后添加到你的游戏库", "Search, then add to your library"), detail: model.tr("生成依赖所选数据源。没有密钥的内容会明确标出；导入不会自动下载游戏。", "Generation depends on your content source. Missing depot keys are reported. Importing does not download the game."))
-            } else {
-                ForEach(model.results) { item in
-                    Panel(padding: 15) {
-                        HStack(spacing: 18) {
-                            Cover(id: item.id, name: item.name, height: 95).frame(width: 205).clipShape(RoundedRectangle(cornerRadius: 10))
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(item.name).font(.system(size: 16, weight: .semibold))
-                                HStack { Text("AppID \(String(item.id))").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary); if item.mac { Pill(text: "macOS", color: Palette.green) }; if item.windows { Pill(text: "Windows · NotProton") } }
-                                if model.games.contains(where: { $0.id == item.id && $0.enabled }) { Text(model.tr("已在 macSteam 游戏库", "Already enabled in macSteam")).font(.system(size: 11)).foregroundStyle(Palette.green) }
-                            }
-                            Spacer()
-                            VStack(spacing: 9) {
-                                Button(model.tr("生成清单", "Generate Lua")) { model.generate(item.id, dlc: dlc) }.buttonStyle(.borderedProminent).disabled(model.busy)
-                                Button(model.tr("商店详情 ↗", "Store details ↗")) { model.openURL("https://store.steampowered.com/app/\(item.id)") }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 struct ImportPreview: View {
     @EnvironmentObject var model: AppModel
     var session: ImportSession
@@ -56,6 +14,10 @@ struct ImportPreview: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if session.automatic {
+                        Label(session.complete ? model.tr("待确认导入，尚未入库", "Awaiting confirmation; not yet imported") : model.tr("内容缺失或待核实，尚未入库", "Content missing or unverified; not imported"), systemImage: "info.circle").foregroundStyle(Palette.amber)
+                        ForEach(session.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                    }
                     ForEach(session.plan.documents, id: \.appID) { doc in
                         Panel(padding: 14) {
                             Text(doc.name.isEmpty ? "App \(doc.appID)" : doc.name).font(.headline)
@@ -78,9 +40,9 @@ struct ImportPreview: View {
             }
             Divider()
             HStack {
-                Button(model.tr("取消", "Cancel")) { model.pendingImport = nil }.keyboardShortcut(.cancelAction)
+                Button(model.tr("取消", "Cancel")) { model.cancelImport() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(model.tr("导入并启用", "Import and enable")) { model.commitImport() }.buttonStyle(.borderedProminent).disabled(model.busy).keyboardShortcut(.defaultAction)
+                Button(session.automatic && !session.complete ? model.tr("导入现有内容", "Import available content") : model.tr("导入并启用", "Import and enable")) { model.commitImport() }.buttonStyle(.borderedProminent).disabled(model.busy).keyboardShortcut(.defaultAction)
             }
         }.padding(28).frame(width: 680, height: 560)
     }

@@ -3,106 +3,6 @@ import AppKit
 import UniformTypeIdentifiers
 import FluentCore
 
-struct TrainersPage: View {
-    @EnvironmentObject var model: AppModel
-    @ViewState<String> private var query = ""
-    @ViewState<String> private var appID = ""
-    @ViewState<TrainerBinding?> private var editing: TrainerBinding?
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            PageHeader(title: model.tr("修改器工作台", "Trainer workspace"), subtitle: model.tr("搜索风灵月影修改器，并绑定到对应游戏的 NotProton 前缀。", "Find FLiNG trainers and bind them to the game's NotProton prefix.")) { Button(model.tr("下载文件夹", "Downloads")) { model.openFolder(model.paths.data.appendingPathComponent("Downloads")) } }
-            Panel {
-                Label(model.tr("兼容性需按修改器验证", "Compatibility varies by trainer"), systemImage: "info.circle").font(.headline)
-                Text(model.tr("修改器会使用所选游戏的运行器和同一前缀。CrossOver 的进程内存读写已通过受控测试，但下载成功或进程启动不代表修改有效；请匹配游戏版本。", "Trainers use the selected game's runner and prefix. CrossOver process memory access passed a controlled test, but downloading or launching a trainer does not verify its effects. Match the game version.")).font(.caption).foregroundStyle(.secondary)
-            }
-            TrainerAgentPanel()
-            Panel {
-                HStack {
-                    Button(model.tr("热门修改器", "Popular trainers")) { model.loadTrainerChart("popular") }
-                    Button(model.tr("新作修改器", "Recent trainers")) { model.loadTrainerChart("recent") }
-                }.disabled(model.busy)
-                HStack { TextField(model.tr("输入英文游戏名搜索修改器", "Search by English game title"), text: $query).textFieldStyle(.roundedBorder).onSubmit { model.searchTrainers(query) }; Button(model.tr("搜索", "Search")) { model.searchTrainers(query) }.buttonStyle(.borderedProminent).disabled(model.busy || query.isEmpty) }
-                ForEach(model.trainerResults) { trainer in
-                    HStack { Text(trainer.title).font(.system(size: 13)); Spacer(); Button(model.tr("原始页面", "Source page")) { NSWorkspace.shared.open(trainer.url) }; Button(model.tr("下载", "Download")) { model.downloadTrainer(trainer) }.disabled(model.busy) }.padding(.top, 10)
-                }
-            }
-            TrainerDownloadsPanel()
-            Panel {
-                HStack {
-                    Text(model.tr("本地修改器", "Local trainers")).font(.headline); Spacer()
-                    TextField("AppID", text: $appID).textFieldStyle(.roundedBorder).frame(width: 105)
-                    Button(model.tr("绑定 .exe…", "Bind .exe…")) { if let id = TextUtil.validID(appID) { model.bindTrainer(appID: id) } }.disabled(TextUtil.validID(appID) == nil)
-                }
-                if model.preferences.trainers.isEmpty { EmptyMessage(icon: "gamecontroller", title: model.tr("为游戏绑定修改器", "Bind a trainer to a game"), detail: model.tr("下载后解压，选择 .exe 并填写游戏 AppID。游戏需要已有 NotProton 前缀。", "Extract a downloaded trainer, choose its .exe and enter the game's AppID. A NotProton prefix must already exist.")) }
-                ForEach(model.preferences.trainers) { binding in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "gamecontroller.fill").foregroundStyle(Palette.accent)
-                            Text(binding.name).font(.system(size: 13, weight: .semibold)); Pill(text: "App \(binding.appID)"); Spacer()
-                            Button(model.tr("桌面快捷方式", "Desktop shortcut")) { model.trainerShortcut(binding) }
-                            Button(model.tr("运行", "Run")) { model.launchTrainer(binding) }.buttonStyle(.borderedProminent)
-                            Button { model.preferences.trainers.removeAll { $0.id == binding.id }; model.savePreferences() } label: { Image(systemName: "link.badge.plus").rotationEffect(.degrees(45)) }.help(model.tr("解除绑定", "Unbind"))
-                        }
-                        HStack {
-                            Button(model.tr("自动启动与快捷键…", "Auto-launch & shortcuts…")) { editing = binding }
-                            Text(binding.autoLaunch ? model.tr("自动监控已启用", "Monitoring enabled") : model.tr("手动运行", "Manual launch")).font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            Button(model.tr("日志", "Log")) { model.openFolder(model.paths.data.appendingPathComponent("Logs")) }
-                        }
-                        if binding.autoLaunch, let status = model.trainerStatus[binding.id] { Text(status).font(.caption).foregroundStyle(.secondary) }
-                        Text(binding.executable).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                    }.padding(.vertical, 12)
-                }
-            }
-            Text(model.tr("默认在本应用运行期间监控；启用独立后台后可退出主程序。自动快捷键只在游戏或修改器处于前台时发送；游戏退出后，只结束本次自动启动的修改器。", "Monitoring runs while this app is open by default, or independently when the background agent is enabled. Shortcuts are sent only while the game or trainer is in front. On game exit, only the trainer started by this monitor is stopped.")).font(.system(size: 11)).foregroundStyle(.secondary)
-        }
-        .sheet(item: $editing) { TrainerEditor(binding: $0).environmentObject(model) }
-    }
-}
-
-struct TrainerEditor: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    let binding: TrainerBinding
-    @ViewState<String> private var game = ""
-    @ViewState<String> private var keys = ""
-    @ViewState<Int> private var delay = 5
-    @ViewState<Bool> private var enabled = false
-    @ViewState<String> private var error = ""
-    @ViewState<[TrainerOption]> private var options = []
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(binding.name).font(.title2.bold())
-            Toggle(model.tr("检测游戏并自动启动修改器", "Detect game and automatically launch trainer"), isOn: $enabled)
-            HStack {
-                TextField(model.tr("游戏 .exe 的完整路径", "Full path to game .exe"), text: $game).textFieldStyle(.roundedBorder)
-                Button(model.tr("选择游戏…", "Choose game…")) {
-                    let panel = NSOpenPanel(); panel.allowedContentTypes = [UTType(filenameExtension: "exe")!]
-                    panel.directoryURL = model.games.first { $0.id == binding.appID }?.installed?.folder
-                    if panel.runModal() == .OK, let url = panel.url { game = url.path }
-                }
-            }
-            TextField(model.tr("自动快捷键，例如 F1, Ctrl+Num1（留空只启动）", "Shortcuts, e.g. F1, Ctrl+Num1 (empty = launch only)"), text: $keys).textFieldStyle(.roundedBorder)
-            if !options.isEmpty {
-                Text(model.tr("检测到的功能（勾选后加入快捷键）", "Detected options (select to add shortcut)")).font(.caption.bold())
-                ScrollView {
-                    VStack(alignment: .leading) {
-                        ForEach(options) { option in
-                            Toggle("\(option.key) · \(option.description)", isOn: Binding(get: { ((try? TrainerConfiguration.shortcuts(keys)) ?? []).contains(option.key) }, set: { value in var selected = (try? TrainerConfiguration.shortcuts(keys)) ?? []; selected.removeAll { $0 == option.key }; if value { selected.append(option.key) }; keys = selected.joined(separator: ", ") })).toggleStyle(.checkbox)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(maxHeight: 160)
-            }
-            Stepper(model.tr("启动后等待 \(delay) 秒再发送", "Wait \(delay) seconds after launch"), value: $delay, in: 1...120)
-            Text(model.tr("选择与修改器对应的实际游戏进程，不要选择启动器。快捷键以逗号分隔，按填写顺序执行；游戏或修改器不在前台时跳过。", "Choose the actual game executable, not its launcher. Separate shortcuts with commas; they run in order and are skipped when neither game nor trainer is in front.")).font(.caption).foregroundStyle(.secondary)
-            if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
-            HStack { Spacer(); Button(model.tr("取消", "Cancel")) { dismiss() }; Button(model.tr("保存", "Save")) { do { try model.configureTrainer(binding, game: game, keys: keys, delay: delay, enabled: enabled); dismiss() } catch { self.error = error.localizedDescription } }.buttonStyle(.borderedProminent) }
-        }.padding(28).frame(width: 650)
-        .onAppear { game = binding.gameExecutable ?? ""; keys = (binding.autoKeys ?? []).joined(separator: ", "); delay = binding.keyDelay ?? 5; enabled = binding.autoLaunch }
-        .task { let file = URL(fileURLWithPath: binding.executable); options = (try? await Task.detached { try TrainerConfiguration.options(in: file) }.value) ?? [] }
-    }
-}
-
 struct AccountsPage: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
@@ -223,6 +123,7 @@ struct SettingsPage: View {
                         }.disabled(model.busy)
                         Button(model.tr("打开缓存", "Open cache")) { model.openFolder(model.paths.cache) }
                     }.padding(.top, 8)
+                    LibraryFallbackSettings()
                 }
                 DownloadPreferencesPanel()
                 CachePanel()
@@ -258,7 +159,6 @@ struct CompatibilityPage: View {
         .init(name: "DLC 查询、补全、清单启用 / 禁用", english: "DLC lookup, completion, enable/disable", level: 2, note: "写入 macSteam 的 Apps / DepotKeys", englishNote: "Updates macSteam Apps and DepotKeys"),
         .init(name: "Lua addtoken 访问令牌", english: "Lua addtoken access tokens", level: 1, note: "随 AppID 启用与禁用、热加载；真实 Steam PICS 请求与 UInt64 精度隔离测试通过，在线消费待验证", englishNote: "Follows AppID enable/disable with hot reload; real Steam PICS and UInt64 isolation tests passed; online consumption unverified"),
         .init(name: "NotProton 前缀 / Wine 工具 / 游戏启动", english: "NotProton prefixes, Wine tools, launch", level: 2, note: "按游戏使用对应 CrossOver 运行器", englishNote: "Uses the game's matching CrossOver runtime"),
-        .init(name: "修改器搜索、下载、绑定与运行", english: "Trainer search, download, binding, launch", level: 1, note: "进程监控与生命周期已接入；CrossOver 自建子进程读写内存及还原通过，具体修改器效果仍需逐项验证", englishNote: "Process monitoring and lifecycle implemented; controlled CrossOver child-process memory editing/restoration passed; individual trainers remain unverified"),
         .init(name: "Steam 启动 / 重启 / 本地账号切换", english: "Steam launch, restart, account switch", level: 2, note: "复用已保存登录记录，切换前需退出 Steam", englishNote: "Uses remembered logins; Steam must be closed for switching"),
         .init(name: "版本锁定 / Manifest 下载", english: "Version pins / manifest downloads", level: 1, note: "Fluent Manifest 扩展已通过真实 ARM64 Steam 函数隔离测试；支持 build 1792618285 public 分支和有效缓存，真实下载待回归", englishNote: "Fluent Manifest passed isolated tests against real ARM64 Steam functions; build 1792618285 public branch and validated caches supported, live downloads unverified"),
         .init(name: "内核安装 / 更新 / 卸载", english: "Kernel install, update and uninstall", level: 2, note: "官方版本查询、下载与校验已实测；匹配 Steam build 后选为来源，沿用备份安装与恢复", englishNote: "Official release checks, downloads and validation passed; matching Steam builds select a source for backed-up installation and restore"),
@@ -269,7 +169,7 @@ struct CompatibilityPage: View {
         .init(name: "游戏启动检查", english: "Game startup diagnostics", level: 2, note: "按选定游戏读取最近 Unity 日志，区分初始化失败、成功和无法判断；不修改游戏或存档", englishNote: "Reads only the selected game's latest Unity log and distinguishes failed, successful and unknown initialization without modifying game data"),
         .init(name: "创意工坊", english: "Steam Workshop", level: 2, note: "深空当铺订阅下载问题已修复，用户确认正常；实际游戏识别到 14 个工坊项目", englishNote: "Probably Stolen subscription downloads repaired and confirmed working by the user; the game detected 14 Workshop items"),
         .init(name: "Denuvo appticket / eticket", english: "Denuvo appticket / eticket", level: 1, note: "双票据导入、账号绑定消费与异步回调已实现；480 原生实机消费通过，Denuvo 游戏待验证", englishNote: "Import, account-bound consumption and async callbacks implemented; live native 480 consumption passed; Denuvo games unverified"),
-        .init(name: "480 / OnlineFix 一键联机补丁", english: "480 / OnlineFix patch automation", level: 1, note: "参数式内核联机、Overlay / AppID 还原及补丁下载部署已实现；内核隔离检查通过，未进行真实双人联机", englishNote: "Explicit kernel multiplayer mode, overlay/AppID restoration and patch deployment implemented; isolated kernel checks passed, real multiplayer not exercised"),
+        .init(name: "480 / OnlineFix 一键联机补丁", english: "480 / OnlineFix patch automation", level: 1, note: "Windows 补丁按程序、容器及架构校验；可检查实际 DLL 模块加载；隔离链路通过，未进行真实双人联机", englishNote: "Windows executable/bottle/architecture validation and actual DLL module checks; isolated workflow passed, real multiplayer unverified"),
         .init(name: "SteamStub 去除 / Goldberg 部署", english: "SteamStub removal / Goldberg deployment", level: 1, note: "官方 Steamless 插件与合成 PE 解包通过；Goldberg 本地 480 API / 成就往返通过，实际游戏待测", englishNote: "Official Steamless plugins and synthetic PE unpack passed; Goldberg local 480 API/achievement round trip passed; actual games pending"),
         .init(name: "自选游戏目录 / 离线成就定义", english: "Custom game folders / offline achievement definitions", level: 1, note: "文件夹名称查询 AppID、手动输入、Web API 成就定义和可选图标；商店查询实测通过，在线定义待提供 API Key", englishNote: "Folder-name AppID search, manual entry, Web API definitions and optional icons; live Store search passed; online definitions await an API key"),
         .init(name: "Manifest 自动监听修复 / CDN 切换", english: "Manifest monitoring and CDN fallback", level: 2, note: "监听新增日志请求，验证内容后写入 depotcache", englishNote: "Tails new log requests and validates downloaded manifests before caching"),

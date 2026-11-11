@@ -2,7 +2,9 @@
 import json,os,pathlib,shutil,struct,subprocess,sys,tempfile
 root=pathlib.Path(__file__).resolve().parents[1]
 inspect=pathlib.Path(sys.argv[1]).resolve()
-prefix=root/'work/notproton-test/compatdata/480/pfx'
+prefix=(root/'work/notproton-test/compatdata/480/pfx').resolve()
+assert prefix.is_relative_to(root/'work') and (prefix/'user.reg').is_file(), 'An isolated work/ prefix is required'
+assert (root/'work/windows-test-runtime/python.exe').is_file(), 'Run script/build_windows_test_runtime.sh first'
 windows=lambda p:'Z:'+str(pathlib.Path(p).resolve()).replace('/','\\')
 with tempfile.TemporaryDirectory(prefix='SteamlessTest-',dir=root/'work') as tmp:
     temp=pathlib.Path(tmp); steam=temp/'Steam'; game=steam/'steamapps/compatdata/480';game.mkdir(parents=True)
@@ -51,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix='SteamlessTest-',dir=root/'work') as tmp
         assert struct.unpack_from('<I',output,optional+16)[0]==0x1000
         assert struct.unpack_from('<H',output,0x86)[0]==1 and output[0x200:0x205]==binary[0x200:0x205]
         print('PASS: synthetic SteamStub 3.1 x64 unpacked, original entry point restored, .bind removed, code preserved; fixture was not executed',flush=True)
-        result=run('unpack',root/'outputs/Fluent Steam Mac.app/Contents/Resources/Helpers/Windows/python.exe')
+        result=run('unpack',root/'work/windows-test-runtime/python.exe')
         assert not result['ok'] and 'No supported SteamStub' in result['error'],result
         print('PASS: official unmodified plugins loaded under NotProton x86 .NET; unprotected PE rejected without changes',flush=True)
     finally:

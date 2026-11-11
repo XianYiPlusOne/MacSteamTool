@@ -55,19 +55,45 @@ struct EmptyMessage: View {
     }
 }
 struct Cover: View {
+    @EnvironmentObject var model: AppModel
     var id: Int
     var name: String
     var height: CGFloat = 135
+    var imageURL: String? = nil
+    @ViewState<NSImage?> private var image = nil
+    @ViewState<Bool> private var failed = false
+    @ViewState<Bool> private var loading = false
+    @ViewState<Int> private var retry = 0
+    private struct Request: Hashable { let app: Int; let reference: String?; let steam: String; let retry: Int }
     var body: some View {
-        AsyncImage(url: URL(string: "https://cdn.akamai.steamstatic.com/steam/apps/\(id)/header.jpg")) { phase in
-            if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
+        let request = Request(app: id, reference: imageURL ?? model.metadata[id]?.image, steam: model.paths.steam.path, retry: retry)
+        ZStack(alignment: .bottomTrailing) {
+            if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fill) }
             else {
                 ZStack {
                     LinearGradient(colors: [Palette.accent.opacity(0.25), Color.indigo.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: "gamecontroller.fill").font(.system(size: 32, weight: .light)).foregroundStyle(Palette.accent.opacity(0.55))
                 }
+                if loading { ProgressView().controlSize(.small).padding(8) }
+                else if failed {
+                    Button { retry += 1 } label: { Image(systemName: "arrow.clockwise").padding(7) }.buttonStyle(.plain)
+                        .help(model.tr("重新加载封面", "Reload cover")).accessibilityLabel(model.tr("重新加载封面", "Reload cover"))
+                }
             }
         }.frame(height: height).clipped().accessibilityLabel(name)
+        .contextMenu { Button(model.tr("重新加载封面", "Reload cover")) { retry += 1 } }
+        .task(id: request) {
+            loading = true; failed = false
+            let cached = await model.covers.cachedImage(appID: request.app, steam: URL(fileURLWithPath: request.steam))
+            guard !Task.isCancelled else { return }
+            image = cached.flatMap(NSImage.init(data:))
+            do {
+                let bytes = try await model.covers.load(appID: request.app, reference: request.reference, steam: URL(fileURLWithPath: request.steam), force: request.retry > 0)
+                guard !Task.isCancelled else { return }
+                image = NSImage(data: bytes); failed = image == nil
+            } catch { guard !Task.isCancelled else { return }; failed = image == nil }
+            loading = false
+        }
     }
 }
 struct InfoLine: View {

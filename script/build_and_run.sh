@@ -13,15 +13,15 @@ if [[ "$MODE" != "--build" ]]; then pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 swift build
 BIN_DIR="$(swift build --show-bin-path)"
 STAGING="$ROOT_DIR/work/app-staging"
+# Start with a clean generated bundle so removed features cannot survive incremental builds.
+rm -rf "$STAGING"
 mkdir -p "$STAGING/Contents/MacOS" "$STAGING/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$STAGING/Contents/MacOS/$APP_NAME"
-cp "$BIN_DIR/FluentTrainerAgent" "$STAGING/Contents/MacOS/FluentTrainerAgent"
 cp "$BIN_DIR/FluentUpdater" "$STAGING/Contents/MacOS/FluentUpdater"
 cp "$ROOT_DIR/Resources/UpdatePublicKey.txt" "$STAGING/Contents/Resources/UpdatePublicKey.txt"
 cp "$BIN_DIR/FluentSteamWorker" "$STAGING/Contents/MacOS/FluentSteamWorker"
 "$ROOT_DIR/script/build_engine.sh"
 "$ROOT_DIR/script/build_cloud.sh"
-"$ROOT_DIR/script/build_windows.sh"
 "$ROOT_DIR/script/build_notproton.sh"
 "$ROOT_DIR/script/build_pins.sh"
 python3 "$ROOT_DIR/script/build_notproton_kernel.py"
@@ -34,10 +34,10 @@ mkdir -p "$STAGING/Contents/Helpers/Manifest"
 cp "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" "$STAGING/Contents/Helpers/Manifest/"
 mkdir -p "$STAGING/Contents/Helpers/Cloud"
 cp "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" "$ROOT_DIR/work/cloud-build/FluentCloudCLI" "$STAGING/Contents/Helpers/Cloud/"
+ditto "$ROOT_DIR/work/patch-probe-publish" "$STAGING/Contents/Resources/Helpers/PatchProbe"
 ditto "$ROOT_DIR/work/steamless-bridge-publish" "$STAGING/Contents/Resources/Helpers/SteamlessBridge"
 ditto "$ROOT_DIR/work/engine-publish" "$STAGING/Contents/Resources/Helpers/SteamEngine"
 ditto "$ROOT_DIR/work/notproton-publish" "$STAGING/Contents/Helpers/NotProton"
-ditto "$ROOT_DIR/work/windows-publish" "$STAGING/Contents/Resources/Helpers/Windows"
 chmod +x "$STAGING/Contents/MacOS/$APP_NAME"
 for resource in "$BIN_DIR"/*.bundle; do
   if [[ -d "$resource" ]]; then cp -R "$resource" "$STAGING/Contents/Resources/"; fi
@@ -55,14 +55,13 @@ cat > "$STAGING/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Fluent Steam Mac</string>
 <key>CFBundleDisplayName</key><string>Fluent Steam Mac</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.17</string>
-<key>CFBundleVersion</key><string>19</string>
+<key>CFBundleShortVersionString</key><string>0.2.25</string>
+<key>CFBundleVersion</key><string>27</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>Trainer shortcut</string><key>CFBundleURLSchemes</key><array><string>fluentsteam</string></array></dict></array>
 </dict></plist>
 PLIST
 # PE/.NET payloads belong in Resources, where their integrity is sealed as data.

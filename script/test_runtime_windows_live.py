@@ -15,7 +15,7 @@ prefix=args.prefix.resolve();assert prefix.is_relative_to(root/'work') and prefi
 assert 0<=args.hold<=90
 expected=json.loads(args.tickets.read_text());ownership=base64.b64decode(expected['ownershipTicket']);assert int.from_bytes(ownership[16:20],'little')==480
 inspect=root/'.build/out/Products/Debug/FluentInspect';assert inspect.is_file(),'Build with script/build_and_run.sh first'
-helper=root/'outputs/Fluent Steam Mac.app/Contents/Resources/Helpers/Windows/python.exe';assert helper.is_file()
+helper=root/'work/windows-test-runtime/python.exe';assert helper.is_file(), 'Run script/build_windows_test_runtime.sh first'
 windows=lambda q:'Z:'+str(q).replace('/','\\')
 with tempfile.TemporaryDirectory(dir=root/'work',prefix='LiveRuntimeWine-') as tmp:
     steam=Path(tmp)/'Steam';game=steam/'steamapps/compatdata/480';game.mkdir(parents=True);(game/'pfx').symlink_to(prefix,target_is_directory=True)

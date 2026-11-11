@@ -4,12 +4,12 @@ import UniformTypeIdentifiers
 import FluentCore
 
 enum Page: String, CaseIterable, Identifiable {
-    case library, discover, manifests, trainers, patches, achievements, saves, accounts, runtime, compatibility, settings
+    case library, discover, manifests, patches, achievements, saves, accounts, runtime, compatibility, settings
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .library: "square.grid.2x2"; case .discover: "plus.magnifyingglass"; case .manifests: "doc.text"
-        case .trainers: "gamecontroller"; case .saves: "externaldrive.badge.icloud"; case .accounts: "person.crop.circle"
+        case .saves: "externaldrive.badge.icloud"; case .accounts: "person.crop.circle"
         case .runtime: "cpu"; case .compatibility: "checklist"; case .settings: "gearshape"
         case .achievements: "trophy"
         case .patches: "puzzlepiece.extension"
@@ -18,14 +18,20 @@ enum Page: String, CaseIterable, Identifiable {
     var titles: (String, String) {
         switch self {
         case .library: ("游戏库", "Library"); case .discover: ("搜索入库", "Discover"); case .manifests: ("清单管理", "Manifests")
-        case .trainers: ("修改器", "Trainers"); case .saves: ("存档与备份", "Saves & backups"); case .accounts: ("Steam 账号", "Steam accounts")
+        case .saves: ("存档与备份", "Saves & backups"); case .accounts: ("Steam 账号", "Steam accounts")
         case .runtime: ("运行环境", "Runtime"); case .compatibility: ("功能对照", "Feature parity"); case .settings: ("设置", "Settings")
         case .achievements: ("成就管理", "Achievements")
         case .patches: ("联机补丁", "Online patches")
         }
     }
 }
-struct ImportSession: Identifiable { let id = UUID(); var plan: ImportPlan }
+struct ImportSession: Identifiable {
+    let id = UUID()
+    var plan: ImportPlan
+    var automatic = false
+    var complete = true
+    var notes: [String] = []
+}
 struct Message: Identifiable { let id = UUID(); var title: String; var detail: String }
 
 @MainActor final class AppModel: ObservableObject {
@@ -41,7 +47,6 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var query = ""
     @Published var filter = "all"
     @Published var search = ""
-    @Published var results: [GameMetadata] = []
     @Published var metadata: [Int: GameMetadata] = [:]
     @Published var selectedGame: Game?
     @Published var pendingImport: ImportSession?
@@ -57,7 +62,6 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var saveManagerGameID: Int?
     @Published var saveManagerStatus = ""
     @Published var backups: [BackupRecord] = []
-    @Published var trainerResults: [WebDownload] = []
     @Published var needsRestart = false
     @Published var automaticCompatibilityStatus = ""
     @Published var automaticCompatibilityWaiting: [Int] = []
@@ -86,10 +90,14 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var loginQR = ""
     @Published var onlineAccount = ""
     @Published var ownedGames: [OwnedGame] = []
+    let home: URL
     let defaults: AppPaths
     private var savedPaths: AppPaths?
     var paths: AppPaths { savedPaths ?? defaults }
     var service: LibraryService { LibraryService(paths: paths) }
+    let charts: DiscoveryChartsFlow
+    let discoverySearch: DiscoverySearchFlow
+    let covers: GameCovers
     var api: SteamAPI
     var content: ContentService
     var operation: Task<Void, Never>?
@@ -97,28 +105,30 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     var fingerprint = ""
     var observedSteamPIDs: [Int32] = []
     var runningTools: [Process] = []
-    var trainerMonitors: [UUID: TrainerMonitor] = [:]
-    var retiringTrainers: [UUID: TrainerMonitor] = [:]
-    var trainerFailures: [UUID: TrainerBinding] = [:]
-    @Published var trainerStatus: [UUID: String] = [:]
     var metadataTask: Task<Void, Never>?
     var metadataGeneration = UUID()
+    // Steamworks Common Redistributables has a local name but no Store game page.
+    private static let sharedComponentAppIDs: Set<Int> = [228980]
     var monitorTask: Task<Void, Never>?
     var didBootstrap = false
-    var bootstrapFinished = false
-    var pendingTrainerShortcut: URL?
     var remotePackageFetch: (Int, Preferences, URL) async throws -> [ImportFile] = { try await RemoteLuaPackage.fetch(appID: $0, preferences: $1, engine: $2) }
+    var libraryInfoFetch: ((Int) async throws -> AppInfo)?
+    var libraryKeyFetch: ((Bool) async throws -> [Int: String])?
     var hubCredentialLoad: () throws -> ManifestHubCredential? = { try ManifestHubCredential.load() }
     var manifestFetch: ((Int, String, String) async throws -> Data)?
-    var trainerLaunchOverride: ((TrainerBinding) throws -> Void)?
     var testing: Bool
     var language: String { preferences.language == "en" ? "english" : "schinese" }
     var steamRunning: Bool { !testing && SteamProcesses.isRunning }
-    init(fixtureHome: URL? = nil) {
+    init(fixtureHome: URL? = nil, chartStore: DiscoveryChartStore? = nil) {
         let fixture = fixtureHome?.path ?? ProcessInfo.processInfo.environment["FLUENT_FIXTURE_HOME"]
         testing = fixture != nil
+        home = fixture.map { URL(fileURLWithPath: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
         defaults = fixture.map { AppPaths(home: URL(fileURLWithPath: $0)) } ?? AppPaths()
-        api = SteamAPI(cache: defaults.cache.appendingPathComponent("Metadata"))
+        charts = DiscoveryChartsFlow(store: chartStore ?? DiscoveryChartStore(file: defaults.cache.appendingPathComponent("Charts/popular.json")))
+        covers = GameCovers(cache: defaults.cache.appendingPathComponent("Covers"))
+        let api = SteamAPI(cache: defaults.cache.appendingPathComponent("Metadata"))
+        self.api = api
+        discoverySearch = DiscoverySearchFlow { try await api.searchPage($0, language: $1, offset: $2) }
         content = ContentService(api: api, cache: defaults.cache)
         runtime = .empty
     }
@@ -127,17 +137,24 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         let settings = defaults.settings
         busy = true; progress = tr("读取本地设置", "Read local settings")
         do {
+            let home = home, defaults = defaults, fixture = testing
+            try await Task.detached {
+                if fixture { try RetiredFeatureCleanup.run(home: home, paths: defaults, launchctl: { _ in 113 }) }
+                else { try RetiredFeatureCleanup.run(home: home, paths: defaults) }
+            }.value
+        } catch { message = Message(title: tr("升级清理未完成", "Upgrade cleanup incomplete"), detail: error.localizedDescription) }
+
+        do {
             preferences = try await Task.detached {
                 FileStore.fm.fileExists(atPath: settings.path) ? try FileStore.decode(Preferences.self, at: settings) : Preferences()
             }.value
         } catch { message = Message(title: "设置读取失败", detail: error.localizedDescription + "。原文件保留，请检查后重新保存。") }
         savedPaths = preferences.applying(to: defaults)
         await content.configure(preferredCDN: preferences.preferredCDN)
-        busy = false; refresh(); AppDelegate.model = self; reconcileTrainerMonitors()
+        busy = false; refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.reconcileTrainerMonitors()
                 guard !self.busy else { return }
                 self.reconcileAutomaticCompatibility()
                 self.reconcileAutomaticAchievements()
@@ -151,8 +168,6 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         if let timer { RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .modalPanel) }
         if !testing && preferences.automaticallyCheckRuntimeUpdates == true { Task { await checkRuntimeUpdates() } }
         if !testing && preferences.automaticallyCheckUpdates == true { Task { await checkForUpdates(silent: true) } }
-        bootstrapFinished = true
-        if let pending = pendingTrainerShortcut { pendingTrainerShortcut = nil; handleShortcut(pending) }
     }
     func tr(_ zh: String, _ en: String) -> String { preferences.language == "en" ? en : zh }
     func title(_ page: Page) -> String { tr(page.titles.0, page.titles.1) }
@@ -209,7 +224,9 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             var localized = cached
             publish(localized)
             guard fetchNames else { return }
-            let pending = games.filter { localized[$0.id] == nil }.prefix(24)
+            let pending = games.filter {
+                !Self.sharedComponentAppIDs.contains($0.id) && localized[$0.id] == nil
+            }.prefix(24)
             for game in pending {
                 guard current() else { return }
                 do {
@@ -217,7 +234,11 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                     guard current() else { return }
                     localized[game.id] = item
                     publish(localized)
-                } catch { if current() { log("名称查询 \(game.id)：\(error.localizedDescription)") } }
+                } catch {
+                    if current() {
+                        log(tr("后台名称查询 \(game.id)：", "Background name lookup \(game.id): ") + error.localizedDescription)
+                    }
+                }
             }
         }
     }
@@ -226,11 +247,11 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         if eventLog.count > 150 { eventLog.removeLast() }
     }
     func fail(_ error: Error) { log(error.localizedDescription); message = Message(title: tr("操作未完成", "Operation failed"), detail: error.localizedDescription) }
-    func run(_ title: String, cancellable: Bool = true, _ work: @escaping @MainActor () async throws -> Void) {
+    func run(_ title: String, cancellable: Bool = true, logCompletion: Bool = true, _ work: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }; busy = true; progress = title; canCancelOperation = cancellable
         operation = Task {
             defer { busy = false; operation = nil; canCancelOperation = true }
-            do { try await work(); log(title + " · " + tr("完成", "done")) }
+            do { try await work(); if logCompletion { log(title + " · " + tr("完成", "done")) } }
             catch is CancellationError { log(tr("操作已取消", "Operation cancelled")) }
             catch { fail(error) }
         }
@@ -254,18 +275,6 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 self.savedPaths = saved.applying(to: defaults)
                 await self.content.configure(preferredCDN: cdn)
                 self.metadata.removeAll(); self.metadataTask?.cancel(); self.metadataTask = nil; self.metadataGeneration = UUID(); self.refresh()
-                if !self.testing {
-                    if saved.independentTrainerMonitor == true { self.stopTrainerMonitors() }
-                    let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/FluentTrainerAgent")
-                    do {
-                        try TrainerAgentService.configure(enabled: saved.independentTrainerMonitor == true, executable: helper, settings: defaults.settings, log: self.paths.data.appendingPathComponent("Logs/trainer-agent.log"))
-                    } catch {
-                        self.preferences.independentTrainerMonitor = false
-                        _ = try PreferenceStore.save(self.preferences, defaults: defaults, migrateLua: false)
-                        self.reconcileTrainerMonitors(); throw error
-                    }
-                }
-                self.reconcileTrainerMonitors()
                 if let result { self.log(self.tr("Lua 已迁移 \(result.copied) 个，一致 \(result.identical) 个；原目录保留。", "Lua: copied \(result.copied), identical \(result.identical); original folder retained.")) }
             }
         } catch { fail(error) }
@@ -283,10 +292,18 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     }
     func commitImport() {
         guard let pending = pendingImport else { return }
-        run(tr("导入游戏清单", "Import game manifests")) {
+        run(tr("导入游戏清单", "Import game manifests"), logCompletion: false) {
             try Task.checkCancellation()
             try self.service.perform(pending.plan); self.pendingImport = nil; self.needsRestart = true; self.refresh()
+            self.log(pending.automatic && !pending.complete
+                     ? self.tr("已导入现有内容，仍有缺项或待核实内容", "Available content imported; gaps or verification issues remain")
+                     : self.tr("已入库", "Added to library"))
         }
+    }
+    func cancelImport() {
+        guard pendingImport != nil else { return }
+        pendingImport = nil
+        log(tr("已取消入库，未写入游戏库", "Import cancelled; library unchanged"))
     }
     func batchLibrary(_ games: [Game], action: LibraryService.BatchAction) {
         guard !games.isEmpty else { return }
@@ -318,16 +335,50 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         }
     }
     func searchGames() {
-        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let q = search
-        run(tr("搜索 Steam 游戏", "Search Steam")) { self.results = try await self.api.search(q, language: self.language) }
+        guard !busy else { return }
+        discoverySearch.search(search, language: language)
+    }
+    func addToLibrary(_ id: Int, dlc: Bool) {
+        guard !games.contains(where: { $0.id == id && $0.enabled }) else { return }
+        run(tr("添加到游戏库", "Add to library"), logCompletion: false) {
+            let preferences = self.preferences
+            let context = try LibraryInstallContext.read(appID: id, paths: self.paths)
+            let result = try await AutomaticLibraryImport.resolve(appID: id, includeDLC: dlc, context: context, appInfo: { appID in
+                if let fetch = self.libraryInfoFetch { return try await fetch(appID) }
+                return try await self.api.appInfo(appID)
+            }, cachedKeys: {
+                if let fetch = self.libraryKeyFetch { return try await fetch(false) }
+                return try await self.content.libraryKeys(preferences: preferences, refresh: false)
+            }, refreshKeys: {
+                if let fetch = self.libraryKeyFetch { return try await fetch(true) }
+                return try await self.content.libraryKeys(preferences: preferences, refresh: true)
+            }, remote: {
+                try await self.remotePackageFetch(id, preferences, self.engineExecutable)
+            }, progress: { self.progress = $0; self.log($0) })
+            try Task.checkCancellation()
+            guard try LibraryInstallContext.read(appID: id, paths: self.paths) == context else {
+                throw AppFailure("游戏运行设置已变化，请重新入库 / Game runtime settings changed; retry the import")
+            }
+            for note in result.notes { self.log(note) }
+            var plan = try self.service.plan(result.files)
+            plan.warnings = Array(Set(plan.warnings + result.warnings)).sorted()
+            let existingLua = self.games.contains { $0.id == id && $0.luaURL != nil }
+            if result.complete && plan.warnings.isEmpty && plan.replacing.isEmpty && !existingLua {
+                try self.service.perform(plan)
+                self.needsRestart = true
+                self.refresh()
+                self.log(self.tr("已入库：AppID \(id)", "Added to library: AppID \(id)"))
+            } else {
+                self.pendingImport = ImportSession(plan: plan, automatic: true, complete: result.complete, notes: result.notes)
+                self.log(result.complete
+                         ? self.tr("待确认导入，尚未写入游戏库", "Awaiting import confirmation; library unchanged")
+                         : self.tr("内容缺失或待核实，尚未入库", "Content missing or unverified; not added to library"))
+            }
+        }
     }
     func generate(_ id: Int, dlc: Bool, existing: Game? = nil) {
+        if existing == nil { addToLibrary(id, dlc: dlc); return }
         run(tr("生成游戏清单", "Generate game manifest")) {
-            if self.preferences.librarySource == "remote", existing == nil {
-                let files = try await self.remotePackageFetch(id, self.preferences, self.engineExecutable)
-                self.pendingImport = ImportSession(plan: try self.service.plan(files)); return
-            }
             let generated = try await self.content.generate(id: id, includeDLC: dlc, preferences: self.preferences) { text in
                 await MainActor.run { self.progress = text }
             }
@@ -408,42 +459,12 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             self.publishAutomaticCompatibility(report)
             guard !report.waitingForSteam.contains(game.id) else { throw AppFailure("已自动选好 NotProton，请先重启 Steam 应用此设置，再安装或启动游戏 / NotProton is ready; restart Steam to apply it before installing or launching this game") }
             self.openURL("steam://rungameid/\(game.id)")
-            self.reconcileTrainerMonitors()
         }
-    }
-    func launchTrainer(_ binding: TrainerBinding) {
-        if let trainerLaunchOverride { do { try trainerLaunchOverride(binding) } catch { fail(error) }; return }
-        guard !testing else { log("测试环境不启动 Wine 进程"); return }
-        do {
-            guard FileStore.fm.fileExists(atPath: binding.executable) else { throw AppFailure("修改器文件已移动或删除 / Trainer file was moved or deleted") }
-            let launch = try WineLaunch.prepare(appID: binding.appID, command: binding.executable, paths: paths)
-            runningTools.append(try launch.launch(log: paths.data.appendingPathComponent("Logs/trainer-\(binding.appID).log")))
-            log(tr("已提交修改器启动请求", "Trainer launch requested"))
-        } catch { fail(error) }
     }
     func wineTool(_ game: Game, command: String) {
         guard !testing else { log("测试环境不启动 Wine 工具"); return }
         do { runningTools.append(try WineLaunch.prepare(appID: game.id, command: command, paths: paths).launch(log: paths.data.appendingPathComponent("Logs/wine-\(game.id).log"))) }
         catch { fail(error) }
-    }
-    func bindTrainer(appID: Int) {
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [UTType(filenameExtension: "exe")!]
-        if panel.runModal() == .OK, let file = panel.url {
-            preferences.trainers.append(TrainerBinding(appID: appID, name: file.deletingPathExtension().lastPathComponent, executable: file.path)); savePreferences()
-        }
-    }
-    func loadTrainerChart(_ kind: String) { run(tr("获取修改器榜单", "Load trainer charts")) {
-        self.trainerResults = try await TrainerSearch.chart(kind)
-        guard !self.trainerResults.isEmpty else { throw AppFailure("修改器榜单为空或页面格式已变化 / Trainer chart is empty or the page format changed") }
-    } }
-    func searchTrainers(_ q: String) { run(tr("搜索风灵月影修改器", "Search FLiNG trainers")) { self.trainerResults = try await TrainerSearch.search(q) } }
-    func downloadTrainer(_ item: WebDownload) {
-        run(tr("下载修改器压缩包", "Download trainer archive")) {
-            let link = try await TrainerSearch.downloadLink(item.url)
-            let data = try await HTTP.get(link, limit: 128 * 1024 * 1024)
-            let destination = self.paths.data.appendingPathComponent("Downloads/\(UUID().uuidString.prefix(8))-\(link.lastPathComponent)")
-            try FileStore.write(data, to: destination); self.refresh(); NSWorkspace.shared.activateFileViewerSelecting([destination])
-        }
     }
     func backupSave(_ save: SaveLocation) {
         guard !busy else { return }

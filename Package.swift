@@ -8,7 +8,6 @@ let package = Package(
         .executable(name: "FluentSteam", targets: ["FluentSteam"]),
         .executable(name: "FluentUpdater", targets: ["FluentUpdater"]),
         .executable(name: "FluentInspect", targets: ["FluentInspect"]),
-        .executable(name: "FluentTrainerAgent", targets: ["FluentTrainerAgent"]),
         .executable(name: "FluentSteamWorker", targets: ["FluentSteamWorker"]),
         .library(name: "FluentCore", targets: ["FluentCore"])
     ],
@@ -16,7 +15,6 @@ let package = Package(
     targets: [
         .target(name: "FluentCore", dependencies: ["ZIPFoundation"]),
         .executableTarget(name: "FluentSteam", dependencies: ["FluentCore"]),
-        .executableTarget(name: "FluentTrainerAgent", dependencies: ["FluentCore"]),
         .executableTarget(name: "FluentUpdater", dependencies: ["FluentCore"]),
         .executableTarget(name: "FluentInspect", dependencies: ["FluentCore"]),
         .target(name: "NativeSteam", publicHeadersPath: "include"),

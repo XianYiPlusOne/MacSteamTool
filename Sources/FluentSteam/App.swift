@@ -9,7 +9,6 @@ struct FluentSteamApp: App {
     var body: some Scene {
         WindowGroup("Fluent Steam · Mac", id: "main") {
             RootView().environmentObject(model)
-                .onOpenURL { url in Task { await model.bootstrap(); model.handleShortcut(url) } }
                 .preferredColorScheme(model.preferences.theme == "dark" ? .dark : model.preferences.theme == "light" ? .light : nil)
                 .frame(minWidth: 1060, minHeight: 700)
         }
@@ -45,8 +44,6 @@ struct TrayMenu: View {
     }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    static weak var model: AppModel?
-    func applicationWillTerminate(_ notification: Notification) { Self.model?.stopTrainerMonitors() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true)
     }

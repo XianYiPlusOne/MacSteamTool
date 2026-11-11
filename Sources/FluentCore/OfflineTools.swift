@@ -105,11 +105,11 @@ public enum OfflineTools {
         try FileStore.fm.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let inputExe = work.appendingPathComponent("input.exe"), request = work.appendingPathComponent("request.json"), response = work.appendingPathComponent("response.json")
         try FileStore.write(original, to: inputExe)
-        let r = ["operation": "unpack", "plugins": try TrainerConfiguration.windowsPath(api.deletingLastPathComponent().path), "file": try TrainerConfiguration.windowsPath(inputExe.path)]
+        let r = ["operation": "unpack", "plugins": try WineLaunch.windowsPath(api.deletingLastPathComponent().path), "file": try WineLaunch.windowsPath(inputExe.path)]
         try FileStore.json(r, to: request)
         var launch = try WineLaunch.prepare(appID: appID, command: bridge.path, paths: paths)
         launch.environment["DOTNET_EnableWriteXorExecute"] = "0"
-        launch.arguments += [try TrainerConfiguration.windowsPath(request.path), try TrainerConfiguration.windowsPath(response.path)]
+        launch.arguments += [try WineLaunch.windowsPath(request.path), try WineLaunch.windowsPath(response.path)]
         let process = try launch.launch(log: destination.appendingPathComponent("steamless.log"))
         defer { if process.isRunning { process.terminate() } }
         let deadline = Date().addingTimeInterval(180)

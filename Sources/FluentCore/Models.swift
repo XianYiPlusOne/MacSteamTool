@@ -46,18 +46,15 @@ public struct Preferences: Codable, Sendable {
     public var tokensURL = "https://api.993499094.xyz/appaccesstokens.json"
     public var manifestURL = "https://steamapi.993499094.xyz/manifest/{depot}/{manifest}"
     public var manifestFallbacks: Bool? = true
-    public var librarySource: String?
     public var remotePackageURL: String?
     public var remotePackageMode: String?
     public var manifestSource: String?
     public var automaticallyCheckRuntimeUpdates: Bool?
-    public var independentTrainerMonitor: Bool?
     public var updateFeed: String?
     public var automaticallyCheckUpdates: Bool?
     public var downloadMirror: String?
     public var preferredCDN: String?
     public var materialBackground: Bool?
-    public var trainers: [TrainerBinding] = []
     public init() {}
     public func applying(to defaults: AppPaths) -> AppPaths {
         var p = defaults
@@ -67,20 +64,6 @@ public struct Preferences: Codable, Sendable {
         if !notProtonPath.isEmpty { p.notProton = URL(fileURLWithPath: notProtonPath) }
         if !luaPath.isEmpty { p.lua = URL(fileURLWithPath: luaPath) }
         return p
-    }
-}
-
-public struct TrainerBinding: Codable, Identifiable, Sendable, Equatable {
-    public var id = UUID()
-    public var appID: Int
-    public var name: String
-    public var executable: String
-    public var autoLaunch: Bool
-    public var gameExecutable: String?
-    public var autoKeys: [String]?
-    public var keyDelay: Int?
-    public init(appID: Int, name: String, executable: String, autoLaunch: Bool = false) {
-        self.appID = appID; self.name = name; self.executable = executable; self.autoLaunch = autoLaunch
     }
 }
 
@@ -101,7 +84,6 @@ public struct Game: Identifiable, Hashable, Sendable {
         self.installed = installed; self.dlcIDs = dlcIDs; self.depotCount = depotCount
         self.source = source; self.warnings = warnings
     }
-    public var cover: URL { URL(string: "https://cdn.akamai.steamstatic.com/steam/apps/\(id)/header.jpg")! }
 }
 
 public struct InstalledGame: Hashable, Sendable {

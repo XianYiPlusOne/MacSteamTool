@@ -117,35 +117,46 @@ public enum RemoteLuaPackage {
     }
 }
 
-public enum DiscoveryCharts {
-    public static func load() async throws -> [GameMetadata] {
-        var games: [GameMetadata] = [], seen = Set<Int>()
-        for offset in [0, 30, 60, 90] {
-            let root = try await HTTP.json(HTTP.url("https://api.xiaoheihe.cn/game/web/all_recommend/games/", query: ["os_type": "web", "version": "999.0.0", "show_type": "popular", "limit": "30", "offset": String(offset)]))
-            guard let result = root["result"] as? [String: Any], let list = result["list"] as? [[String: Any]] else { throw AppFailure("榜单格式已变化 / Chart format changed") }
-            for row in list {
-                guard let value = row["appid"], let id = TextUtil.validID(String(describing: value)), seen.insert(id).inserted,
-                      let name = (row["game_name"] ?? row["name"]) as? String, !name.isEmpty else { continue }
-                games.append(GameMetadata(id: id, name: name, image: row["game_img"] as? String ?? ""))
-            }
-        }
-        guard !games.isEmpty else { throw AppFailure("榜单暂时没有内容 / Charts are empty") }; return games
-    }
+public struct DiscoveryChartPage: Sendable {
+    public let games: [GameMetadata]
+    public let nextOffset: Int
+    public let hasMore: Bool
+    public init(games: [GameMetadata], nextOffset: Int, hasMore: Bool) { self.games = games; self.nextOffset = nextOffset; self.hasMore = hasMore }
 }
-extension TrainerSearch {
-    public static func chart(_ kind: String) async throws -> [WebDownload] {
-        let html = String(decoding: try await HTTP.get(HTTP.url("https://flingtrainer.com/"), limit: 8 * 1024 * 1024), as: UTF8.self)
-        return parseChart(html, kind: kind)
+public enum DiscoveryCharts {
+    public static let pageSize = 30
+    public static let maximumGames = 3000
+    /// Fetch only the requested page; subsequent pages are driven by scrolling.
+    public static func load(fetch: @Sendable (URL) async throws -> Data = { try await HTTP.get($0, limit: 4*1024*1024, timeout: 10, cachePolicy: .reloadIgnoringLocalCacheData) }) async throws -> [GameMetadata] {
+        let page = try await loadPage(offset: 0, fetch: fetch)
+        guard !page.games.isEmpty else { throw AppFailure("榜单暂时没有内容 / Charts are empty") }
+        return page.games
     }
-    public static func parseChart(_ html: String, kind: String) -> [WebDownload] {
-        let pattern = kind == "popular"
-            ? #"(?is)<a\b(?=[^>]*class=["'][^"']*\bwpp-post-title\b)[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#
-            : #"(?is)<h3[^>]*class=["'][^"']*\brpwe-title\b[^"']*["'][^>]*>\s*<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#
-        var seen = Set<String>()
-        return Array(TextUtil.matches(pattern, html).compactMap { match -> WebDownload? in
-            guard let url = URL(string: match[1]), url.scheme == "https", url.host == "flingtrainer.com", seen.insert(url.absoluteString).inserted else { return nil }
-            let name = match[2].replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&#8217;", with: "'").replacingOccurrences(of: "&amp;", with: "&")
-            return WebDownload(title: name, url: url)
-        }.prefix(10))
+    public static func loadPage(offset: Int, fetch: @Sendable (URL) async throws -> Data = { try await HTTP.get($0, limit: 4*1024*1024, timeout: 10, cachePolicy: .reloadIgnoringLocalCacheData) }) async throws -> DiscoveryChartPage {
+        guard (0..<maximumGames).contains(offset) else { throw AppFailure("无效榜单分页 / Invalid chart offset") }
+        let url = try HTTP.url("https://api.xiaoheihe.cn/game/web/all_recommend/games/", query: ["os_type": "web", "version": "999.0.0", "show_type": "popular", "limit": String(pageSize), "offset": String(offset)])
+        return try parsePage(await fetch(url), offset: offset)
+    }
+    public static func parse(_ bytes: Data) throws -> [GameMetadata] {
+        let page = try parsePage(bytes, offset: 0)
+        guard !page.games.isEmpty else { throw AppFailure("榜单暂时没有内容 / Charts are empty") }
+        return page.games
+    }
+    private static func parsePage(_ bytes: Data, offset: Int) throws -> DiscoveryChartPage {
+        let root = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+        guard let result = root?["result"] as? [String: Any], let list = result["list"] as? [[String: Any]] else { throw AppFailure("榜单格式已变化 / Chart format changed") }
+        var games: [GameMetadata] = [], seen = Set<Int>()
+        for row in list.prefix(pageSize) {
+            guard let value = row["appid"], let id = TextUtil.validID(String(describing: value)),
+                  let name = ["game_name", "name", "name_en"].compactMap({ row[$0] as? String }).map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { !$0.isEmpty }),
+                  seen.insert(id).inserted else { continue }
+            let image = GameCovers.asset(row["game_img"] as? String, appID: id)?.absoluteString ?? ""
+            games.append(GameMetadata(id: id, name: String(name.prefix(256)), image: image))
+            if games.count == pageSize { break }
+        }
+        let consumed = min(list.count, pageSize), next = offset + consumed
+        let totalPages = (result["total_page"] as? NSNumber)?.intValue
+        let hasMore = consumed == pageSize && next < maximumGames && totalPages.map { next / pageSize < $0 } != false
+        return DiscoveryChartPage(games: games, nextOffset: next, hasMore: hasMore)
     }
 }

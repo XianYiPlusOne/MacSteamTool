@@ -21,9 +21,9 @@ public enum HTTP {
         cfg.httpAdditionalHeaders = ["User-Agent": "FluentSteamMac/0.1 (+https://github.com/huanyuejue/Fluent-Steam-Lua)"]
         return URLSession(configuration: cfg, delegate: SourceRedirects(), delegateQueue: nil)
     }()
-    public static func get(_ url: URL, limit: Int = 64 * 1024 * 1024, headers: [String: String] = [:], timeout: TimeInterval = 25) async throws -> Data {
+    public static func get(_ url: URL, limit: Int = 64 * 1024 * 1024, headers: [String: String] = [:], timeout: TimeInterval = 25, cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy) async throws -> Data {
         guard url.scheme == "https" else { throw AppFailure("数据源必须使用 HTTPS / Data source must use HTTPS") }
-        var request = URLRequest(url: url, timeoutInterval: timeout)
+        var request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: timeout)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         return try await send(request, limit: limit)
     }
@@ -77,7 +77,9 @@ public actor SteamAPI {
         if !refresh, let saved = try? FileStore.decode(GameMetadata.self, at: file) { return saved }
         let root = try await HTTP.json(HTTP.url("https://store.steampowered.com/api/appdetails", query: ["appids": String(id), "l": language, "cc": "cn"]))
         guard let item = root[String(id)] as? [String: Any], item["success"] as? Bool == true,
-              let data = item["data"] as? [String: Any], let name = data["name"] as? String else { throw AppFailure("Steam 商店未返回 AppID / Steam Store did not return AppID \(id)，可能已下架或所在地区不可用 / It may be delisted or unavailable in this region") }
+              let data = item["data"] as? [String: Any], let name = data["name"] as? String else {
+            throw AppFailure("Steam 商店未返回 AppID \(id)，可能已下架或所在地区不可用 / Steam Store did not return AppID \(id); it may be delisted or unavailable in this region")
+        }
         let platforms = data["platforms"] as? [String: Bool] ?? [:]
         let game = GameMetadata(id: id, name: name, image: data["header_image"] as? String ?? "", description: (data["short_description"] as? String ?? "").replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression), mac: platforms["mac"] ?? false, windows: platforms["windows"] ?? false, dlc: data["dlc"] as? [Int] ?? [])
         try FileStore.json(game, to: file)
@@ -111,6 +113,11 @@ public struct Depot: Identifiable, Codable, Sendable {
     public var manifest: String
     public var os: String
     public var dlc: Int?
+    public var architecture: String?
+    public var language: String?
+    public var branchManifests: [String: String]?
+    public var encryptedBranches: [String]?
+    public var sourceApp: Int?
 }
 public struct AppInfo: Codable, Sendable {
     public var id: Int
@@ -118,21 +125,41 @@ public struct AppInfo: Codable, Sendable {
     public var depots: [Depot]
     public var dlc: [Int]
     public var platforms: Set<String>
+    public var sharedDepots: [Depot]?
+    public var branches: Set<String>?
+    public var appType: String?
+    public var declaresDepots: Bool?
     public init(id: Int, dictionary app: [String: Any]) {
         self.id = id; name = (app["common"] as? [String: Any])?["name"] as? String ?? "App \(id)"
         platforms = Set(((app["common"] as? [String: Any])?["oslist"] as? String ?? "").lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
-        depots = []; dlc = []
+        depots = []; dlc = []; sharedDepots = []
+        appType = (app["common"] as? [String: Any])?["type"] as? String
+        declaresDepots = app["depots"] is [String: Any]
+        let depotData = app["depots"] as? [String: Any] ?? [:]
+        branches = (depotData["branches"] as? [String: Any]).map { Set($0.keys) }
         let extended = app["extended"] as? [String: Any] ?? [:]
         if let list = extended["listofdlc"] as? String { dlc = list.split(separator: ",").compactMap { TextUtil.validID($0.trimmingCharacters(in: .whitespaces)) } }
         if let list = extended["listofdlc"] as? [Any] { dlc = list.compactMap { TextUtil.validID(String(describing: $0)) } }
         for (key, value) in app["depots"] as? [String: Any] ?? [:] {
-            guard let depotID = TextUtil.validID(key), let d = value as? [String: Any], d["depotfromapp"] == nil else { continue }
+            guard let depotID = TextUtil.validID(key), let d = value as? [String: Any] else { continue }
             let manifests = d["manifests"] as? [String: Any] ?? [:]
             let pub = manifests["public"] as? [String: Any] ?? [:]
             let gid = pub["gid"].map { String(describing: $0) } ?? ""
             let dlcID = d["dlcappid"].flatMap { TextUtil.validID(String(describing: $0)) }
-            let os = (d["config"] as? [String: Any])?["oslist"] as? String ?? "all"
-            depots.append(Depot(id: depotID, manifest: gid, os: os, dlc: dlcID))
+            let config = d["config"] as? [String: Any] ?? [:]
+            let os = config["oslist"] as? String ?? "all"
+            var branchManifests: [String: String] = [:]
+            for (branch, value) in manifests {
+                let id = (value as? [String: Any])?["gid"] ?? value
+                let manifest = String(describing: id)
+                branchManifests[branch] = manifest
+            }
+            let depot = Depot(id: depotID, manifest: gid, os: os, dlc: dlcID,
+                              architecture: config["osarch"].map { String(describing: $0) }, language: config["language"] as? String,
+                              branchManifests: branchManifests,
+                              encryptedBranches: Array((d["encryptedmanifests"] as? [String: Any] ?? [:]).keys),
+                              sourceApp: d["depotfromapp"].flatMap { TextUtil.validID(String(describing: $0)) })
+            if d["depotfromapp"] != nil { sharedDepots?.append(depot) } else { depots.append(depot) }
             if let dlcID { dlc.append(dlcID) }
         }
         depots.sort { $0.id < $1.id }; dlc = Array(Set(dlc)).sorted()
@@ -163,6 +190,10 @@ public actor ContentService {
             if let n = TextUtil.validID(id), let key = value as? String, TextUtil.validKey(key) { keys[n] = key.lowercased() }
         }
         return keys
+    }
+    public func libraryKeys(preferences: Preferences, refresh: Bool) async throws -> [Int: String] {
+        if refresh { _ = try await refreshKeys(preferences: preferences) }
+        return try parseKeys(FileStore.read(cache.appendingPathComponent("depotkeys.json")))
     }
     public func generate(id: Int, includeDLC: Bool, preferences: Preferences, progress: @Sendable (String) async -> Void) async throws -> GenerationResult {
         let keyURL = cache.appendingPathComponent("depotkeys.json")
@@ -269,29 +300,5 @@ public actor ContentService {
             }
             let bounded = Array(hosts.prefix(4)); cdnCache = (Date(), bounded); return bounded
         } catch { return [] }
-    }
-}
-
-public struct WebDownload: Identifiable, Sendable {
-    public var id: String { url.absoluteString }
-    public var title: String
-    public var url: URL
-}
-public enum TrainerSearch {
-    public static func search(_ query: String) async throws -> [WebDownload] {
-        let data = try await HTTP.get(HTTP.url("https://flingtrainer.com/", query: ["s": query]), limit: 8 * 1024 * 1024)
-        let html = String(decoding: data, as: UTF8.self)
-        let matches = TextUtil.matches(#"(?is)<h2[^>]*class=["'][^"']*post-title[^"']*["'][^>]*>\s*<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#, html)
-        return matches.compactMap {
-            guard let url = URL(string: $0[1]), url.host == "flingtrainer.com" else { return nil }
-            return WebDownload(title: $0[2].replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&#8217;", with: "'"), url: url)
-        }
-    }
-    public static func downloadLink(_ page: URL) async throws -> URL {
-        let html = String(decoding: try await HTTP.get(page, limit: 8 * 1024 * 1024), as: UTF8.self)
-        for m in TextUtil.matches(#"(?is)<a\b([^>]+)>"#, html) where m[1].contains("attachment-link") {
-            if let link = TextUtil.matches(#"href=["']([^"']+)["']"#, m[1]).first, let url = URL(string: link[1]), url.scheme == "https" { return url }
-        }
-        throw AppFailure("未找到直接下载链接；可在浏览器打开原始页面 / No direct download link found; open the original page in a browser")
     }
 }

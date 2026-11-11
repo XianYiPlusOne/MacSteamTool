@@ -25,22 +25,23 @@ import Testing
         let meta=[UInt8(8)]+varint(481)+[16]+varint(123)+[72]+varint(0x2144df1c)
         return Data(u32(0x71f617d0)+u32(0)+u32(0x1f4812be)+u32(UInt32(meta.count))+meta+u32(0x1b81b817)+u32(0)+u32(0x32c415ab))
     }
-    @Test func remoteToPreviewCommitBatchAndReload() async throws {
+    @Test func automaticRemoteFallbackCommitBatchAndReload() async throws {
         let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         var preferences = Preferences(); preferences.remotePackageMode = "direct"
         #expect(try RemoteLuaPackage.source(preferences).template == RemoteLuaPackage.defaultTemplate)
-        model.preferences.librarySource = "remote"; model.preferences.remotePackageMode = "direct"
+        model.preferences.remotePackageMode = "direct"
+        model.libraryInfoFetch = { id in AppInfo(id: id, dictionary: ["common": ["oslist": "windows"], "depots": ["481": ["config": ["oslist": "windows"], "manifests": ["public": ["gid": "123"]]]]]) }
+        model.libraryKeyFetch = { _ in throw AppFailure("No local keys") }
         let zip = root.appendingPathComponent("remote.zip")
-        try ArchiveIO.export([ImportFile(name: "480.lua", data: Data("addappid(480) -- Connected fixture".utf8))], to: zip)
+        let key = String(repeating: "ab", count: 32)
+        try ArchiveIO.export([ImportFile(name: "480.lua", data: Data("addappid(480) -- Connected fixture\naddappid(481, 1, \"\(key)\")\n".utf8))], to: zip)
         let bytes = try FileStore.read(zip)
         model.remotePackageFetch = { id, preferences, engine in
             #expect(id == 480); #expect(try RemoteLuaPackage.source(preferences).template == RemoteLuaPackage.defaultTemplate)
             return try await RemoteLuaPackage.extract(bytes, appID: id, engine: engine)
         }
-        model.generate(480, dlc: true); await settle(model)
-        #expect(model.pendingImport?.plan.documents.first?.appID == 480)
-        #expect(!FileStore.fm.fileExists(atPath: model.paths.config.path))
-        model.commitImport(); await settle(model)
+        model.addToLibrary(480, dlc: true); await settle(model)
+        #expect(model.message == nil)
         #expect(model.pendingImport == nil); #expect(model.games.first?.enabled == true)
         let imported = try FileStore.read(model.paths.lua.appendingPathComponent("480.lua"))
         model.batchLibrary(model.games, action: .disable); await settle(model)
@@ -116,20 +117,18 @@ import Testing
         model.repairManifest(depot: 481, manifest: "123"); await settle(model)
         #expect(model.message != nil); #expect(try FileStore.read(target) == valid)
     }
-    @Test func desktopShortcutReachesBoundLaunchActionAndDefersUntilBootstrap() throws {
-        let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
-        let binding = TrainerBinding(appID: 480, name: "Test / trainer", executable: "/test-only/trainer.exe")
-        model.preferences.trainers = [binding]
-        let shortcut = try TrainerShortcuts.create(binding, directory: root.appendingPathComponent("Desktop"))
-        let plist = try #require(PropertyListSerialization.propertyList(from: FileStore.read(shortcut), format: nil) as? [String: String])
-        let url = try #require(plist["URL"].flatMap(URL.init(string:)))
-        var launches: [UUID] = []; model.trainerLaunchOverride = { launches.append($0.id) }
-        model.handleShortcut(url); #expect(launches.isEmpty); #expect(model.pendingTrainerShortcut == url)
-        model.bootstrapFinished = true; model.handleShortcut(url); #expect(launches == [binding.id])
-        model.handleShortcut(URL(string: "fluentsteam://trainer/\(UUID())")!)
-        model.handleShortcut(URL(string: "https://trainer/\(binding.id)")!)
-        #expect(launches == [binding.id])
-        #expect(try TrainerShortcuts.create(binding, directory: root.appendingPathComponent("Desktop")) == shortcut)
+    @Test func bootstrapMigratesRetiredFeatureAndPreservesNavigationAndPreferences() async throws {
+        let (root, model) = try fixture(); defer { model.timer?.invalidate(); try? FileStore.fm.removeItem(at: root) }
+        var preferences = Preferences(); preferences.autoMetadata = false; preferences.autoRefresh = false; preferences.theme = "dark"; preferences.language = "en"
+        var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(preferences)) as? [String: Any])
+        record["trainers"] = "obsolete malformed binding"; record["independentTrainerMonitor"] = true
+        try FileStore.write(JSONSerialization.data(withJSONObject: record), to: model.defaults.settings)
+        await model.bootstrap()
+        #expect(model.message == nil); #expect(model.preferences.theme == "dark"); #expect(model.preferences.language == "en")
+        #expect(Page(rawValue: "trainers") == nil)
+        #expect(Set(Page.allCases.map(\.rawValue)) == Set(["library", "discover", "manifests", "patches", "achievements", "saves", "accounts", "runtime", "compatibility", "settings"]))
+        let saved = try #require(JSONSerialization.jsonObject(with: FileStore.read(model.defaults.settings)) as? [String: Any])
+        #expect(saved["trainers"] == nil); #expect(saved["independentTrainerMonitor"] == nil)
     }
     @Test func achievementInvertOnlyChangesDraft() throws {
         let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
