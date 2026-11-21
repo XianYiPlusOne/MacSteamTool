@@ -138,6 +138,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     var remotePackageFetch: ((Int, Preferences, URL) async throws -> [ImportFile])?
     var libraryPackageFallbacks: (Int) -> [AutomaticLibraryImport.RemoteSource] = RemoteLuaPackage.libraryFallbacks
     var libraryInfoFetch: ((Int) async throws -> AppInfo)?
+    var generationSteamFetch: LuaGenerationMetadata.SteamLookup?
     var libraryKeyFetch: ((Bool) async throws -> [Int: String])?
     var hubCredentialLoad: () throws -> ManifestHubCredential? = { try ManifestHubCredential.load() }
     var manifestFetch: ((Int, String, String) async throws -> Data)?
@@ -380,6 +381,31 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         discoverySearch.search(search, language: language)
     }
 
+    func generationMetadata(includeDLC: Bool, excludingDLC: Set<Int> = []) -> LuaGenerationMetadata {
+        var lookup = generationSteamFetch
+        if lookup == nil, !testing {
+            let executable = engineExecutable
+            do {
+                if let credential = try SteamKeychain.load() {
+                    lookup = { ids, missing in
+                        var request = SteamEngineRequest("generation-metadata", credential: credential)
+                        request.appIDs = ids
+                        request.missingDepotAppIDs = missing
+                        let response = try await SteamEngine.run(request, executable: executable)
+                        guard let apps = response.generationApps else { throw AppFailure("Steam 未返回令牌查询结果 / Missing Steam token response") }
+                        return apps
+                    }
+                }
+            } catch {
+                lookup = { _, _ in throw error }
+            }
+        }
+        return LuaGenerationMetadata(includeDLC: includeDLC, excludingDLC: excludingDLC, publicInfo: { @MainActor id in
+            if let fetch = self.libraryInfoFetch { return try await fetch(id) }
+            return try await self.api.appInfo(id)
+        }, steam: lookup)
+    }
+
     func addToLibrary(_ id: Int, dlc: Bool, excludingDLC: Set<Int> = []) {
         guard !busy, !games.contains(where: { $0.id == id && $0.enabled }) else { return }
         message = nil
@@ -391,10 +417,8 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             await Task.yield()
             let preferences = self.preferences
             let context = try LibraryInstallContext.read(appID: id, paths: self.paths)
-            let result = try await AutomaticLibraryImport.resolve(appID: id, includeDLC: dlc, excludingDLC: excludingDLC, skipUnavailableDLC: true, context: context, appInfo: { appID in
-                if let fetch = self.libraryInfoFetch { return try await fetch(appID) }
-                return try await self.api.appInfo(appID)
-            }, cachedKeys: {
+            let metadata = self.generationMetadata(includeDLC: dlc, excludingDLC: excludingDLC)
+            let result = try await AutomaticLibraryImport.resolve(appID: id, includeDLC: dlc, excludingDLC: excludingDLC, skipUnavailableDLC: true, context: context, appInfo: { try await metadata.appInfo($0) }, cachedKeys: {
                 if let fetch = self.libraryKeyFetch { return try await fetch(false) }
                 return try await self.content.libraryKeys(preferences: preferences, refresh: false)
             }, steamCachedKeys: { missing in
@@ -414,8 +438,14 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             }
             for note in result.notes { self.recordImportProgress(note) }
             self.recordImportProgress(self.tr("正在生成导入预览并检查兼容性…", "Preparing import preview and checking compatibility…"))
-            var plan = try self.service.plan(result.files)
-            plan.warnings = Array(Set(plan.warnings + result.warnings)).sorted()
+            var files = result.files
+            for index in files.indices where files[index].name.lowercased().hasSuffix(".lua") {
+                let text = String(decoding: files[index].data, as: UTF8.self)
+                files[index].data = Data(try await metadata.addingTokens(to: text).utf8)
+            }
+            try Task.checkCancellation()
+            var plan = try self.service.plan(files)
+            plan.warnings = Array(Set(plan.warnings + result.warnings + (await metadata.notices))).sorted()
             self.importActivity?.content = result.content
             for warning in plan.warnings { self.recordImportProgress(warning) }
             self.recordImportProgress(self.tr("检查结束，等待在导入预览中确认", "Checks finished; awaiting confirmation in import preview"))
@@ -430,12 +460,12 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     func generate(_ id: Int, dlc: Bool, existing: Game? = nil) {
         if existing == nil { addToLibrary(id, dlc: dlc); return }
         run(tr("生成游戏清单", "Generate game manifest")) {
-            let generated = try await self.content.generate(id: id, includeDLC: dlc, preferences: self.preferences) { text in
+            let metadata = self.generationMetadata(includeDLC: dlc)
+            let generated = try await self.content.generate(id: id, includeDLC: dlc, preferences: self.preferences, metadata: metadata, appendingTo: existing?.luaURL) { text in
                 await MainActor.run { self.progress = text }
             }
-            var text = generated.lua
-            if let existing, let url = existing.luaURL { text = try FileStore.text(url) + "\n-- Additional depot and DLC data\n" + text }
-            let file = ImportFile(name: "\(id).lua", data: Data(text.utf8))
+            try Task.checkCancellation()
+            let file = ImportFile(name: "\(id).lua", data: Data(generated.lua.utf8))
             var plan = try self.service.plan([file]); plan.warnings += generated.warnings
             self.pendingImport = ImportSession(plan: plan)
         }
