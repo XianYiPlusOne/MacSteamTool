@@ -21,7 +21,7 @@ fex_only=$(printf '%s\n' "$settings" | awk '$1 == "key" && $3 == "fex" && NF == 
 [ -n "$all" ] || no "defaults-check printed no settings"
 
 # shellcheck disable=SC2016 # Match the literal case line.
-arms=$(sed -n '/^np_from_defaults() {$/,/^np_dropped=""$/p' "$compat_run" \
+arms=$(sed -n '/^np_from_defaults() {$/,/^np_dropped=""$/p' "$(dirname "$compat_run")/compat-defaults.sh" \
   | sed -n '/case "\$line" in/,/^[[:space:]]*esac$/p')
 [ -n "$arms" ] || no "no case arms found in the defaults block of compat_run.sh"
 sh_rosetta=$(printf '%s\n' "$arms" | grep -B1 '" != aarch64-unix ] || continue' | grep ')$' || true)

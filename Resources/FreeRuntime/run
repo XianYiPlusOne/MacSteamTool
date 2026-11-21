@@ -36,26 +36,6 @@ while [ "$argi" -lt "$argc" ]; do
   argi=$((argi+1))
 done
 
-# Global defaults for every game: KEY=VALUE lines in global.env, same name rules as the
-# launch options; a game's own launch options win.
-global_env="$runtime_root/global.env"
-if [ -r "$global_env" ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      CX_GRAPHICS*=*|D3DM_*=*|DXMT_*=*|DXVK_*=*|MTL_*=*|NOTPROTON_*=*|ROSETTA_*=*|WINE*=*)
-        name=${line%%=*}
-        case "$name" in *[!A-Za-z0-9_]*|[0-9]*|'') continue ;; esac
-        eval "isset=\${$name+x}"
-        # shellcheck disable=SC2154 # eval assigns isset on the line above
-        [ -n "$isset" ] && continue
-        # shellcheck disable=SC2163 # line is a NAME=VALUE pair
-        export "$line"
-        launch_env="$launch_env $line"
-        ;;
-    esac
-  done < "$global_env"
-fi
-
 case "$verb" in
   getcompatpath)
     printf '%s\n' "$STEAM_COMPAT_DATA_PATH"
@@ -93,6 +73,33 @@ runner_kind=crossover
 grep -q '"kind": "selfbuilt"' "$CX_ROOT/runner.json" 2>/dev/null && runner_kind=selfbuilt
 msync_default=0
 [ "$runner_kind" = selfbuilt ] && msync_default=1
+
+np_support=$(cat "$tool_dir/defaults-root")
+np_build=
+np_flavor=rosetta
+. "$runtime_root/compat-defaults.sh"
+# Legacy defaults for settings still unset: KEY=VALUE lines in global.env, same name rules as the
+# launch options; a game's own launch options win.
+global_env="$runtime_root/global.env"
+if [ -r "$global_env" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      CX_GRAPHICS*=*|D3DM_*=*|DXMT_*=*|DXVK_*=*|MTL_*=*|NOTPROTON_*=*|ROSETTA_*=*|WINE*=*)
+        name=${line%%=*}
+        case "$name" in *[!A-Za-z0-9_]*|[0-9]*|'') continue ;; esac
+        eval "isset=\${$name+x}"
+        # shellcheck disable=SC2154 # eval assigns isset on the line above
+        [ -n "$isset" ] && continue
+        # shellcheck disable=SC2163 # line is a NAME=VALUE pair
+        export "$line"
+        launch_env="$launch_env $line"
+        ;;
+    esac
+  done < "$global_env"
+fi
+. "$runtime_root/compat-prefix.sh"
+without_lock_fds() { "$@"; }
+export ROSETTA_ADVERTISE_AVX="${ROSETTA_ADVERTISE_AVX:-1}"
 
 if [ -n "$STEAM_COMPAT_DATA_PATH" ]; then
   mkdir -p "$STEAM_COMPAT_DATA_PATH"
@@ -336,7 +343,7 @@ if [ -n "$STEAM_COMPAT_DATA_PATH" ]; then
   export WINEPREFIX="$STEAM_COMPAT_DATA_PATH/pfx"
   mkdir -p "$WINEPREFIX"
   msync_from=launch-options
-  if [ -z "$WINEMSYNC" ] && [ -r "$STEAM_COMPAT_DATA_PATH/notproton-msync" ]; then
+  if [ "$verb" = run ] && [ -z "$WINEMSYNC" ] && [ -r "$STEAM_COMPAT_DATA_PATH/notproton-msync" ]; then
     WINEMSYNC=$(tr -d ' \t\n' \
       < "$STEAM_COMPAT_DATA_PATH/notproton-msync" 2>/dev/null || true)
     msync_from=carried-over
@@ -349,22 +356,11 @@ if [ -n "$STEAM_COMPAT_DATA_PATH" ]; then
   refuse_foreign_prefix
   echo "sync: WINEMSYNC=$WINEMSYNC from $msync_from" >> "$log" 2>&1 || true
   "$WINESERVER" -k >> "$log" 2>&1 || true
+  "$WINESERVER" -w >> "$log" 2>&1 || true
   stage_step="profile layout"
   lay_out_proton_profile
   "$WINELOADER" wineboot --init >> "$log" 2>&1 || true
-  "$WINELOADER" reg add 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\AeDebug' /v Auto /t REG_SZ /d 0 /f >> "$log" 2>&1 || true
-  "$WINELOADER" reg add 'HKLM\Software\Wow6432Node\Microsoft\Windows NT\CurrentVersion\AeDebug' /v Auto /t REG_SZ /d 0 /f >> "$log" 2>&1 || true
-  "$WINELOADER" reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >> "$log" 2>&1 || true
-
-  echo "video: RetinaMode=${NOTPROTON_RETINA:-0}" >> "$log" 2>&1 || true
-  if [ "$NOTPROTON_RETINA" = "1" ]; then
-    "$WINELOADER" reg add 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /t REG_SZ /d y /f >> "$log" 2>&1 || true
-  else
-    "$WINELOADER" reg delete 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /f >> "$log" 2>&1 || true
-  fi
-
-  "$WINELOADER" reg add 'HKLM\Software\Classes\steam' /v 'URL Protocol' /t REG_SZ /d '' /f >> "$log" 2>&1 || true
-  "$WINELOADER" reg add 'HKLM\Software\Classes\steam\shell\open\command' /ve /t REG_SZ /d '"C:\Program Files (x86)\Steam\steam.exe" "%1"' /f >> "$log" 2>&1 || true
+  import_prefix_settings
 fi
 
 bridge_src="$runtime_root/bridge"
@@ -483,12 +479,6 @@ fi
 pe_d3d="$runtime_root/pe-d3d"
 detect_d3d() {
   [ -x "$pe_d3d" ] && [ -d "$STEAM_COMPAT_INSTALL_PATH" ] || { echo none; return; }
-  # A game that ships Microsoft's D3D12 Agility SDK renders with Direct3D 12.
-  if find "$STEAM_COMPAT_INSTALL_PATH" -maxdepth 6 -ipath '*/D3D12/D3D12Core.dll' 2>/dev/null | grep -q .; then
-    echo "  hint: bundled D3D12 Agility SDK" >> "$log" 2>&1 || true
-    echo d3d12
-    return
-  fi
   # the launch target plus the largest executables (a launcher stub often fronts the
   # real *-Shipping.exe), and the engine DLLs that do the rendering (Unity, CryEngine...)
   candidates=$(
@@ -510,16 +500,14 @@ detect_d3d() {
   case " $flags " in
     *" d3d"*|*" dxgi:"*|*" ddraw:"*|*" opengl:"*|*" vulkan:"*) ;;
     *)
-      if :; then
-        big=$(printf '%s\n' "$candidates" | while IFS= read -r f; do printf '%s\t%s\n' "$(stat -f %z "$f")" "$f"; done \
-          | sort -rn | head -1 | cut -f2-)
-        if [ -f "$big" ]; then
-          if LC_ALL=C grep -a -q -i 'd3d12\.dll' "$big"; then flags="$flags d3d12:d"
-          elif LC_ALL=C grep -a -q -i 'd3d11\.dll' "$big"; then flags="$flags d3d11:d"
-          elif LC_ALL=C grep -a -q -i 'd3d9\.dll' "$big"; then flags="$flags d3d9:d"
-          fi
-          echo "  hint: runtime names in $(basename "$big"): $flags" >> "$log" 2>&1 || true
+      big=$(printf '%s\n' "$candidates" | while IFS= read -r f; do printf '%s\t%s\n' "$(stat -f %z "$f")" "$f"; done \
+        | sort -rn | head -1 | cut -f2-)
+      if [ -f "$big" ]; then
+        if LC_ALL=C grep -a -q -i 'd3d12\.dll' "$big"; then flags="$flags d3d12:d"
+        elif LC_ALL=C grep -a -q -i 'd3d11\.dll' "$big"; then flags="$flags d3d11:d"
+        elif LC_ALL=C grep -a -q -i 'd3d9\.dll' "$big"; then flags="$flags d3d9:d"
         fi
+        echo "  hint: runtime names in $(basename "$big"): $flags" >> "$log" 2>&1 || true
       fi
       ;;
   esac
@@ -535,16 +523,15 @@ detect_d3d() {
   esac
 }
 if [ "$runner_kind" = selfbuilt ]; then
-  # This product variant ships DXMT only. Many DX11-capable Unity games also
-  # bundle D3D12 files; their presence must not select an unavailable backend.
-  backend="${CX_GRAPHICS_BACKEND:-dxmt}"
+  backend="${CX_GRAPHICS_BACKEND:-auto}"
   backend_from=launch-options
   if [ "$backend" = auto ]; then
     api=$(detect_d3d "$1")
     case "$api" in
       d3d12) backend=d3dmetal ;;
       d3d11) backend=dxmt ;;
-      *) backend=wined3d ;;
+      d3d9|opengl|vulkan) backend=wined3d ;;
+      *) backend=dxmt ;;
     esac
     backend_from="auto ($api)"
   fi
@@ -570,28 +557,29 @@ if [ "$runner_kind" = selfbuilt ]; then
       export D3DM_MTL4="${D3DM_MTL4:-0}"
     fi
   fi
+  unset WINEDLLPATH_PREPEND CX_APPLEGPTK_LIBD3DSHARED_PATH
   case "$backend" in
     d3dmetal)
-      if [ ! -f "$d3dm_lib" ]; then
-        echo "D3DMetal is not installed; this free runtime currently supports DX11 through DXMT." >> "$log"
+      if [ ! -f "$d3dm_lib" ] || [ ! -f "$CX_ROOT/lib/renderers/$d3dm/x86_64-windows/d3d12.dll" ]; then
+        echo "D3DMetal is incomplete. Repair Wine in Fluent." | tee -a "$log" >&2
         exit 1
       fi
       export WINEDLLPATH_PREPEND="$CX_ROOT/lib/renderers/$d3dm"
       export CX_APPLEGPTK_LIBD3DSHARED_PATH="$d3dm_lib"
       ;;
-    dxmt)
-      export WINEDLLPATH_PREPEND="$CX_ROOT/lib/renderers/dxmt"
-      ;;
-    dxvk)
-      if [ -d "$CX_ROOT/lib/renderers/dxvk" ]; then
-        export WINEDLLPATH_PREPEND="$CX_ROOT/lib/renderers/dxvk"
-      else
-        echo "=== no DXVK in this runner, using wined3d ===" >> "$log" 2>&1 || true
-        backend=wined3d
+    dxmt|dxvk)
+      if [ ! -f "$CX_ROOT/lib/renderers/$backend/x86_64-windows/d3d11.dll" ]; then
+        echo "$backend is incomplete. Repair Wine in Fluent." | tee -a "$log" >&2
+        exit 1
       fi
+      export WINEDLLPATH_PREPEND="$CX_ROOT/lib/renderers/$backend"
       ;;
-    *) backend=wined3d ;;
+    wined3d) ;;
+    *) echo "Unknown graphics backend: $backend" | tee -a "$log" >&2; exit 1 ;;
   esac
+  render_record="$backend"
+  [ "$backend" != d3dmetal ] || render_record="$d3dm"
+  remember_compat_settings "$render_record" || echo "Could not save compatibility settings for helpers" >&2
   export CX_ACTIVE_GRAPHICS_BACKEND="$backend"
   backend_label="$backend"
   [ "$backend" = d3dmetal ] && [ "$d3dm" = d3dmetal4 ] && backend_label="d3dmetal 4 (MTL4=$D3DM_MTL4)"
@@ -896,7 +884,7 @@ if [ "$app_id" = 3393110 ] && [ "${NOTPROTON_AION2_COMPAT:-1}" != 0 ] && [ -f "$
   echo "=== aion2-wine-compat inserted ===" >> "$log" 2>&1 || true
 fi
 set -- --args "$shim_exe" "$@"
-for name in $(env | sed -nE 's/^(Steam[A-Za-z0-9]*|WINEDLLPATH_PREPEND|(CX_GRAPHICS|CX_ACTIVE_GRAPHICS|CX_APPLEGPTK_|D3DM_|DXMT_|DXVK_|MTL_|ROSETTA_)[A-Z0-9_]*)=.*/\1/p'); do
+for name in $(env | LC_ALL=C sed -nE 's/^(Steam[A-Za-z0-9]*|WINEDLLPATH_PREPEND|(CX_GRAPHICS|CX_ACTIVE_GRAPHICS|CX_APPLEGPTK_|D3DM_|DXMT_|DXVK_|MTL_|ROSETTA_)[A-Z0-9_]*)=.*/\1/p'); do
   eval "value=\$$name"
   # shellcheck disable=SC2154 # eval assigns value on the line above
   set -- --env "$name=$value" "$@"

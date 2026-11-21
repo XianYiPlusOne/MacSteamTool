@@ -99,7 +99,7 @@ function oneKindCases(form) {
 function defaultToolCases(form) {
   const t = runner(form + ' default tool');
   if (form === 'component') return t.failed;
-  const ver = ns => field(ns, 'CrossOver version').props.selectedOption;
+  const ver = ns => (field(ns, 'Runtime') || field(ns, 'CrossOver version')).props.selectedOption;
   const kind = ns => (row(ns, X87) ? 1 : 0);
   const told = (g, tool) => g.dispatchEvent(new CustomEvent('mscxdefaulttool', { detail: tool }));
 
@@ -107,6 +107,8 @@ function defaultToolCases(form) {
   t.ok(ver(o.r()) === 'notproton-25.0' && kind(o.r()) === 0, 'opens on the default tool');
   o = openPage(form, BUILDS, { tool: 'notproton-26.1-fex' });
   t.ok(ver(o.r()) === 'notproton-26.1-fex' && kind(o.r()) === 1, 'a FEX default tool opens on FEX');
+  o = openPage(form, BUILDS, { tool: 'fluent-proton-free' });
+  t.ok(ver(o.r()) === 'fluent-proton-free' && kind(o.r()) === 0, 'Wine edits Rosetta defaults, including with FEX installed');
   o = openPage(form, BUILDS, { tool: 'proton_9' });
   t.ok(ver(o.r()) === 'notproton-26.1', 'a default that is not CrossOver opens on the first version');
   o = openPage(form, BUILDS);

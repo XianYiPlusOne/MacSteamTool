@@ -16,7 +16,8 @@ file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/compat_run.h"
   COMMAND python3 "${NP_SOURCE}/dylib/embed_script.py"
     "${NP_SOURCE}/dylib/feats/compat_run.sh" "${CMAKE_CURRENT_BINARY_DIR}/generated/compat_run.h" RUN_SCRIPT
-  DEPENDS "${NP_SOURCE}/dylib/feats/compat_run.sh" "${NP_SOURCE}/dylib/embed_script.py")
+  DEPENDS "${NP_SOURCE}/dylib/feats/compat_run.sh" "${NP_SOURCE}/dylib/feats/compat-defaults.sh"
+    "${NP_SOURCE}/dylib/feats/compat-prefix.sh" "${NP_SOURCE}/dylib/embed_script.py")
 # The Intel bootstrap uses a stub; the ARM64 client needs the complete runtime.
 add_library(macsteam SHARED ${MAC_SOURCES} "${MAC_SOURCE}/vendor/cJSON.c")
 add_library(notproton SHARED ${NP_SOURCES} "${NP_SOURCE}/vendor/cJSON.c"

@@ -1,5 +1,6 @@
 // Enables Steam Play in the UI/enables the Compatibility tab in game properties
 #include "webpatch.h"
+#include "compat.h"
 #include "compatsvc.h"
 #include "../util/buildid.h"
 #include "conf.h"
@@ -50,16 +51,18 @@
 // Stands for the JS array of the tools NotProton installed, the same names
 // np_webpatch_set_tool_builds carries.
 #define NP_OUR_TOOLS "\034"
+#define NP_WINE_STATUS "\035"
+#define WINE_REGISTRATION "Library/Application Support/Steam/compatibilitytools.d/" FLUENT_WINE_TOOL "/"
 
 #define NP_TOOL_NAME_MAX 128
 
 #define NP_UNREAD_DEFAULTS "{rosetta:null,fex:null}"
 
 enum { IN_FALLBACK_TOOL, IN_FEX_TOOLS, IN_DEFAULTS, IN_BUILDS, IN_READY, IN_FEATS, IN_VARS,
-       IN_OUR_TOOLS, IN_COUNT };
+       IN_OUR_TOOLS, IN_WINE_STATUS, IN_COUNT };
 typedef struct { char *text[IN_COUNT]; } np_inputs_t;
 static const char *const g_unset[IN_COUNT] = { "", "[]", NP_UNREAD_DEFAULTS, "[]", "{}", "[]", "[]",
-                                               "[]" };
+                                               "[]", "0" };
 static pthread_key_t g_inputs_key;
 static pthread_once_t g_inputs_once = PTHREAD_ONCE_INIT;
 
@@ -125,7 +128,14 @@ static int is_tool_name(const char *name) {
     return 1;
 }
 
+static int feat_exists(const char *home, const char *rel);
 void np_webpatch_set_fallback_tool(const char *name) {
+    const char *home = np_home_dir();
+    const char *wine_status = "0";
+    // An existing DXMT-only registration needs the staged graphics upgrade.
+    if (home && feat_exists(home, WINE_REGISTRATION "runtime-root"))
+        wine_status = feat_exists(home, WINE_REGISTRATION "defaults-root") ? "1" : "-1";
+    set_input(IN_WINE_STATUS, strdup(wine_status));
     set_input(IN_FALLBACK_TOOL, name && is_tool_name(name) ? strdup(name) : NULL);
 }
 
@@ -312,6 +322,7 @@ static const char *marker_text(char c) {
     if (c == NP_FEX_TOOLS[0]) return input_text(IN_FEX_TOOLS);
     if (c == NP_DEFAULTS[0]) return input_text(IN_DEFAULTS);
     if (c == NP_BUILDS[0]) return input_text(IN_BUILDS);
+    if (c == NP_WINE_STATUS[0]) return input_text(IN_WINE_STATUS);
     if (c == NP_OUR_TOOLS[0]) return input_text(IN_OUR_TOOLS);
     if (c == NP_READY[0] || c == NP_FEATS[0]) {
         if (!g_feat_ready_done) feat_build();
@@ -1445,21 +1456,24 @@ static int out_expand(np_out_t *o, const char *replace, const np_cap_t *caps) {
 
 #define NP_CX_OPTIONS_BODY(RT, BARREL) \
     "np=>{" \
-    "const t=np.details,o=t.strLaunchOptions||\"\",tn=t.strCompatToolName||\"" NP_FALLBACK_TOOL "\"," \
-    "fex=" NP_FEX_TOOLS ".indexOf(tn)>=0," \
+    "const t=np.details,o=t.strLaunchOptions||\"\",tn=t.strCompatToolName||globalThis.MSCXDefaultTool||" \
+    "(!" NP_OUR_TOOLS ".length&&(" NP_WINE_STATUS ")!==0?\"" FLUENT_WINE_TOOL "\":\"" NP_FALLBACK_TOOL "\")," \
+    "wine=tn===\"" FLUENT_WINE_TOOL "\",fex=" NP_FEX_TOOLS ".indexOf(tn)>=0," \
     "L=MSCXLaunch(o,t.unAppID),g=L.g,has=k=>L.k.includes(k)," \
     "lost=globalThis.MSCXDefaultsLost,DF=lost?{}:(" NP_CX_BUILDS ".find(x=>x.id===tn)||{}).override||" NP_CX_DEFAULTS "[fex?\"fex\":\"rosetta\"]||{}," \
     "fk=" NP_CX_FACTOR_ENTRY ",fpk=" NP_CX_FPS_ENTRY "," \
     "own=g(\"DXMT_CONFIG\").split(\";\").filter(e=>e.trim())," \
     "dfe=(DF[\"DXMT_CONFIG\"]||\"\").split(\";\").filter(e=>e.trim())," \
     "mergedDxmt=[own.filter(fk).pop()||dfe.filter(fk).pop(),own.filter(fpk).pop()||dfe.filter(fpk).pop()].concat(own.filter(e=>!fk(e)&&!fpk(e))).filter(Boolean).join(\";\")," \
-    "G=k=>\"DXMT_CONFIG\"===k?mergedDxmt:has(k)?g(k):DF[k]||\"\";" \
+    "defaultValue=k=>DF[k]||(wine&&k===\"WINEMSYNC\"?\"1\":\"\")," \
+    "G=k=>\"DXMT_CONFIG\"===k?mergedDxmt:has(k)?g(k):defaultValue(k);" \
     "if(t.unAppID<2147483648&&(t.vecPlatforms||[]).indexOf(\"osx\")>=0" \
     "&&!t.strCompatToolName)return null;" \
-    "return MSCXPanel({fex,get:G,saved:g,set:L.s,clearUnused:1,dev:1,tool:tn," \
-    "ours:tn===\"" NP_FALLBACK_TOOL "\"||" NP_OUR_TOOLS ".indexOf(tn)>=0," \
-    "dflt:lost?null:k=>DF[k],target:(" NP_CX_TARGET ")(o,t.unAppID,t.strInstallFolder||\"\"),head:" \
-    "typeof MSCXPrefixRow==\"function\"&&(0," RT ".jsx)(\"div\",{className:\"MSCXRow\",ref:e=>e&&MSCXPrefixRow(e,t.unAppID)},\"npstate\")" \
+    "if(wine&&(" NP_WINE_STATUS ")<0)return(0," RT ".jsx)(\"div\",{children:" NP_WEB_TEXT("Select Use Wine in Fluent to update this runtime.", "请在 Fluent 的运行环境中选择「使用 Wine」以更新图形组件。", "Aggiorna Wine in Fluent.") "});" \
+    "return MSCXPanel({fex,get:G,saved:g,set:L.s,clearUnused:1,dev:!wine,tool:tn," \
+    "ours:wine||tn===\"" NP_FALLBACK_TOOL "\"||" NP_OUR_TOOLS ".indexOf(tn)>=0," \
+    "dflt:lost?null:defaultValue,target:(" NP_CX_TARGET ")(o,t.unAppID,t.strInstallFolder||\"\"),head:" \
+    "!wine&&typeof MSCXPrefixRow==\"function\"&&(0," RT ".jsx)(\"div\",{className:\"MSCXRow\",ref:e=>e&&MSCXPrefixRow(e,t.unAppID)},\"npstate\")" \
     "})}"
 
 // React breaks if the hook count changes between renders, so the hooks wait in their own component
@@ -1469,10 +1483,10 @@ static int out_expand(np_out_t *o, const char *replace, const np_cap_t *caps) {
     "const ser=d=>Object.keys(d).map(k=>k+\"=\"+d[k]).join(\"\\n\"),I=()=>{" \
     "const use=globalThis.MSCXUseState,eff=globalThis.MSCXUseEffect,send=globalThis.MSCXSpecifyRoute;" \
     "const BL=" NP_CX_BUILDS ",only=BL.length&&BL.every(x=>x.runner===BL[0].runner)?BL[0].runner:\"\"," \
-    "d0=BL.find(x=>x.id===globalThis.MSCXDefaultTool)||BL[0]," \
+    "W=\"" FLUENT_WINE_TOOL "\",d0=globalThis.MSCXDefaultTool===W||(!BL.length&&(" NP_WINE_STATUS ")===1)?{id:W}:BL.find(x=>x.id===globalThis.MSCXDefaultTool)||BL[0]," \
     "[r,sr]=use(d0&&\"fex\"===d0.runner?1:0),[id,si]=use(d0?d0.id:\"\"),[,bump]=use(0),[ok,sok]=use(\"\"),all=" NP_CX_DEFAULTS "," \
     "fex=1===r,n=fex?\"fex\":\"rosetta\",b=BL.find(x=>x.id===id)," \
-    "set=(nn,c)=>c?c.override||all[nn]||{}:all[nn]||{},DF=set(n,b),G=k=>DF[k]||\"\"," \
+    "set=(nn,c)=>c?c.override||all[nn]||{}:all[nn]||{},DF=set(n,b),G=k=>DF[k]||(id===W&&k===\"WINEMSYNC\"?\"1\":\"\")," \
     "q=f=>{Q=Q.then(f).catch(e=>console.error(\"NotProton: the defaults were not saved\",e))}," \
     "clr=()=>{gen++;sok(\"\")}," \
     "done=(x,f)=>{if(x.BSuccess()){f();bump(c=>c+1);return 1}" \
@@ -1489,17 +1503,16 @@ static int out_expand(np_out_t *o, const char *replace, const np_cap_t *caps) {
     "with their own settings, so Default Compatibility Settings are hidden until Steam restarts\");return}" \
     "done(x,()=>{all[nn]=d;BL.forEach(y=>{y.runner===nn&&(y.override=null)})})" \
     "&&my===gen&&sok(" NP_WEB_IS_IT "?\"Applicate. Ora tutti gli strumenti di compatibilit\\u00e0 \"+kk+\" usano queste impostazioni.\":\"Applied. Every \"+kk+\" Compatibility Tool now uses these settings.\")})})}," \
-    "pickTool=t=>{const p=BL.find(x=>x.id===t);if(p){si(p.id);sr(\"fex\"===p.runner?1:0);clr()}}," \
+    "pickTool=t=>{if(t===W){si(W);sr(0);clr();return}const p=BL.find(x=>x.id===t);if(p){si(p.id);sr(\"fex\"===p.runner?1:0);clr()}}," \
     "btn=(k,l,t,f,dsc)=>(0," RT ".jsx)(" BARREL ".D0,{label:l,description:dsc," \
     "childrenContainerWidth:\"min\",children:(0," RT ".jsx)(" BARREL ".$n,{className:\"MSCXSetBtn\"," \
     "onClick:f,children:t})},k);" \
     "eff(()=>{const on=e=>pickTool(e.detail);globalThis.addEventListener?.(\"mscxdefaulttool\",on);" \
     "return()=>globalThis.removeEventListener?.(\"mscxdefaulttool\",on)},[]);if(lost)return null;" \
     "return MSCXPanel({fex,get:G,saved:G,set:s,head:(0," RT ".jsxs)(" BARREL ".XY,{label:" NP_WEB_TEXT("Default Compatibility Settings", "Default Compatibility Settings", "Impostazioni di compatibilit\\u00e0 predefinite") ",children:[" \
-    "BL.length?(0," RT ".jsx)(" BARREL ".Vb,{label:" NP_WEB_TEXT("CrossOver version", "CrossOver version", "Versione di CrossOver") "," \
-    "bMatchWidth:!1,rgOptions:BL.map(x=>({data:x.id,label:x.label}))," \
-    "selectedOption:b?b.id:\"\",onChange:v=>{const p=BL.find(x=>x.id===v.data);if(!p)return;" \
-    "si(p.id);sr(p.runner===\"fex\"?1:0);clr()}},\"version\"):null," \
+    "BL.length?(0," RT ".jsx)(" BARREL ".Vb,{label:(id===W||(" NP_WINE_STATUS ")===1)?" NP_WEB_TEXT("Runtime", "运行器", "Runtime") ":" NP_WEB_TEXT("CrossOver version", "CrossOver version", "Versione di CrossOver") "," \
+    "bMatchWidth:!1,rgOptions:BL.map(x=>({data:x.id,label:x.label})).concat(id===W||(" NP_WINE_STATUS ")===1?[{data:W,label:\"Wine\"}]:[])," \
+    "selectedOption:id,onChange:v=>pickTool(v.data)},\"version\"):null," \
     "b?btn(\"apply\",(" NP_WEB_IS_IT "?\"Applica come predefinite a tutti gli strumenti di compatibilit\\u00e0 \"+kind:\"Apply as defaults for all \"+kind+\" Compatibility Tools\")," NP_WEB_TEXT("Apply", "Apply", "Applica") ",apply,ok||void 0):null" \
     "]},\"defaults\")})};" \
     "return()=>{const up=typeof globalThis.MSCXUseState==\"function\"&&typeof globalThis.MSCXUseEffect==\"function\"" \

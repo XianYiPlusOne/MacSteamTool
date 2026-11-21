@@ -6,6 +6,7 @@ import json
 import plistlib
 import shutil
 import sys
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "work/native-integration"
@@ -54,7 +55,8 @@ def package(resources):
     backend_resources = backend / "NotProtonRuntime.bundle/Contents/Resources"
     for source in (NP / "Resources").iterdir():
         copy(source, backend_resources / source.name)
-    copy(NP / "dylib/feats/compat_run.sh", backend_resources / "payload/run")
+    subprocess.run([sys.executable, NP / "dylib/embed_script.py", NP / "dylib/feats/compat_run.sh",
+                    backend_resources / "payload/run", "--standalone"], check=True)
     bridge_outputs = {
         "steam.exe": "wine-build-dual/programs/steam.exe/x86_64-windows/steam.exe",
         "x86_64-windows-lsteamclient.dll": "wine-build-dual/dlls/lsteamclient/x86_64-windows/lsteamclient.dll",

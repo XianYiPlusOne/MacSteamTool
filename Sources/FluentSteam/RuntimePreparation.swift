@@ -26,7 +26,7 @@ extension AppModel {
             guard let self, let config = try? FileStore.read(self.paths.steam.appendingPathComponent("config/config.vdf")) else { return false }
             let tool: String?
             switch backend {
-            case .wine: tool = FreeRuntime.installedRoot(self.paths) == nil ? nil : FreeRuntime.toolID
+            case .wine: tool = FreeRuntime.graphicsReady(self.paths) ? FreeRuntime.toolID : nil
             case .crossOver(let source): tool = try TranslationRuntime.registeredCrossOverTool(paths: self.paths, source: source)
             }
             guard let tool else { return false }
@@ -50,7 +50,7 @@ extension AppModel {
             switch backend {
             case .wine:
                 selectedTool = FreeRuntime.toolID
-                if FreeRuntime.installedRoot(paths) == nil {
+                if !FreeRuntime.graphicsReady(paths) {
                     try await FreeRuntime.install(paths: paths, resources: application.appendingPathComponent("Contents/Resources/FreeRuntime"), cloudHelper: application.appendingPathComponent("Contents/Helpers/Cloud/cloud_redirect.dylib"), progress: { [weak flow] message in
                         await flow?.reportProgress(message)
                     })

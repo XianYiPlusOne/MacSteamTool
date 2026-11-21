@@ -38,6 +38,8 @@ int main(int argc, char **argv) {
     int data = strcmp(form, "component-data") == 0 || strcmp(form, "statement-data") == 0;
     if (data || strcmp(form, "component") == 0 || strcmp(form, "statement") == 0) {
         np_webpatch_set_fallback_tool(argc >= 3 ? argv[2] : NULL);
+        const char *wine_status = getenv("NP_TEST_WINE_STATUS");
+        set_input(IN_WINE_STATUS, strdup(wine_status ? wine_status : "0"));
         np_webpatch_set_fex_tools((const char *const *)argv + 3,
                                   argc > 3 ? (size_t)(argc - 3) : 0);
         if (data) set_sample_data();

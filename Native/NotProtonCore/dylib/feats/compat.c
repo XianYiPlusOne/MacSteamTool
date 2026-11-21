@@ -628,15 +628,18 @@ const char *np_compat_tool_dir(void) {
 }
 
 int np_compat_runs_tool(const char *cmd) {
-    static const char lead[]    = "/compatibilitytools.d/" TOOL_DIR_NAME;
+    static const char lead[]    = "/compatibilitytools.d/";
     static const char run[]     = "'" TOOL_RUN " ";
     static const char run_dot[] = "/.'" TOOL_RUN " ";
     if (!cmd) return 0;
 
     for (const char *at = strstr(cmd, lead); at; at = strstr(at + 1, lead)) {
         const char *p = at + sizeof(lead) - 1;
-        while (is_name_char(*p, "._-"))
-            p++;
+        if (strncmp(p, TOOL_DIR_NAME, sizeof(TOOL_DIR_NAME) - 1) == 0) {
+            while (is_name_char(*p, "._-")) p++;
+        } else if (strncmp(p, FLUENT_WINE_TOOL, sizeof(FLUENT_WINE_TOOL) - 1) == 0) {
+            p += sizeof(FLUENT_WINE_TOOL) - 1;
+        } else continue;
         if (strncmp(p, run, sizeof(run) - 1) == 0 || strncmp(p, run_dot, sizeof(run_dot) - 1) == 0)
             return 1;
     }

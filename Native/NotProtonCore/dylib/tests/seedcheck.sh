@@ -12,7 +12,7 @@ cut_block() {
     on { print }
     END { exit !found }' "$SRC" || { echo "FAIL: no block from /$1/ to /$2/ in $SRC" >&2; exit 1; }
 }
-functions=$(cut_block '^merge_user_dir\(\) \{' '^import_prefix_settings\(\) \{' "")
+functions=$(cut_block '^merge_user_dir\(\) \{' '^\. .*compat-prefix\.sh' "")
 functions="$functions
 $(cut_block '^runner_id=""' '^if \[ -n ".STEAM_COMPAT_DATA_PATH" \]; then' "")"
 functions="$functions

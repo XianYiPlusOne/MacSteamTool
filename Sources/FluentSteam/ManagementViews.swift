@@ -54,7 +54,7 @@ struct RuntimePage: View {
                         InfoLine(title: model.tr("内容接入加载结果", "Content integration loading"), value: model.runtime.macSteamLoaded.isEmpty ? model.tr("尚无当前进程的成功记录", "No success record for this process") : model.runtime.macSteamLoaded)
                         InfoLine(title: model.tr("游戏启动接入加载结果", "Game launch integration loading"), value: model.runtime.notProtonLoaded.isEmpty ? model.tr("尚无当前进程的成功记录", "No success record for this process") : model.runtime.notProtonLoaded)
                         Divider().padding(.vertical, 8)
-                        InfoLine(title: "Wine", value: FreeRuntime.installedRoot(model.paths) == nil ? model.tr("未安装", "Not installed") : model.tr("免费 · DX11", "Free · DX11"))
+                        InfoLine(title: "Wine", value: FreeRuntime.installedRoot(model.paths) == nil ? model.tr("未安装", "Not installed") : (FreeRuntime.graphicsReady(model.paths) ? model.tr("已就绪", "Ready") : model.tr("图形组件待更新", "Graphics update available")))
                         InfoLine(title: "CrossOver", value: "\(model.runtime.runners.count) " + model.tr("个运行器", "runners"))
                         InfoLine(title: model.tr("游戏独立环境", "Per-game environments"), value: String(model.runtime.prefixCount))
                     }

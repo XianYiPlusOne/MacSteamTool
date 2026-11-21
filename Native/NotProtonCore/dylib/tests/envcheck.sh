@@ -96,7 +96,8 @@ is "settings after a non-UTF-8 value are forwarded" "--env DXVK_HUD=1 " "$after_
 echo "== Rosetta-only settings on arm64 Wine =="
 drop=$(sed -n '/^np_dropped=""$/,/^fi$/p' "$SRC")
 [ -n "$drop" ] || { echo "FAIL: the arm64 settings block was not found"; exit 1; }
-defaults=$(sed -n '/^np_from_defaults() {$/,/^np_dropped=""$/p' "$SRC")
+defaults="$(cat "$(dirname "$SRC")/compat-defaults.sh")
+$(sed -n '/^\[ "\${CX_GRAPHICS_BACKEND-}" != auto \]/p' "$SRC")"
 [ -n "$defaults" ] || { echo "FAIL: the defaults block was not found"; exit 1; }
 verb=run
 eval "$defaults"

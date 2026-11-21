@@ -466,6 +466,7 @@ static void tool_list_cases(void) {
 
 static void tool_launch_cases(void) {
     static const char *tool[] = {
+        "CX_GRAPHICS_BACKEND=dxvk '/tools/compatibilitytools.d/fluent-proton-free/.'/run waitforexitandrun game.exe",
         "'/tools/compatibilitytools.d/notproton/.'/run waitforexitandrun  '/g/game.exe'",
         "A=1 '/tools/compatibilitytools.d/notproton-26.3/.'/run waitforexitandrun  '/g/game.exe' -x",
         "'/tools/compatibilitytools.d/notproton-fex-rosetta/.'/run run ",
@@ -473,6 +474,7 @@ static void tool_launch_cases(void) {
         "'/Volumes/Ext/Steam/compatibilitytools.d/notproton/.'/run waitforexitandrun '/g/game.exe'",
     };
     static const char *native[] = {
+        "'/tools/compatibilitytools.d/fluent-proton-free-other/.'/run run game.exe",
         "'/g/Game.app' -windowed",
         "'/g/Game.app/Contents/MacOS/Game'",
         "'/tools/compatibilitytools.d/proton-other/.'/run waitforexitandrun '/g/game.exe'",

@@ -52,7 +52,7 @@ struct SteamCompatibilityPanel: View {
         } catch { current = error.localizedDescription }
     }
     private func backendName(_ id: String) -> String {
-        if id == FreeRuntime.toolID { return model.tr("Wine（实验性 DX11）", "Wine (experimental DX11)") }
+        if id == FreeRuntime.toolID { return "Wine" }
         let name = tools.first(where: { $0.id == id })?.name ?? id
         if id == "notproton" || id.hasPrefix("notproton-") {
             return name.replacingOccurrences(of: "NotProton", with: "CrossOver", options: .caseInsensitive)

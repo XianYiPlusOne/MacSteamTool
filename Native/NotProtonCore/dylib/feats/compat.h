@@ -14,6 +14,8 @@
 #define COMPAT_MANAGER_TOOL_COUNT_OFF  0x330
 #define COMPAT_TOOL_NAME_OFF           0x40
 
+#define FLUENT_WINE_TOOL "fluent-proton-free"
+
 #define COMPAT_MANAGER_TOOLS_HEADROOM  32
 
 // Platform bits GetValidPlatforms reports.

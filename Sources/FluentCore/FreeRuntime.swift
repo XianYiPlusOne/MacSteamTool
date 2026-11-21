@@ -22,6 +22,17 @@ public enum FreeRuntime {
               FileStore.fm.fileExists(atPath: tool(paths).appendingPathComponent("prefix-support-ready").path) else { return nil }
         return url
     }
+    /// Legacy installations remain usable until the staged upgrade commits.
+    public static func graphicsReady(_ paths: AppPaths) -> Bool {
+        guard let root = installedRoot(paths),
+              (try? FileStore.text(tool(paths).appendingPathComponent("defaults-root"))) == paths.notProton.path else { return false }
+        let dxvk = ["x86_64-windows", "i386-windows"].flatMap { arch in
+            ["d3d10core", "d3d11"].map { "runner/lib/renderers/dxvk/\(arch)/\($0).dll" }
+        }
+        let d3dmetal = ["d3d11", "d3d12", "dxgi"].map { "runner/lib/renderers/d3dmetal/x86_64-windows/\($0).dll" }
+        return (dxvk + d3dmetal + ["compat-defaults.sh", "compat-prefix.sh", "runner/lib/external/libd3dshared.dylib",
+                "runner/lib/external/D3DMetal.framework/D3DMetal"]).allSatisfy { FileStore.fm.fileExists(atPath: root.appendingPathComponent($0).path) }
+    }
     public static func selected(_ data: Data?, appID: Int) -> Bool {
         guard let data else { return false }
         // An explicit empty mapping is a manual choice, not the global default.
@@ -52,16 +63,21 @@ public enum FreeRuntime {
         try FileStore.mkdir(cache)
         let archive = try await prepareArchive(paths: paths, archive: supplied, progress: progress)
         try reuseValvePackages(paths: paths, resources: resources)
-        await progress("安装运行器与 Steam 桥接组件 / Preparing runtime and Steam bridge…")
+        await progress("安装图形后端与 Steam 桥接组件 / Preparing graphics backends and Steam bridge…")
         let (status, output) = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/bash"),
             [resources.appendingPathComponent("prepare.sh").path, archive.path, version.path, cache.path], environment: environment())
         guard status == 0 else { throw AppFailure("免费运行器安装失败 / Free runtime preparation failed:\n\(output.suffix(4000))") }
-        try FileStore.json(["release": release, "sha256": digest, "graphics": "DXMT / DirectX 11"], to: version.appendingPathComponent("receipt.json"))
+        if let previous = installedRoot(paths) {
+            let legacy = previous.appendingPathComponent("global.env")
+            if fm.fileExists(atPath: legacy.path) { try FileStore.write(FileStore.read(legacy), to: version.appendingPathComponent("global.env")) }
+        }
+        try FileStore.json(["release": release, "sha256": digest, "graphics": "DXMT, DXVK, WineD3D, D3DMetal"], to: version.appendingPathComponent("receipt.json"))
         try fm.copyItem(at: resources.appendingPathComponent("run"), to: stagedTool.appendingPathComponent("run"))
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stagedTool.appendingPathComponent("run").path)
+        try Data(paths.notProton.path.utf8).write(to: stagedTool.appendingPathComponent("defaults-root"))
         try Data(version.path.utf8).write(to: stagedTool.appendingPathComponent("runtime-root"))
         try Data("fluent-free-v1".utf8).write(to: stagedTool.appendingPathComponent("fluent-owner"))
-        try Data("\"compatibilitytools\" { \"compat_tools\" { \"\(toolID)\" { \"install_path\" \".\" \"display_name\" \"Fluent Wine (Free, DX11, Experimental)\" \"from_oslist\" \"windows\" \"to_oslist\" \"macos\" } } }\n".utf8).write(to: stagedTool.appendingPathComponent("compatibilitytool.vdf"))
+        try Data("\"compatibilitytools\" { \"compat_tools\" { \"\(toolID)\" { \"install_path\" \".\" \"display_name\" \"Fluent Wine (Experimental)\" \"from_oslist\" \"windows\" \"to_oslist\" \"macos\" } } }\n".utf8).write(to: stagedTool.appendingPathComponent("compatibilitytool.vdf"))
         try Data("\"manifest\" { \"version\" \"2\" \"commandline\" \"/run %verb%\" }\n".utf8).write(to: stagedTool.appendingPathComponent("toolmanifest.vdf"))
         guard !steamRunning() else { throw AppFailure("请退出 Steam 后重试；下载已缓存 / Quit Steam and retry; download is cached") }
         // Older CloudRedirect versions resolve all Windows saves to the paid
@@ -91,7 +107,7 @@ public enum FreeRuntime {
         try FileStore.mkdir(cache)
         let archive = supplied ?? cache.appendingPathComponent(assetName)
         if supplied == nil && !fm.fileExists(atPath: archive.path) {
-            await progress("下载 Wine + DXMT / Downloading Wine + DXMT…")
+            await progress("下载 Wine 运行器 / Downloading Wine runtime…")
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 60; config.timeoutIntervalForResource = 1800
             let session = URLSession(configuration: config)
@@ -145,12 +161,12 @@ public enum FreeRuntime {
         env["WINEPREFIX"] = prefix.path; env["WINELOADER"] = loader.path
         env["WINESERVER"] = runner.appendingPathComponent("bin/wineserver").path
         env["CX_ROOT"] = runner.path; env["CX_HOME"] = root.appendingPathComponent("wine-config").path
-        env["WINEMSYNC"] = "1"; env["SteamAppId"] = String(appID); env["SteamGameId"] = String(appID)
+        env["SteamAppId"] = String(appID); env["SteamGameId"] = String(appID)
         env["WINEDLLPATH"] = prefix.appendingPathComponent("drive_c/Program Files (x86)/Steam").path + ":" + runner.appendingPathComponent("lib/wine/x86_64-windows").path + ":" + runner.appendingPathComponent("lib/wine/x86_64-unix").path
         env["WINEDLLOVERRIDES"] = "steamclient=n;steamclient64=n;lsteamclient=b"
         env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = paths.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS").path
-        env["WINEDLLPATH_PREPEND"] = runner.appendingPathComponent("lib/renderers/dxmt").path
-        env["CX_ACTIVE_GRAPHICS_BACKEND"] = "dxmt"
+        try RunnerCompatibility(wine: true, build: nil, fex: false, paths: paths)
+            .configureTool(runner: runner, prefix: prefix, environment: &env)
         let args = command.lowercased().hasSuffix(".msi") ? ["msiexec", "/i", command] : [command]
         return WineLaunch(executable: loader, arguments: args, environment: env, prefix: prefix)
     }

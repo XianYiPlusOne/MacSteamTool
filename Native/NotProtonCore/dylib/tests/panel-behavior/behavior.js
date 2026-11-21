@@ -20,6 +20,28 @@ for (const form of Object.keys(FORMS)) {
                                   strCompatToolName: '' }) }) !== null,
        'a shortcut renders the panel before a tool name reaches the page');
 
+  const wine = 'fluent-proton-free';
+  const wineRows = opts => walk(P({ details: details(opts, { strCompatToolName: wine }) }));
+  const wineGraphics = wineRows('').find(row => row.type === 'Dropdown');
+  t.ok(wineGraphics.props.rgOptions.map(x => x.data).join(',') === ',d3dmetal,dxmt,dxvk,wined3d',
+       'Wine has all four renderers and Automatic');
+  wineGraphics.props.onChange({ data: 'dxvk' });
+  t.ok(last().includes('CX_GRAPHICS_BACKEND=dxvk'), 'Wine writes a real game launch option');
+  t.ok(toggles(wineRows('')).includes('High Resolution') && sections(wineRows('')).includes('Controllers'),
+       'Wine has High Resolution and controller settings');
+  const sync = wineRows('').find(x => x.props.label === 'MSync');
+  t.ok(sync.props.checked, 'Wine reports its default MSync correctly');
+  sync.props.onChange(false);
+  t.ok(last().includes('WINEMSYNC=0'), 'Wine can turn MSync off explicitly');
+  t.ok(!wineRows('').some(x => typeof x.props.ref === 'function'), 'Wine avoids CrossOver prefix actions');
+  const unpinned = { details: details('', { strCompatToolName: '' }) };
+  const wineOnly = panel(emit, form, undefined, { tools: [], wineStatus: 1 });
+  t.ok(walk(wineOnly.render(unpinned)).find(x => x.props.label === 'MSync').props.checked,
+       'an unpinned Windows game inherits the only installed Wine runtime');
+  const legacyWine = panel(emit, form, undefined, { tools: [], wineStatus: -1 });
+  t.ok(legacyWine.render(unpinned).props.children.includes('update this runtime'),
+       'an older Wine registration shows how to install the graphics components');
+
   // Another tool can sit in the same folder -- FEXMac runs macOS on macOS -- and these
   // settings are CrossOver's, so it gets nothing from us rather than the wrong page.
   t.ok(P({ details: details('', { strCompatToolName: 'fexmac' }) }) === null,

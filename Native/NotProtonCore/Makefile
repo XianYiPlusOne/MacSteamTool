@@ -537,7 +537,8 @@ $(OUT_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(RUN_SCRIPT_H): dylib/feats/compat_run.sh dylib/embed_script.py
+RUN_SOURCES := dylib/feats/compat_run.sh dylib/feats/compat-defaults.sh dylib/feats/compat-prefix.sh dylib/embed_script.py
+$(RUN_SCRIPT_H): $(RUN_SOURCES)
 	@mkdir -p $(GENERATED_DIR)
 	python3 dylib/embed_script.py $< $@ RUN_SCRIPT
 
@@ -716,7 +717,7 @@ app-payload: $(TARGET) $(OVERLAY_SHIM) $(ICONMAKER) $(APPINFO)
 	cp -f $(OVERLAY_SHIM) "$(APP_PAYLOAD)/overlay-shim.dylib"
 	cp -f $(ICONMAKER) "$(APP_PAYLOAD)/iconmaker"
 	cp -f $(APPINFO) "$(APP_PAYLOAD)/appinfo"
-	cp -f dylib/feats/compat_run.sh "$(APP_PAYLOAD)/run"
+	python3 dylib/embed_script.py dylib/feats/compat_run.sh "$(APP_PAYLOAD)/run" --standalone
 	cp -f signatures/macos.arm64/*.json "$(APP_PAYLOAD)/signatures/macos.arm64/"
 	@set -e; for spec in $(BRIDGE_FILES); do \
 		src="$${spec%%:*}"; dst="$(APP_PAYLOAD)/bridge/$${spec##*:}"; \

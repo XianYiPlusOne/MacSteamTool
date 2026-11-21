@@ -57,7 +57,7 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 3. 完整的新游戏直接入库；手动导入、内容缺项或替换已有 Lua 时显示预览，核对后点击“导入并启用”。支持的内容转换为 macSteam `config.yaml`。入库后优先热刷新并打开 Steam 游戏详情；失败时提示重启。Steam 未运行时在下次启动加载。
 
 入库热刷新已在 Steam 1794536281 的同一进程中验证新增条目进入游戏库缓存，失败回退与原配置恢复也已验证。界面截图受系统捕获错误阻挡，详见 [热刷新实测记录](outputs/2026-11-15-入库热刷新实测.md)。
-4. Windows 游戏由 Steam 中所选的兼容工具运行。详情页可打开对应前缀、Wine 配置和日志。已有 NotProton 内核时，也可在“运行环境”安装 **Fluent Wine 免费运行器（实验）**：保留原生 Mac Steam，使用应用管理的 Wine + DXMT，无需购买 CrossOver；当前覆盖 DX11。首次启动会创建独立前缀，可能需要约一分钟，请保持 Steam 运行。ForgeTax 已通过原生 Steam 启动并人工确认正常画面；旧前缀和存档保留。内置内核与兼容层已分开，隔离安装验证见 `Native/OneClickSetup/VALIDATION.md`；DX12、全新硬件首次登录后的加载与完整云同步仍需单独验收。运行器实测见 `Native/FreeRuntime/VALIDATION.md`。
+4. Windows 游戏由 Steam 中所选的兼容工具运行。详情页可打开对应前缀、Wine 配置和日志。已有 NotProton 内核时，也可在“运行环境”安装 **Fluent Wine 免费运行器（实验）**：保留原生 Mac Steam，免费 Wine 与 CrossOver 共用兼容性设置。可在“运行环境”的“默认兼容性设置”选择自动、DXMT、DXVK、WineD3D 或 D3DMetal，并配置高分辨率、MSync、Metal HUD、超分辨率和控制器。Steam 游戏的“属性 → 兼容性”可以单独覆盖这些默认值。旧版 Wine 选择“使用 Wine”后会分阶段安装新版图形组件。首次启动会创建独立前缀，可能需要约一分钟，请保持 Steam 运行。ForgeTax 已通过原生 Steam 启动并人工确认正常画面；旧前缀和存档保留。内置内核与兼容层已分开，隔离安装验证见 `Native/OneClickSetup/VALIDATION.md`；DX12 游戏实测、全新硬件首次登录后的加载与完整云同步仍需单独验收。运行器实测见 `Native/FreeRuntime/VALIDATION.md`。
 
 ## 实现范围
 
@@ -72,7 +72,7 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 | DLC 查询与补全 | 已实现；DLC depot 缺少全部密钥时跳过并提示 |
 | 本地安装、外置库、NotProton 前缀识别 | 已实现 |
 | 自动初始化与兼容层选择 | macSteam / NotProton 自动检测、初始化和修复；选择 Wine / 已授权 CrossOver 后自动准备；退出 Steam 后续接，授权取消可重试；已有逐游戏设置保留 |
-| 免费 Wine 运行器（实验） | 应用内下载校验、安装修复、Steam 注册及独立前缀；原生 Steam → Wine/DXMT → ForgeTax 实机通过；当前 DX11，接入功能由本程序自动部署的源码组件提供，无需外置 macSteam / NotProton App |
+| 免费 Wine 运行器（实验） | 应用内下载校验、安装修复、Steam 注册及独立前缀；原生 Steam → Wine/DXMT → ForgeTax 实机通过；DXVK、DXMT、WineD3D 的 D3D11 回读及 D3DMetal 的 D3D12 回读通过，接入功能由本程序自动部署的源码组件提供，无需外置 macSteam / NotProton App |
 | Steam 启动/重启、本地账号切换 | 已实现；账号切换要求 Steam 退出并已保存登录 |
 | 修改器 | 0.2.18 按产品范围决定移除，不再实现或列为待完成功能 |
 | 手动 / 自动监听 Manifest 下载 | 已实现；新日志请求去重、日志轮转、多个 HTTPS 源与 Steam CDN 切换，验证分段 / DepotID / ManifestID / CRC |

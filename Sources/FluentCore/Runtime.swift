@@ -152,7 +152,8 @@ public struct WineLaunch {
             }
             env["WINEDLLOVERRIDES"] = (overrides + ["steamclient=n", "steamclient64=n", "lsteamclient=b"]).joined(separator: ";")
         }
-        env["WINEMSYNC"] = ((try? FileStore.text(root.appendingPathComponent("notproton-msync")))?.trimmingCharacters(in: .whitespacesAndNewlines) == "1") ? "1" : "0"
+        try RunnerCompatibility(wine: false, build: record?.first, fex: useFEX, paths: paths)
+            .configureTool(runner: runner, prefix: prefix, environment: &env)
         env["PATH"] = runner.appendingPathComponent("bin").path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
         let arguments = command.lowercased().hasSuffix(".msi") ? ["msiexec", "/i", command] : [command]
         return Self(executable: loader, arguments: arguments, environment: env, prefix: prefix)

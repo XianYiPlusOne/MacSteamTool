@@ -1,6 +1,6 @@
 # Third-party notices
 
-The experimental **Fluent Wine** launcher is adapted from [Drustburn/NotProton](https://github.com/Drustburn/NotProton/tree/df2f23a71bd42151e9aec923b1a01e50efcb8505), GPL-3.0, with changes and pinned provenance documented in `Native/FreeRuntime/PROVENANCE.md`. It downloads the pinned [steamplay-mac v2026.10.13](https://github.com/Drustburn/steamplay-mac/releases/tag/v2026.10.13) Wine/DXMT runtime on demand and obtains hash-verified Valve bridge files from Valve CDN. These runtime binaries and Apple D3DMetal are not bundled in Fluent Steam Mac. See `Licenses/NotProton.txt` for the launcher license.
+The experimental **Fluent Wine** launcher is adapted from [Drustburn/NotProton](https://github.com/Drustburn/NotProton/tree/df2f23a71bd42151e9aec923b1a01e50efcb8505), GPL-3.0, with changes and pinned provenance documented in `Native/FreeRuntime/PROVENANCE.md`. It downloads the pinned [steamplay-mac v2026.10.13](https://github.com/Drustburn/steamplay-mac/releases/tag/v2026.10.13) Wine/DXMT runtime on demand and obtains hash-verified Valve bridge files from Valve CDN. The installer also obtains the [DXVK-macOS builtin release](https://github.com/Gcenx/DXVK-macOS/releases/tag/v1.10.3-20230507-repack) and Apple D3DMetal from the pinned GPTK archive on the user’s Mac. The app distributes the launchers and installer. See `Licenses/NotProton.txt` for the launcher license.
 
 Fluent Steam Mac is an independent development port, not an official release of Fluent-Steam-Lua, macSteam, NotProton or Valve Steam.
 

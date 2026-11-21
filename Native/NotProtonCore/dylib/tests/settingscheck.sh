@@ -4,7 +4,8 @@ set -e
 SRC="${1:-$(dirname "$0")/../feats/compat_run.sh}"
 [ -f "$SRC" ] || { echo "settingscheck: $SRC not present, skipped"; exit 0; }
 
-body=$(sed -n '/^import_prefix_settings() {$/,/^}$/p' "$SRC")
+prefix_src="$(dirname "$SRC")/compat-prefix.sh"
+body=$(sed -n '/^import_prefix_settings() {$/,/^}$/p' "$prefix_src")
 [ -n "$body" ] || { echo "FAIL: import_prefix_settings not found in $SRC"; exit 1; }
 wrapper=$(sed -n '/^without_lock_fds() {$/,/^}$/p' "$SRC")
 [ -n "$wrapper" ] || { echo "FAIL: without_lock_fds not found in $SRC"; exit 1; }
@@ -12,7 +13,7 @@ helpers=""
 for helper in controller_ids ids_without hidraw_lines write_owned_controllers plan_hidden_controllers \
 	plan_disable_hidraw winebus_lines plan_logpixels video_lines prefix_up_to_date \
 	settings_already_applied; do
-	part=$(sed -n "/^$helper() {\$/,/^}\$/p" "$SRC")
+	part=$(sed -n "/^$helper() {\$/,/^}\$/p" "$prefix_src")
 	[ -n "$part" ] || { echo "FAIL: $helper not found in $SRC"; exit 1; }
 	helpers="$helpers
 $part"

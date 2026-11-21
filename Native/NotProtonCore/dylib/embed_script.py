@@ -22,6 +22,16 @@ def main() -> int:
     src, dst, symbol = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 
     text = src.read_text(encoding="ascii")
+    # Installed compatibility tools carry a single executable script.
+    for module in ("compat-defaults.sh", "compat-prefix.sh"):
+        include = f'. "$(dirname "$0")/{module}"'
+        if include in text:
+            text = text.replace(include, (src.parent / module).read_text(encoding="ascii").rstrip())
+    if symbol == "--standalone":
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(text, encoding="ascii")
+        dst.chmod(0o755)
+        return 0
     guard = f"NOTPROTON_GENERATED_{symbol.upper()}_H"
     header = (
         f"// Generated from {src.as_posix()} by dylib/embed_script.py. Edit that file.\n"

@@ -139,7 +139,7 @@ const need = { needsRebuild: true, app: true, running: false, rebuild: '' };
   {
     const w = world([{ ...need, app: false }]);
     w.g.MSCXPrefixRow(w.row, 480); await w.settle(); await w.settle();
-    assert.deepEqual(w.texts(), ["Couldn't find the NotProton app. Move NotProton to Applications, open it and click Install again."]);
+    assert.deepEqual(w.texts(), ["Fluent Steam Mac helper missing. Open Fluent Steam Mac to repair the environment automatically."]);
     assert.equal(w.buttons().length, 0);
   }
   {

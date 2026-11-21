@@ -37,7 +37,7 @@ public struct ContainerBackup: Codable, Identifiable, Sendable {
 /// Manages only per-game prefixes. Both backends remain visible regardless of
 /// the active Steam mapping. Game installation files are never backup targets.
 public enum GameContainers {
-    static let metadataNames = ["notproton-build", "notproton-msync"]
+    static let metadataNames = ["notproton-build", "notproton-msync", "notproton-session.env"]
     public static func all(_ paths: AppPaths) -> [GameContainer] {
         SteamLibrary.libraries(paths).flatMap { library in
             FileStore.files(library.appendingPathComponent("steamapps/compatdata")).flatMap { root -> [GameContainer] in
@@ -60,7 +60,7 @@ public enum GameContainers {
         let rows = ((try? FileStore.text(paths.notProton.appendingPathComponent("tools"))) ?? "").split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }
         return tools.compactMap { tool in
             if tool.id == FreeRuntime.toolID, FreeRuntime.installedRoot(paths) != nil {
-                return ContainerBackend(id: tool.id, name: "Wine · DX11", build: FreeRuntime.release, flavor: "wine")
+                return ContainerBackend(id: tool.id, name: "Wine", build: FreeRuntime.release, flavor: "wine")
             }
             guard tool.id == "notproton" || tool.id.hasPrefix("notproton-"),
                   let row = rows.first(where: { $0.count >= 3 && $0[0] == tool.id }),
