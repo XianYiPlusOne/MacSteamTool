@@ -32,11 +32,15 @@ public struct ContainerBackup: Codable, Identifiable, Sendable {
     public let created: Date
     public let metadata: [String: Data]
     public var reason: String? = nil
+    var profile: ContainerProfiles.Record? = nil
 }
 
 /// Manages only per-game prefixes. Both backends remain visible regardless of
 /// the active Steam mapping. Game installation files are never backup targets.
 public enum GameContainers {
+    private static func gameRoot(_ container: GameContainer) -> URL {
+        GameContainer(appID: container.appID, library: container.library, isWine: false).root
+    }
     static let metadataNames = ["notproton-build", "notproton-msync", "notproton-session.env"]
     public static func all(_ paths: AppPaths) -> [GameContainer] {
         SteamLibrary.libraries(paths).flatMap { library in
@@ -51,7 +55,7 @@ public enum GameContainers {
         return FileStore.files(paths.data.appendingPathComponent("ContainerBackups")).compactMap { folder in
             guard let item = try? FileStore.decode(ContainerBackup.self, at: folder.appendingPathComponent("receipt.json")), item.id == folder.lastPathComponent, UUID(uuidString: item.id) != nil else { return nil }
             let container = GameContainer(appID: item.appID, library: URL(fileURLWithPath: item.library), isWine: item.isWine)
-            guard (try? validate(container, paths: paths)) != nil, !container.exists, seen.insert(container.id).inserted else { return nil }
+            guard (try? validate(container, paths: paths)) != nil, !container.exists, matchesProfile(item, container: container), seen.insert(container.id).inserted else { return nil }
             return container
         }
     }
@@ -70,7 +74,9 @@ public enum GameContainers {
         }
     }
     public static func selectedTool(appID: Int, paths: AppPaths) throws -> String? {
-        let data = try FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))
+        let file = paths.steam.appendingPathComponent("config/config.vdf")
+        guard FileStore.fm.fileExists(atPath: file.path) else { return nil }
+        let data = try FileStore.read(file)
         if let mapping = try SteamCompatibility.mapping(data, appID: appID) { return mapping.string("name") }
         return try SteamCompatibility.globalTool(data)
     }
@@ -107,16 +113,21 @@ public enum GameContainers {
     public static func requireIdle() throws {
         guard !SteamProcesses.isRunning else { throw AppFailure("请退出 Steam 后管理容器 / Quit Steam before managing containers") }
     }
-    private static func claim(_ container: GameContainer, paths: AppPaths, requireIdle: @Sendable () throws -> Void) async throws -> Int32 {
-        try validate(container, paths: paths); try requireIdle(); try FileStore.mkdir(container.root)
-        let fd = open(container.root.appendingPathComponent(".notproton-prefix.lock").path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+    static func claim(_ container: GameContainer, paths: AppPaths, requireIdle: @Sendable () throws -> Void) async throws -> Int32 {
+        try validate(container, paths: paths)
+        return try await claimPrefix(at: container.root, requireIdle: requireIdle)
+    }
+    static func claimPrefix(at root: URL, requireIdle: @Sendable () throws -> Void) async throws -> Int32 {
+        let prefix = root.appendingPathComponent("pfx")
+        try requireIdle(); try FileStore.mkdir(root)
+        let fd = open(root.appendingPathComponent(".notproton-prefix.lock").path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { throw AppFailure("无法锁定容器 / Cannot lock container") }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             close(fd); throw AppFailure("容器正在准备或使用中 / Container is being prepared or used")
         }
         do {
-            if let attributes = try? FileStore.fm.attributesOfItem(atPath: container.prefix.path),
+            if let attributes = try? FileStore.fm.attributesOfItem(atPath: prefix.path),
                let device = attributes[.systemNumber] as? Int, let inode = attributes[.systemFileNumber] as? Int {
                 let server = "/tmp/.wine-\(getuid())/server-\(String(device, radix: 16))-\(String(inode, radix: 16))"
                 if FileStore.fm.fileExists(atPath: server) {
@@ -129,7 +140,7 @@ public enum GameContainers {
             try requireIdle(); return fd
         } catch { release(fd); throw error }
     }
-    private static func release(_ fd: Int32) { flock(fd, LOCK_UN); close(fd) }
+    static func release(_ fd: Int32) { flock(fd, LOCK_UN); close(fd) }
     /// Hold every affected prefix lock through backup and removal, including
     /// inactive backends. Snapshots preserve registry-based saves as well.
     public static func protectingRemoval(_ containers: [GameContainer], paths: AppPaths,
@@ -145,20 +156,36 @@ public enum GameContainers {
         try perform()
     }
     public static func create(_ container: GameContainer, backend: ContainerBackend, paths: AppPaths, requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws {
-        guard backend.isWine == container.isWine, try backends(paths).contains(where: { $0.id == backend.id && $0.build == backend.build }) else { throw AppFailure("所选兼容层尚未就绪 / Selected backend is unavailable") }
+        guard backend.isWine == container.isWine else { throw AppFailure("容器与运行器不匹配 / Container backend mismatch") }
         let fd = try await claim(container, paths: paths, requireIdle: requireIdle); defer { release(fd) }
-        guard !container.exists else { throw AppFailure("此游戏已有该兼容层的容器，请使用现有容器 / This game already has a container for this backend") }
+        guard !container.exists else { throw AppFailure("此游戏已有该兼容层的容器 / This container already exists") }
         let stage = container.root.appendingPathComponent(".pfx-creating-\(UUID().uuidString)")
-        try FileStore.mkdir(stage); defer { try? FileStore.fm.removeItem(at: stage) }
+        defer { try? FileStore.fm.removeItem(at: stage) }
+        try await initializePrefix(stage, appID: container.appID, backend: backend, paths: paths, log: logURL(container, paths: paths))
+        try requireIdle(); try validate(container, paths: paths)
+        let previousMetadata = try metadata(container)
+        do {
+            try recordBackend(backend, in: container.root)
+            try FileStore.fm.moveItem(at: stage, to: container.prefix)
+        } catch { try? writeMetadata(previousMetadata, container: container); throw error }
+    }
+    static func recordBackend(_ backend: ContainerBackend, in root: URL) throws {
+        if !backend.isWine {
+            try FileStore.write(Data("\(backend.build)\n\(backend.flavor == "fex" ? "FEX" : "Rosetta")\n".utf8), to: root.appendingPathComponent("notproton-build"))
+        }
+    }
+    static func initializePrefix(_ stage: URL, appID: Int, backend: ContainerBackend, paths: AppPaths, log: URL) async throws {
+        guard try backends(paths).contains(where: { $0.id == backend.id && $0.build == backend.build }) else {
+            throw AppFailure("所选运行器尚未就绪 / Selected runner is unavailable")
+        }
         // Pre-create isolated user folders so Wine does not link host Documents.
         for folder in ["Documents", "Desktop", "Downloads", "Music", "Pictures", "Videos", "AppData/Local", "AppData/Roaming"] {
             try FileStore.mkdir(stage.appendingPathComponent("drive_c/users/steamuser/" + folder))
         }
         try FileStore.fm.createSymbolicLink(atPath: stage.appendingPathComponent("drive_c/users/crossover").path, withDestinationPath: "steamuser")
-        var launch = try WineLaunch.prepare(appID: container.appID, command: "wineboot", prefix: stage, paths: paths,
+        var launch = try WineLaunch.prepare(appID: appID, command: "wineboot", prefix: stage, paths: paths,
                                            buildRecord: [backend.build, backend.flavor == "fex" ? "FEX" : "Rosetta"])
         launch.arguments = ["wineboot", "--init"]
-        let log = logURL(container, paths: paths)
         let (code, output) = try await ProcessRunner.run(launch.executable, launch.arguments, environment: launch.environment)
         try FileStore.write(Data(output.utf8), to: log)
         if let server = launch.environment["WINESERVER"] {
@@ -166,15 +193,12 @@ public enum GameContainers {
             _ = try await ProcessRunner.run(URL(fileURLWithPath: server), ["-w"], environment: launch.environment)
         }
         guard code == 0, ["system.reg", "user.reg"].allSatisfy({ FileStore.fm.fileExists(atPath: stage.appendingPathComponent($0).path) }) else { throw AppFailure("容器创建失败，原有环境未修改；请查看容器日志 / Container creation failed; existing environments are unchanged. See container log") }
-        try requireIdle(); try validate(container, paths: paths)
-        let previousMetadata = try metadata(container)
-        do {
-            if !container.isWine { try FileStore.write(Data("\(backend.build)\n\(backend.flavor == "fex" ? "FEX" : "Rosetta")\n".utf8), to: container.root.appendingPathComponent("notproton-build")) }
-            try FileStore.fm.moveItem(at: stage, to: container.prefix)
-        } catch { try? writeMetadata(previousMetadata, container: container); throw error }
     }
     public static func logURL(_ container: GameContainer, paths: AppPaths) -> URL {
-        paths.data.appendingPathComponent("Logs/containers/\(container.appID)-\(container.isWine ? "wine" : "crossover").log")
+        if let record = try? ContainerProfiles.read(gameRoot(container)), record.name != nil {
+            return paths.data.appendingPathComponent("Logs/containers/\(record.id.uuidString).log")
+        }
+        return paths.data.appendingPathComponent("Logs/containers/\(container.appID)-\(container.isWine ? "wine" : "crossover").log")
     }
     public static func launch(_ container: GameContainer, command: String, paths: AppPaths, requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws -> Process {
         let fd = try await claim(container, paths: paths, requireIdle: requireIdle)
@@ -200,13 +224,20 @@ public enum GameContainers {
                   item.reason == "before-uninstall", item.id == folder.lastPathComponent, UUID(uuidString: item.id) != nil,
                   appIDs.contains(item.appID) else { return nil }
             return item
-        }.sorted { $0.created > $1.created }.filter { seen.insert("\($0.appID):\($0.isWine)").inserted }
+        }.sorted { $0.created > $1.created }.filter { seen.insert("\($0.appID):\($0.isWine):\($0.profile?.id.uuidString ?? "")").inserted }
+    }
+    private static func matchesProfile(_ backup: ContainerBackup, container: GameContainer) -> Bool {
+        do {
+            let current = try ContainerProfiles.read(gameRoot(container))
+            if current?.name == nil && backup.profile?.name == nil { return true }
+            return current?.id == backup.profile?.id
+        } catch { return false }
     }
     public static func backups(_ container: GameContainer, paths: AppPaths) -> [ContainerBackup] {
         FileStore.files(paths.data.appendingPathComponent("ContainerBackups")).compactMap { folder in
             guard let item = try? FileStore.decode(ContainerBackup.self, at: folder.appendingPathComponent("receipt.json")),
                   item.id == folder.lastPathComponent, item.appID == container.appID, item.isWine == container.isWine,
-                  item.library == container.library.path else { return nil }
+                  item.library == container.library.path, matchesProfile(item, container: container) else { return nil }
             return item
         }.sorted { $0.created > $1.created }
     }
@@ -227,7 +258,7 @@ public enum GameContainers {
     }
     private static func snapshot(_ container: GameContainer, paths: AppPaths, requireIdle: @Sendable () throws -> Void, reason: String? = nil) throws -> ContainerBackup {
         guard container.exists else { throw AppFailure("容器不存在 / Container does not exist") }
-        let item = ContainerBackup(id: UUID().uuidString, appID: container.appID, library: container.library.path, isWine: container.isWine, created: Date(), metadata: try metadata(container), reason: reason)
+        let item = ContainerBackup(id: UUID().uuidString, appID: container.appID, library: container.library.path, isWine: container.isWine, created: Date(), metadata: try metadata(container), reason: reason, profile: try ContainerProfiles.read(gameRoot(container)))
         let base = paths.data.appendingPathComponent("ContainerBackups"), stage = base.appendingPathComponent(".stage-" + item.id)
         try FileStore.mkdir(stage); defer { try? FileStore.fm.removeItem(at: stage) }
         try FileStore.fm.copyItem(at: container.prefix, to: stage.appendingPathComponent("pfx"))
@@ -249,12 +280,20 @@ public enum GameContainers {
     }
     public static func restore(_ item: ContainerBackup, to container: GameContainer, paths: AppPaths, relocating: Bool = false, requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws {
         let fd = try await claim(container, paths: paths, requireIdle: requireIdle); defer { release(fd) }
-        let origin = relocating ? GameContainer(appID: item.appID, library: URL(fileURLWithPath: item.library), isWine: item.isWine) : container
-        guard item.appID == container.appID, item.isWine == container.isWine,
-              UUID(uuidString: item.id) != nil, backups(origin, paths: paths).contains(where: { $0.id == item.id }) else { throw AppFailure("备份与容器不匹配 / Backup does not match this container") }
+        guard item.appID == container.appID, item.isWine == container.isWine, UUID(uuidString: item.id) != nil else { throw AppFailure("备份与容器不匹配 / Backup does not match this container") }
         let backup = paths.data.appendingPathComponent("ContainerBackups/\(item.id)")
         let receipt = try FileStore.decode(ContainerBackup.self, at: backup.appendingPathComponent("receipt.json"))
-        guard receipt.appID == container.appID, receipt.isWine == container.isWine, receipt.id == item.id else { throw AppFailure("容器备份记录不匹配 / Container backup receipt mismatch") }
+        guard receipt.appID == container.appID, receipt.isWine == container.isWine, receipt.id == item.id,
+              receipt.library == item.library, relocating || receipt.library == container.library.path else { throw AppFailure("容器备份记录不匹配 / Container backup receipt mismatch") }
+        let root = gameRoot(container)
+        let adopting = !matchesProfile(receipt, container: container)
+        if adopting {
+            guard relocating, receipt.reason == "before-uninstall", try ContainerProfiles.read(root) == nil,
+                  !container.exists, let profile = receipt.profile,
+                  !(try ContainerProfiles(appID: container.appID, library: container.library, paths: paths).list()).contains(where: { $0.id == profile.id }) else {
+                throw AppFailure("请切换到此备份所属的容器 / Switch to the container that owns this backup")
+            }
+        }
         guard try backup.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true,
               try backup.appendingPathComponent("pfx").resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw AppFailure("备份目录无效 / Invalid backup directory") }
         if container.exists { _ = try snapshot(container, paths: paths, requireIdle: requireIdle) }
@@ -267,6 +306,7 @@ public enum GameContainers {
         do {
             try FileStore.fm.moveItem(at: stage, to: container.prefix)
             try writeMetadata(receipt.metadata, container: container)
+            if adopting, let profile = receipt.profile { try FileStore.json(profile, to: root.appendingPathComponent(ContainerProfiles.marker)) }
         } catch {
             try? FileStore.fm.removeItem(at: container.prefix)
             if existed { try? FileStore.fm.moveItem(at: previous, to: container.prefix) }

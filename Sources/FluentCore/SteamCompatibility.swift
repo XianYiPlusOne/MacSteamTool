@@ -77,7 +77,7 @@ public enum SteamCompatibility {
     }
     public static func edit(_ bytes: Data, appID: Int, tool: String?) throws -> Data {
         _ = try mapping(bytes, appID: appID)
-        guard tool == nil || validTool(tool!) else { throw AppFailure("运行器标识无效 / Invalid compatibility tool identifier") }
+        guard tool == nil || tool == "" || validTool(tool!) else { throw AppFailure("运行器标识无效 / Invalid compatibility tool identifier") }
         var doc = try VDF.parse(String(decoding: bytes, as: UTF8.self))
         func change(_ node: inout VDF, depth: Int) throws {
             if depth == path.count {
@@ -94,17 +94,14 @@ public enum SteamCompatibility {
         try change(&doc, depth: 0)
         return Data(doc.serialized().utf8)
     }
-    @discardableResult public static func save(paths: AppPaths, appID: Int, tool: String?) throws -> BackupRecord {
-        guard !SteamProcesses.isRunning else { throw AppFailure("请先退出 Steam，再修改运行器设置 / Quit Steam before changing the compatibility tool") }
-        if let tool { guard try tools(paths: paths).contains(where: { $0.id == tool }) else { throw AppFailure("所选 Windows 运行器尚未安装 / Selected Windows compatibility tool is not installed") } }
+    @discardableResult public static func save(paths: AppPaths, appID: Int, tool: String?, requireIdle: () throws -> Void = GameContainers.requireIdle) throws -> BackupRecord {
+        try requireIdle()
+        if let tool, !tool.isEmpty { guard try tools(paths: paths).contains(where: { $0.id == tool }) else { throw AppFailure("所选 Windows 运行器尚未安装 / Selected Windows compatibility tool is not installed") } }
         let file = paths.steam.appendingPathComponent("config/config.vdf"), before = try FileStore.read(file)
         let after = try edit(before, appID: appID, tool: tool)
         let manual = try AutomaticCompatibility.manualChange(paths: paths, appID: appID)
         let backups = paths.data.appendingPathComponent("CompatibilityBackups")
         try FileStore.mkdir(backups); try FileStore.fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: backups.path)
-        guard !SteamProcesses.isRunning else { throw AppFailure("Steam 已重新启动，未写入 / Steam restarted; no changes written") }
-        return try FileTransaction(backupRoot: backups).apply([(file, after), (manual.url, manual.data)], reason: "Steam Play AppID \(appID): \(tool ?? "automatic")", expectations: [file: FileStore.hash(before), manual.url: manual.expected], validate: {
-            guard !SteamProcesses.isRunning else { throw AppFailure("Steam 已启动，未修改运行器 / Steam started; runtime not changed") }
-        })
+        return try FileTransaction(backupRoot: backups).apply([(file, after), (manual.url, manual.data)], reason: "Steam Play AppID \(appID): \(tool ?? "automatic")", expectations: [file: FileStore.hash(before), manual.url: manual.expected], validate: requireIdle)
     }
 }
