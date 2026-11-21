@@ -1,4 +1,5 @@
 #include "pins.h"
+#include "../SteamIntegration/steam_profiles.h"
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <dlfcn.h>
@@ -63,19 +64,10 @@ extern "C" int FluentPinsInstall(){
     auto& r=runtime();
     std::lock_guard<std::mutex> lock(r.installation);if(r.target)return 1;
     auto base=FluentPins::FindClient();if(!base)return 0;
-    // Build 1792618285, helper at 0x5b0394. Validate the Mach-O UUID AND prologue.
-    static const unsigned char uuid[]={0x1d,0x28,0x26,0x16,0xb6,0x7e,0x30,0xa6,0xb0,0xaf,0xe4,0xd5,0x88,0x06,0x10,0xe7};
-    auto h=reinterpret_cast<const mach_header_64*>(base);auto lc=reinterpret_cast<const load_command*>(h+1);bool matches=false,inText=false;
-    for(uint32_t i=0;i<h->ncmds;++i){
-        if(lc->cmd==LC_UUID)matches=!std::memcmp(reinterpret_cast<const uuid_command*>(lc)->uuid,uuid,16);
-        if(lc->cmd==LC_SEGMENT_64){auto s=reinterpret_cast<const segment_command_64*>(lc);if(!std::strcmp(s->segname,"__TEXT"))inText=s->vmsize>0x5b03b4;}
-        if(lc->cmdsize<8)return 0;lc=reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(lc)+lc->cmdsize);
-    }
-    static const unsigned char bytes[]={0xff,0x83,0x01,0xd1,0xf6,0x57,0x03,0xa9,0xf4,0x4f,0x04,0xa9,0xfd,0x7b,0x05,0xa9,0xfd,0x43,0x01,0x91,0xf4,0x03,0x02,0xaa,0xf5,0x03,0x01,0xaa,0xf3,0x03,0x00,0xaa};
-    if(!matches || !inText || std::memcmp(reinterpret_cast<void*>(base+0x5b0394),bytes,sizeof(bytes))){status("unsupported Steam build or existing detour; pins disabled");return -1;}
+    if(!RuntimeProfile::Check_readManifest(base)){status("unsupported Steam build or existing detour; pins disabled");return -1;}
     FluentPinsReload();
-    if(DobbyHook(reinterpret_cast<void*>(base+0x5b0394),reinterpret_cast<void*>(&hook),reinterpret_cast<void**>(&r.original))!=0){status("detour installation failed");return -1;}
-    r.target=reinterpret_cast<void*>(base+0x5b0394);
+    if(DobbyHook(reinterpret_cast<void*>(base+RuntimeProfile::readManifest(base)),reinterpret_cast<void*>(&hook),reinterpret_cast<void**>(&r.original))!=0){status("detour installation failed");return -1;}
+    r.target=reinterpret_cast<void*>(base+RuntimeProfile::readManifest(base));
     // Register after Dobby's registry and code writer have been initialized.
     // A dylib destructor alone runs after their C++ destructors on real Steam
     // exit, so looking up the detour there can access the freed registry.

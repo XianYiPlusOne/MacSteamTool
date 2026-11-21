@@ -80,9 +80,35 @@ public enum RemoteLuaPackage {
               url.scheme == "https", url.host?.isEmpty == false, url.user == nil, url.password == nil else { throw AppFailure("远程包地址需要 HTTPS 和 {app} / Remote package URL requires HTTPS and {app}") }
         return (value, linked)
     }
-    public static func fetch(appID: Int, preferences: Preferences, engine: URL) async throws -> [ImportFile] {
-        let source = try source(preferences)
-        return try await fetch(appID: appID, template: source.template, engine: engine, useLinkService: source.linked)
+    public static func fetch(appID: Int, preferences: Preferences, engine: URL, progress: (String) async -> Void = { _ in }) async throws -> [ImportFile] {
+        return try await fetch(preferences: preferences, progress: progress) { template, linked in
+            try await fetch(appID: appID, template: template, engine: engine, useLinkService: linked)
+        }
+    }
+    // A link service outage must not prevent trying the underlying repository.
+    static func fetch(preferences: Preferences, progress: (String) async -> Void = { _ in }, attempt: (String, Bool) async throws -> [ImportFile]) async throws -> [ImportFile] {
+        let selected = try source(preferences)
+        var sources = [selected]
+        if selected.linked { sources.append((template: selected.template, linked: false)) }
+        var failures: [String] = []
+        for candidate in sources {
+            try Task.checkCancellation()
+            let label = candidate.linked ? "备用包链接服务 / Package link service" : "备用包直接仓库 / Direct package repository"
+            await progress("正在请求 \(label)…")
+            do {
+                let files = try await attempt(candidate.template, candidate.linked)
+                guard !files.isEmpty else { throw AppFailure("备用来源返回空内容 / Alternate source returned no content") }
+                await progress("\(label)：已取得 \(files.count) 个文件，继续核对内容")
+                return files
+            } catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                let failure = "\(label)：\(error.localizedDescription)"
+                failures.append(failure)
+                await progress(failure)
+            }
+        }
+        throw AppFailure(failures.joined(separator: "\n"))
     }
     public static func fetch(appID: Int, template: String, engine: URL, useLinkService: Bool = false) async throws -> [ImportFile] {
         guard TextUtil.validID(String(appID)) != nil, template.contains("{app}") else { throw AppFailure("远程包 URL 需要 {app} / Remote package URL requires {app}") }
@@ -94,6 +120,15 @@ public enum RemoteLuaPackage {
         } else { downloadURL = url }
         let data = try await HTTP.get(downloadURL, limit: 64 * 1024 * 1024, headers: useLinkService ? ["Referer": "https://short.walftech.com/"] : [:])
         return try await extract(data, appID: appID, engine: engine)
+    }
+    public static func fetchGitHub(appID: Int) async throws -> [ImportFile] {
+        guard TextUtil.validID(String(appID)) != nil else { throw AppFailure("Invalid AppID") }
+        let url = try HTTP.url("https://raw.githubusercontent.com/steamtools-games/ManifestHub3/\(appID)/\(appID).lua")
+        let data = try await HTTP.get(url, limit: 1024 * 1024)
+        guard let text = String(data: data, encoding: .utf8) else { throw AppFailure("GitHub Lua is not UTF-8") }
+        let document = try LuaDocument.parse(text, suggestedID: appID)
+        guard document.appID == appID else { throw AppFailure("GitHub 来源游戏不匹配 / GitHub game mismatch") }
+        return [ImportFile(name: "\(appID).lua", data: data)]
     }
     public static func proxyURL(_ response: Data) throws -> URL {
         guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any], let code = json["short_code"] as? String,

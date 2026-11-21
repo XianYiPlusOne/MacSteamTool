@@ -146,8 +146,6 @@ public struct RuntimeFeatureStatus: Codable, Sendable {
     public let manifestProvider: Bool?
     public let manifestServed: UInt?
     public let manifestFallbacks: UInt?
-    public let onlineFix: Bool?
-    public let onlineFixAppID: UInt?
     public static func current(paths: AppPaths) -> Self? {
         guard let value = try? FileStore.decode(Self.self, at: paths.data.appendingPathComponent("CloudRedirect/runtime-status.json")), SteamProcesses.pids().contains(value.pid) else { return nil }
         return value

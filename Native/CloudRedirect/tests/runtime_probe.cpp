@@ -40,8 +40,8 @@ static void* mapMinutes(void*,uint64_t app,int create){check(app==480&&create==1
 static void saveMinutes(void*,uint64_t app,void* record){check(app==480&&record==minutes,"native map writer arguments");}
 static void notify(void*,int callback,const void*,int size,int){check(callback==1020046&&size==4,"playtime callback ABI");notices++;}
 static int passthrough(void*,const char*,void*,void*,int*){return 777;}
-static std::vector<uint8_t> serialized(uintptr_t base,void* msg){size_t n=((size_t(*)(void*))(*(void***)msg)[9])(msg);std::vector<uint8_t> out(n);if(n)((void*(*)(void*,void*))(base+0xb3e738))(msg,out.data());return out;}
-struct Proto {void* value;void** vt;uintptr_t base;Proto(const char* name,uintptr_t b,size_t size):base(b){vt=VtableHook::FindVtableByRTTIName(name,b,size);check(vt,"protobuf vtable");value=((void*(*)(void*))vt[3])(nullptr);}void parse(const std::vector<uint8_t>& data){static uint8_t empty;check(((int(*)(void*,const void*,int))(base+0xb3e6e8))(value,data.empty()?&empty:data.data(),(int)data.size()),"real protobuf parse");}~Proto(){((void(*)(void*))vt[1])(value);}};
+static std::vector<uint8_t> serialized(uintptr_t base,void* msg){size_t n=((size_t(*)(void*))(*(void***)msg)[9])(msg);std::vector<uint8_t> out(n);if(n)((void*(*)(void*,void*))(base+RuntimeProfile::serialize(base)))(msg,out.data());return out;}
+struct Proto {void* value;void** vt;uintptr_t base;Proto(const char* name,uintptr_t b,size_t size):base(b){vt=VtableHook::FindVtableByRTTIName(name,b,size);check(vt,"protobuf vtable");value=((void*(*)(void*))vt[3])(nullptr);}void parse(const std::vector<uint8_t>& data){static uint8_t empty;check(((int(*)(void*,const void*,int))(base+RuntimeProfile::parse(base)))(value,data.empty()?&empty:data.data(),(int)data.size()),"real protobuf parse");}~Proto(){((void(*)(void*))vt[1])(value);}};
 int main(int argc,char** argv){
     check(argc==4,"usage: runtime-probe steamclient macsteam prepared-test-root");std::string root=argv[3];
     check(std::filesystem::exists(root+"/.fluent-fixture"),"explicit disposable fixture marker");
@@ -55,28 +55,28 @@ int main(int argc,char** argv){
     check(StatsStore::WaitForSeed(15000),"cloud statistics seed");
     check(!CloudIntercept::HasNamespaceApps()&&CloudIntercept::IsStatsApp(480)&&!CloudIntercept::IsStatsApp(481),"statistics separated from saves");
     auto c=RuntimeSettings::Current();check(c->tickets.count(480),"ticket validation and private config");auto ticket=c->tickets.at(480);
-    alignas(16) unsigned char user[0x6500]={},job[0x200]={},engine[0x1500]={},node[32]={};void* userVT[128]={};userVT[10]=(void*)&fakeID;*(void***)user=userVT;memcpy(user+0x242,&ticket.steamID,8);*(int32_t*)(user+0x6388)=-1;
-    *(uint32_t*)(engine+0x130)=1;*(int32_t*)(engine+0x13e0)=0;*(void**)(engine+0x13f8)=node;*(int32_t*)node=-1;*(int32_t*)(node+4)=-1;*(uint32_t*)(node+16)=1;*(uint32_t*)(node+20)=480;
-    auto engineGlobal=(void**)(base+0x1876438);auto oldEngine=*engineGlobal;*engineGlobal=engine;
-    auto ctor=(void(*)(void*))(base+RuntimeProfile::bufferCtor);auto dtor=(void(*)(void*))(base+RuntimeProfile::bufferDtor);auto put=(void(*)(void*,const void*,int))(base+RuntimeProfile::put);
+    alignas(16) unsigned char user[0x6500]={},job[0x200]={},engine[0x1500]={},node[32]={};void* userVT[128]={};userVT[10]=(void*)&fakeID;*(void***)user=userVT;memcpy(user+0x242,&ticket.steamID,8);*(int32_t*)(user+RuntimeProfile::Get(base).ticketTreeRoot)=-1;
+    *(uint32_t*)(engine+0x130)=1;*(int32_t*)(engine+RuntimeProfile::Get(base).engineAppRoot)=0;*(void**)(engine+RuntimeProfile::Get(base).engineAppNodes)=node;*(int32_t*)node=-1;*(int32_t*)(node+4)=-1;*(uint32_t*)(node+16)=1;*(uint32_t*)(node+20)=480;
+    auto engineGlobal=(void**)(base+RuntimeProfile::Get(base).engineGlobal);auto oldEngine=*engineGlobal;*engineGlobal=engine;
+    auto ctor=(void(*)(void*))(base+RuntimeProfile::bufferCtor(base));auto dtor=(void(*)(void*))(base+RuntimeProfile::bufferDtor(base));auto put=(void(*)(void*,const void*,int))(base+RuntimeProfile::put(base));
     alignas(16) unsigned char reader[64]={},writer[64]={};ctor(reader);ctor(writer);uint32_t req[]={480,4096,0};put(reader,req,sizeof(req));
     auto extended=(int(*)(void*,void*,void*))dlsym(mac,"sx_ticket_serve_extended");check(extended&&extended(user,reader,writer)==1,"actual macSteam ownership handler detour");
     auto bytes=*(uint8_t**)writer;uint32_t total=0;memcpy(&total,bytes+1,4);check(bytes[0]==11&&total==ticket.ownership.size()&&!memcmp(bytes+5,ticket.ownership.data(),total),"ownership bytes and framing");
     uint32_t offsets[4]={};memcpy(offsets,bytes+5+4096,16);check(offsets[0]==ticket.appOffset&&offsets[1]==8&&offsets[2]==ticket.signature&&offsets[3]==128,"ownership offsets and signature boundary");dtor(reader);dtor(writer);
-    unsigned char out[4096]={};uint32_t count=0;auto get=(bool(*)(void*,void*,int,uint32_t*))(base+RuntimeProfile::getETicket);
+    unsigned char out[4096]={};uint32_t count=0;auto get=(bool(*)(void*,void*,int,uint32_t*))(base+RuntimeProfile::getETicket(base));
     check(!get(user,out,1,&count)&&count==ticket.encrypted.size(),"small encrypted buffer rejected");
     check(get(user,out,sizeof(out),&count)&&count==ticket.encrypted.size()&&!memcmp(out,ticket.encrypted.data(),count),"actual Steam encrypted ticket detour");
     auto wrongID=ticket.steamID+1;memcpy(user+0x242,&wrongID,8);check(!get(user,out,sizeof(out),&count),"other account passes through without cached ticket");memcpy(user+0x242,&ticket.steamID,8);
     *(uint32_t*)(node+20)=481;check(!get(user,out,sizeof(out),&count),"unselected app passes through without cached ticket");*(uint32_t*)(node+20)=480;
-    void* oldComplete=nullptr;check(!DobbyHook((void*)(base+RuntimeProfile::completeJob),(void*)&complete,&oldComplete),"callback capture boundary");*(uint32_t*)(job+0x16c)=480;*(void**)(job+0x180)=user;
-    check(((bool(*)(void*))(base+RuntimeProfile::ticketJob))(job)&&completion==1,"actual ticket job posts callback 154 success");DobbyDestroy((void*)(base+RuntimeProfile::completeJob));*engineGlobal=oldEngine;
+    void* oldComplete=nullptr;check(!DobbyHook((void*)(base+RuntimeProfile::completeJob(base)),(void*)&complete,&oldComplete),"callback capture boundary");*(uint32_t*)(job+RuntimeProfile::Get(base).ticketJobApp)=480;*(void**)(job+RuntimeProfile::Get(base).ticketJobUser)=user;
+    check(((bool(*)(void*))(base+RuntimeProfile::ticketJob(base)))(job)&&completion==1,"actual ticket job posts callback 154 success");DobbyDestroy((void*)(base+RuntimeProfile::completeJob(base)));*engineGlobal=oldEngine;
     check(TicketHooks::OwnershipServed()==1&&TicketHooks::EncryptedServed()==1&&TicketHooks::CallbacksServed()==1,"ticket hook counters");
     puts("PASS: installed macSteam handler + actual Steam ARM64 encrypted-ticket and async job hooks; exact ticket bytes, offsets, capacity and callback 154 verified.");fflush(stdout);
     // Real typed protobuf objects, a disconnected synthetic CM, no network or Steam IPC.
     Proto games("21CMsgClientGamesPlayed",base,size);unsigned char wrapper[80]={},cm[0x900]={};*(uint32_t*)(wrapper+40)=0x80000000u|5410;*(void**)(wrapper+56)=games.value;
     PB::Writer game,other,body;game.WriteFixed64(2,480);game.WriteString(7,"Spacewar");game.WriteVarint(25,20);other.WriteFixed64(2,481);other.WriteString(7,"Unselected");body.WriteSubmessage(1,game);body.WriteSubmessage(1,other);body.WriteVarint(2,17);games.parse(body.Data());
     std::vector<uint8_t> filtered;check(GamesPlayedHook::FilterPresence(5410,body.Data(),filtered),"selected presence filter");auto fields=PB::Parse(filtered.data(),filtered.size());size_t gameCount=0;for(auto f:fields)if(f.fieldNum==1){gameCount++;auto sub=PB::Parse(f.data,f.dataLen);check(PB::FindField(sub,2)->varintVal==481,"only unselected game remains");}check(gameCount==1&&PB::FindField(fields,2)->varintVal==17,"preserve unrelated fields");
-    auto send=(bool(*)(void*,void*))(base+RuntimeProfile::send);check(!send(cm,wrapper),"disconnected original send preserved");check(serialized(base,games.value)==body.Data()&&*(void**)(wrapper+56)==games.value,"caller protobuf restored after filtered send");
+    auto send=(bool(*)(void*,void*))(base+RuntimeProfile::send(base));check(!send(cm,wrapper),"disconnected original send preserved");check(serialized(base,games.value)==body.Data()&&*(void**)(wrapper+56)==games.value,"caller protobuf restored after filtered send");
     check(GamesPlayedHook::Observed()==1&&GamesPlayedHook::Rewritten()==1,"actual native send detour exercised");
     Proto pics("32CMsgClientPICSProductInfoRequest",base,size);
     PB::Writer app480,app481,package,request;app480.WriteVarint(1,480);app480.WriteVarint(2,1);app480.WriteVarint(3,1);app481.WriteVarint(1,481);app481.WriteVarint(2,22);package.WriteVarint(1,7);package.WriteVarint(2,33);
@@ -115,9 +115,9 @@ int main(int argc,char** argv){
     puts("PASS: explicit achievement relock has a durable reset revision; stale cloud snapshots cannot resurrect it.");fflush(stdout);
     PB::Writer no;no.WriteVarint(2,481);statReq.parse(no.Data());check(hook_BYieldingSend(nullptr,"Player.GetUserStats#1",statReq.value,statResp.value,flags)==777,"unselected stats passthrough");
     // Drive the real Steam writer, replacing only opaque CUser services with test collectors.
-    uintptr_t targets[]={0xa6a084,0xa69a6c,0xa74100,0x5d52a0};void* replacements[]={(void*)&lastPlayed,(void*)&mapMinutes,(void*)&saveMinutes,(void*)&notify};void* tramp[4]={};
+    uintptr_t targets[]={RuntimeProfile::lastPlayed(base),RuntimeProfile::mapMinutes(base),RuntimeProfile::saveMinutes(base),RuntimeProfile::notify(base)};void* replacements[]={(void*)&lastPlayed,(void*)&mapMinutes,(void*)&saveMinutes,(void*)&notify};void* tramp[4]={};
     for(int i=0;i<4;i++)check(!DobbyHook((void*)(base+targets[i]),replacements[i],tramp+i),"writer service capture");
-    ((uint32_t(*)(void*,void**,int))(base+RuntimeProfile::writePlaytime))(user,nullptr,0);
+    ((uint32_t(*)(void*,void**,int))(base+RuntimeProfile::writePlaytime(base)))(user,nullptr,0);
     auto notification=StatsHandlers::BuildLastPlayedNotificationBody({480,481});LivePlaytime::Apply(notification.Data());
     check(appWritten==480&&lastWritten==pt.lastPlayedTime&&minutes[1]==pt.minutesForever&&notices==1,"real Steam map writer and UI callback consume our protobuf");
     for(auto address:targets)DobbyDestroy((void*)(base+address));

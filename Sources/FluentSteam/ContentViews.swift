@@ -11,11 +11,14 @@ struct ImportPreview: View {
                 Image(systemName: "tray.and.arrow.down.fill").font(.title2).foregroundStyle(Palette.accent)
                 VStack(alignment: .leading, spacing: 4) { Text(model.tr("导入预览", "Import preview")).font(.title2.bold()); Text("\(session.plan.documents.count) " + model.tr("个游戏", "games") + " · \(session.plan.files.count) " + model.tr("个文件", "files")).foregroundStyle(.secondary) }
                 Spacer()
+                if session.automatic && !AuthorizedContentRepair.missingDepots(in: session.plan.warnings).isEmpty {
+                    Button(model.tr("账号授权补齐", "Repair with owned account")) { model.repairAuthorizedContent() }.disabled(model.busy)
+                }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if session.automatic {
-                        Label(session.complete ? model.tr("待确认导入，尚未入库", "Awaiting confirmation; not yet imported") : model.tr("内容缺失或待核实，尚未入库", "Content missing or unverified; not imported"), systemImage: "info.circle").foregroundStyle(Palette.amber)
+                        Label(!session.verificationDepots.isEmpty ? model.tr("内容已齐，可使用 Steam 账号核验后继续导入。", "Content found. Verify with Steam to continue.") : session.complete ? model.tr("待确认导入，尚未入库", "Awaiting confirmation; not yet imported") : model.tr("内容缺失或待核实，请补齐并重新检查后入库", "Content missing or unverified; complete the check before importing"), systemImage: "info.circle").foregroundStyle(Palette.amber)
                         ForEach(session.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
                     }
                     ForEach(session.plan.documents, id: \.appID) { doc in
@@ -28,23 +31,31 @@ struct ImportPreview: View {
                         Label(model.tr("以下文件将备份后替换", "These files will be backed up and replaced"), systemImage: "clock.arrow.circlepath").font(.headline)
                         Text(session.plan.replacing.joined(separator: "\n")).font(.system(size: 11, design: .monospaced))
                     }
-                    if !session.plan.warnings.isEmpty {
+                    if !session.plan.warnings.isEmpty || !session.content.isEmpty {
                         Label(model.tr("兼容性与内容提示", "Compatibility and content notes"), systemImage: "exclamationmark.triangle").foregroundStyle(Palette.amber).font(.headline)
+                        ImportContentList(items: session.content)
                         ForEach(Array(session.plan.warnings.enumerated()), id: \.offset) { _, warning in Text("• " + warning).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
-                    Label(model.tr("入库后自动检查内容平台：只有 Windows 内容时选择 NotProton；Steam 运行中会等待退出后应用，已有手动设置保留。", "After import, Windows-only content automatically selects NotProton. Changes wait for Steam to exit; existing manual settings are preserved."), systemImage: "arrow.triangle.branch").font(.caption).foregroundStyle(.secondary)
-                    InfoLine(title: "macSteam", value: model.paths.config.path)
-                    InfoLine(title: "Lua", value: model.paths.lua.path)
-                    Text(model.tr("原始 Lua 会保留。游戏、DLC 与 depot 密钥将转换到 macSteam 配置；修改前备份，可在“存档与备份”中还原。", "Original Lua files are retained. Games, DLC and depot keys are converted into macSteam configuration. Every changed file is backed up for restoration.")).font(.system(size: 11)).foregroundStyle(.secondary)
+                    ImportCheckLog(lines: session.checkLog)
+                    Label(model.tr("入库后自动检查内容平台，Windows 游戏使用所选兼容层。需要重启 Steam 时会提示，已有单独设置保留。", "After import, Windows games use your selected translation backend. You will be prompted if Steam needs to restart; individual choices are preserved."), systemImage: "arrow.triangle.branch").font(.caption).foregroundStyle(.secondary)
+                    Text(model.tr("原始 Lua 会保留，游戏配置由本程序自动管理。修改前备份，可在“存档与备份”中还原。", "Original Lua files are retained and game configuration is managed automatically. Changed files are backed up for restoration.")).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
             Divider()
             HStack {
-                Button(model.tr("取消", "Cancel")) { model.cancelImport() }.keyboardShortcut(.cancelAction)
+                Button(model.tr("取消", "Cancel")) { model.cancelImport() }.disabled(model.busy).keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(session.automatic && !session.complete ? model.tr("导入现有内容", "Import available content") : model.tr("导入并启用", "Import and enable")) { model.commitImport() }.buttonStyle(.borderedProminent).disabled(model.busy).keyboardShortcut(.defaultAction)
+                if session.automatic && !session.unavailableDLC.isEmpty {
+                    Button(model.tr("跳过不可用的可选 DLC 并重查", "Exclude unverified optional DLC and recheck")) { model.excludeUnverifiedDLC() }.disabled(model.busy)
+                }
+                if !session.verificationDepots.isEmpty {
+                    Button(model.tr("使用 Steam 账号核验", "Verify with Steam")) { model.repairAuthorizedContent() }
+                        .buttonStyle(.borderedProminent).disabled(model.busy).keyboardShortcut(.defaultAction)
+                } else {
+                    Button(model.tr("导入并启用", "Import and enable")) { model.commitImport() }.buttonStyle(.borderedProminent).disabled(model.busy || (session.automatic && !session.complete)).keyboardShortcut(.defaultAction)
+                }
             }
-        }.padding(28).frame(width: 680, height: 560)
+        }.padding(28).frame(width: 820, height: 720)
     }
 }
 
@@ -56,7 +67,6 @@ struct GameDetailView: View {
     @ViewState<String> private var lua = ""
     @ViewState<String> private var original = ""
     @ViewState<AppInfo?> private var info: AppInfo?
-    @ViewState<Bool> private var removal = false
     @ViewState<String> private var workshopStatus = ""
     var body: some View {
         VStack(spacing: 0) {
@@ -75,7 +85,7 @@ struct GameDetailView: View {
             }
             Divider()
             HStack {
-                if game.source != "Steam" { Button(model.tr("移除清单…", "Remove entry…"), role: .destructive) { removal = true } }
+                if game.source != "Steam" { Button(model.tr("移除游戏…", "Remove game…"), role: .destructive) { model.requestGameRemoval([game]); dismiss() } }
                 Spacer(); Button(model.tr("导出", "Export")) { model.export([game]) }
                 if game.source != "Steam" { Button(game.enabled ? model.tr("禁用", "Disable") : model.tr("启用", "Enable")) { model.toggle(game); dismiss() }.disabled(model.busy) }
                 Button(model.tr("启动游戏", "Launch game")) { model.launchGame(game) }.buttonStyle(.borderedProminent)
@@ -85,9 +95,7 @@ struct GameDetailView: View {
                 do { let (config, _) = try model.service.configSnapshot(); lua = try game.luaURL.map { try FileStore.text($0) } ?? config.lua(for: game.id); original = lua }
                 catch { model.fail(error) }
             }
-            .confirmationDialog(model.tr("移除 Lua 与 macSteam 入库记录？游戏安装文件会保留。", "Remove Lua and macSteam entries? Installed game files are retained."), isPresented: $removal) {
-                Button(model.tr("备份后移除", "Back up and remove"), role: .destructive) { model.remove(game); dismiss() }
-            }
+
     }
     private var overview: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -105,15 +113,7 @@ struct GameDetailView: View {
                 Button(model.tr("管理成就", "Manage achievements")) { model.achievementApp = String(game.id); model.page = .achievements; dismiss() }
                 SaveManagerShortcut(appID: game.id)
                 if let folder = game.installed?.folder { Button(model.tr("游戏文件", "Game files")) { model.openFolder(folder) } }
-                if let prefix = SteamLibrary.prefixes(model.paths).first(where: { $0.id == game.id })?.url {
-                    Menu("NotProton") {
-                        Button(model.tr("打开前缀", "Open prefix")) { model.openFolder(prefix) }
-                        Button("winecfg") { model.wineTool(game, command: "winecfg") }
-                        Button("regedit") { model.wineTool(game, command: "regedit") }
-                        Button(model.tr("任务管理器", "Task manager")) { model.wineTool(game, command: "taskmgr") }
-                        Button(model.tr("Wine 日志", "Wine log")) { model.reveal(model.paths.notProton.appendingPathComponent("launchers/\(game.id)/notproton-wine.log")) }
-                    }
-                }
+                Button(model.tr("管理容器", "Manage containers")) { model.containerAppID = game.id; model.page = .containers; dismiss() }
             }
             if game.enabled {
                 Panel {

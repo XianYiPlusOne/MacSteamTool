@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import FluentCore
 
 enum Page: String, CaseIterable, Identifiable {
-    case library, discover, manifests, patches, achievements, saves, accounts, runtime, compatibility, settings
+    case library, discover, manifests, multiplayer, offlineTools, achievements, saves, accounts, runtime, containers, compatibility, settings
     var id: String { rawValue }
     var icon: String {
         switch self {
@@ -12,7 +12,9 @@ enum Page: String, CaseIterable, Identifiable {
         case .saves: "externaldrive.badge.icloud"; case .accounts: "person.crop.circle"
         case .runtime: "cpu"; case .compatibility: "checklist"; case .settings: "gearshape"
         case .achievements: "trophy"
-        case .patches: "puzzlepiece.extension"
+        case .multiplayer: "network"
+        case .offlineTools: "wrench.and.screwdriver"
+        case .containers: "shippingbox"
         }
     }
     var titles: (String, String) {
@@ -21,7 +23,9 @@ enum Page: String, CaseIterable, Identifiable {
         case .saves: ("存档与备份", "Saves & backups"); case .accounts: ("Steam 账号", "Steam accounts")
         case .runtime: ("运行环境", "Runtime"); case .compatibility: ("功能对照", "Feature parity"); case .settings: ("设置", "Settings")
         case .achievements: ("成就管理", "Achievements")
-        case .patches: ("联机补丁", "Online patches")
+        case .multiplayer: ("联机", "Multiplayer")
+        case .offlineTools: ("离线工具", "Offline tools")
+        case .containers: ("容器管理", "Containers")
         }
     }
 }
@@ -31,12 +35,20 @@ struct ImportSession: Identifiable {
     var automatic = false
     var complete = true
     var notes: [String] = []
+    var includeDLC = true
+    var excludedDLC: Set<Int> = []
+    var checkLog: [String] = []
+    var content: [LibraryContentReport] = []
+    var unavailableDLC: Set<Int> {
+        Set(content.filter { $0.isUnavailableOptionalDLC }.map(\.id))
+            .subtracting(excludedDLC)
+    }
+    var verificationDepots: Set<Int> = []
+    var installContext: LibraryInstallContext?
 }
 struct Message: Identifiable { let id = UUID(); var title: String; var detail: String }
-
 @MainActor final class AppModel: ObservableObject {
-    @Published var runtimeReleases: [String: OfficialRuntimeRelease] = [:]
-    @Published var runtimeUpdateStatus = ""
+    let multiplayer = MultiplayerController()
     @Published var availableUpdate: SignedUpdate?
     @Published var preparedUpdate: PreparedUpdate?
     @Published var updateStatus = ""
@@ -49,7 +61,11 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var search = ""
     @Published var metadata: [Int: GameMetadata] = [:]
     @Published var selectedGame: Game?
+    @Published var containerAppID: Int?
+    @Published var importActivity: LibraryImportActivity?
     @Published var pendingImport: ImportSession?
+    @Published var pendingAuthorizedRepair: ImportSession?
+    var authorizedRepairFetch: ((Int, Set<Int>, Bool) async throws -> SteamEngineResponse)?
     @Published var message: Message?
     @Published var busy = false
     @Published var canCancelOperation = true
@@ -62,6 +78,9 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var saveManagerGameID: Int?
     @Published var saveManagerStatus = ""
     @Published var backups: [BackupRecord] = []
+    @Published var removalRequest: RemovalRequest?
+    @Published var saveRecoveryRequest: SaveRecoveryRequest?
+    var remindedSaveApps: Set<Int> = []
     @Published var needsRestart = false
     @Published var automaticCompatibilityStatus = ""
     @Published var automaticCompatibilityWaiting: [Int] = []
@@ -92,7 +111,12 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var ownedGames: [OwnedGame] = []
     let home: URL
     let defaults: AppPaths
-    private var savedPaths: AppPaths?
+    var savedPaths: AppPaths?
+    lazy var runtimePreparation = makeRuntimePreparation()
+    var preparationOwnsBusy = false
+    var preparationPathKey = ""
+    var pendingRuntimeLaunch: Int?
+    var pendingRuntimeURL: URL?
     var paths: AppPaths { savedPaths ?? defaults }
     var service: LibraryService { LibraryService(paths: paths) }
     let charts: DiscoveryChartsFlow
@@ -111,7 +135,8 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     private static let sharedComponentAppIDs: Set<Int> = [228980]
     var monitorTask: Task<Void, Never>?
     var didBootstrap = false
-    var remotePackageFetch: (Int, Preferences, URL) async throws -> [ImportFile] = { try await RemoteLuaPackage.fetch(appID: $0, preferences: $1, engine: $2) }
+    var remotePackageFetch: ((Int, Preferences, URL) async throws -> [ImportFile])?
+    var githubPackageFetch: (Int) async throws -> [ImportFile] = { try await RemoteLuaPackage.fetchGitHub(appID: $0) }
     var libraryInfoFetch: ((Int) async throws -> AppInfo)?
     var libraryKeyFetch: ((Bool) async throws -> [Int: String])?
     var hubCredentialLoad: () throws -> ManifestHubCredential? = { try ManifestHubCredential.load() }
@@ -156,17 +181,19 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             Task { @MainActor in
                 guard let self else { return }
                 guard !self.busy else { return }
+                self.reconcileRuntimePreparation()
                 self.reconcileAutomaticCompatibility()
                 self.reconcileAutomaticAchievements()
                 let pids = SteamProcesses.pids()
                 if pids != self.observedSteamPIDs { self.observedSteamPIDs = pids; self.refresh(); return }
                 guard self.preferences.autoRefresh else { return }
+                self.remindSaveRecoveryIfReady()
                 let current = self.fileFingerprint()
                 if current != self.fingerprint { self.refresh() }
             }
         }
         if let timer { RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .modalPanel) }
-        if !testing && preferences.automaticallyCheckRuntimeUpdates == true { Task { await checkRuntimeUpdates() } }
+        reconcileRuntimePreparation()
         if !testing && preferences.automaticallyCheckUpdates == true { Task { await checkForUpdates(silent: true) } }
     }
     func tr(_ zh: String, _ en: String) -> String { preferences.language == "en" ? en : zh }
@@ -196,6 +223,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             loadMetadata()
             reconcileAutomaticCompatibility()
             reconcileAutomaticAchievements()
+            remindSaveRecoveryIfReady()
         } catch { fail(error) }
     }
     func loadMetadata() {
@@ -252,8 +280,8 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         operation = Task {
             defer { busy = false; operation = nil; canCancelOperation = true }
             do { try await work(); if logCompletion { log(title + " · " + tr("完成", "done")) } }
-            catch is CancellationError { log(tr("操作已取消", "Operation cancelled")) }
-            catch { fail(error) }
+            catch is CancellationError { finishImportProgress(tr("操作已取消，未继续入库", "Cancelled; import stopped"), cancelled: true); log(tr("操作已取消", "Operation cancelled")) }
+            catch { finishImportProgress(error.localizedDescription, failed: true); fail(error) }
         }
     }
     func cancel() { if canCancelOperation { operation?.cancel() } }
@@ -291,14 +319,30 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         }
     }
     func commitImport() {
-        guard let pending = pendingImport else { return }
+        guard !busy, let pending = pendingImport else { return }
         run(tr("导入游戏清单", "Import game manifests"), logCompletion: false) {
             try Task.checkCancellation()
-            try self.service.perform(pending.plan); self.pendingImport = nil; self.needsRestart = true; self.refresh()
-            self.log(pending.automatic && !pending.complete
-                     ? self.tr("已导入现有内容，仍有缺项或待核实内容", "Available content imported; gaps or verification issues remain")
-                     : self.tr("已入库", "Added to library"))
+            if pending.automatic {
+                guard pending.complete else {
+                    throw AppFailure("游戏内容缺失或尚未核实，请补齐并重新检查后入库；未修改游戏库 / Content missing or unverified; complete the check before importing. Library unchanged")
+                }
+                guard let context = pending.installContext, let appID = pending.plan.documents.first?.appID,
+                      try LibraryInstallContext.read(appID: appID, paths: self.paths) == context else {
+                    throw AppFailure("游戏运行设置已变化，请重新入库 / Game runtime settings changed; retry the import")
+                }
+            }
+            try self.service.perform(pending.plan); self.pendingImport = nil; self.refresh()
+            await self.refreshSteamAfterImport(appID: pending.plan.documents.first?.appID)
+            self.offerSaveRecovery(pending.plan.documents.map(\.appID))
         }
+    }
+    func excludeUnverifiedDLC() {
+        guard let session = pendingImport, session.automatic,
+              let id = session.plan.documents.first?.appID else { return }
+        let excluded = session.unavailableDLC
+        guard !excluded.isEmpty else { return }
+        pendingImport = nil
+        addToLibrary(id, dlc: session.includeDLC, excludingDLC: excluded.union(session.excludedDLC))
     }
     func cancelImport() {
         guard pendingImport != nil else { return }
@@ -307,6 +351,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     }
     func batchLibrary(_ games: [Game], action: LibraryService.BatchAction) {
         guard !games.isEmpty else { return }
+        if action == .remove { requestGameRemoval(games); return }
         run(tr("批量更新游戏库", "Update selected library entries"), cancellable: false) {
             try self.service.batch(games, action: action)
             self.needsRestart = true; self.refresh()
@@ -317,11 +362,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             try self.service.setEnabled(game, enabled: !game.enabled); self.needsRestart = true; self.refresh()
         }
     }
-    func remove(_ game: Game) {
-        run(tr("移除入库记录", "Remove library entry")) {
-            try self.service.remove(game); self.needsRestart = true; self.selectedGame = nil; self.refresh()
-        }
-    }
+    func remove(_ game: Game) { requestGameRemoval([game]) }
     func export(_ games: [Game]) {
         guard !games.isEmpty else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = games.count == 1 ? "\(games[0].id)-FluentSteam.zip" : "FluentSteam-Library.zip"
@@ -338,12 +379,19 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         guard !busy else { return }
         discoverySearch.search(search, language: language)
     }
-    func addToLibrary(_ id: Int, dlc: Bool) {
-        guard !games.contains(where: { $0.id == id && $0.enabled }) else { return }
+
+    func addToLibrary(_ id: Int, dlc: Bool, excludingDLC: Set<Int> = []) {
+        guard !busy, !games.contains(where: { $0.id == id && $0.enabled }) else { return }
+        message = nil
+        importActivity = LibraryImportActivity(appID: id, title: tr("正在准备检查…", "Preparing check…"))
+        recordImportProgress(tr("开始检查 AppID \(id)", "Starting check for AppID \(id)"))
+        recordImportProgress(dlc ? tr("检查范围：主游戏及 DLC", "Scope: main game and DLC") : tr("检查范围：仅主游戏", "Scope: main game only"))
+        if !excludingDLC.isEmpty { recordImportProgress(tr("本次排除 DLC：", "Excluded DLC: ") + excludingDLC.sorted().map(String.init).joined(separator: ", ")) }
         run(tr("添加到游戏库", "Add to library"), logCompletion: false) {
+            await Task.yield()
             let preferences = self.preferences
             let context = try LibraryInstallContext.read(appID: id, paths: self.paths)
-            let result = try await AutomaticLibraryImport.resolve(appID: id, includeDLC: dlc, context: context, appInfo: { appID in
+            let result = try await AutomaticLibraryImport.resolve(appID: id, includeDLC: dlc, excludingDLC: excludingDLC, skipUnavailableDLC: true, context: context, appInfo: { appID in
                 if let fetch = self.libraryInfoFetch { return try await fetch(appID) }
                 return try await self.api.appInfo(appID)
             }, cachedKeys: {
@@ -353,27 +401,30 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 if let fetch = self.libraryKeyFetch { return try await fetch(true) }
                 return try await self.content.libraryKeys(preferences: preferences, refresh: true)
             }, remote: {
-                try await self.remotePackageFetch(id, preferences, self.engineExecutable)
-            }, progress: { self.progress = $0; self.log($0) })
+                if let fetch = self.remotePackageFetch { return try await fetch(id, preferences, self.engineExecutable) }
+                return try await RemoteLuaPackage.fetch(appID: id, preferences: preferences, engine: self.engineExecutable,
+                    progress: { self.recordImportProgress($0) })
+            }, remoteFallback: {
+                try await self.githubPackageFetch(id)
+            }, contentUpdate: { self.importActivity?.content = $0 },
+               progress: { self.recordImportProgress($0) })
             try Task.checkCancellation()
             guard try LibraryInstallContext.read(appID: id, paths: self.paths) == context else {
                 throw AppFailure("游戏运行设置已变化，请重新入库 / Game runtime settings changed; retry the import")
             }
-            for note in result.notes { self.log(note) }
+            for note in result.notes { self.recordImportProgress(note) }
+            self.recordImportProgress(self.tr("正在生成导入预览并检查兼容性…", "Preparing import preview and checking compatibility…"))
             var plan = try self.service.plan(result.files)
             plan.warnings = Array(Set(plan.warnings + result.warnings)).sorted()
-            let existingLua = self.games.contains { $0.id == id && $0.luaURL != nil }
-            if result.complete && plan.warnings.isEmpty && plan.replacing.isEmpty && !existingLua {
-                try self.service.perform(plan)
-                self.needsRestart = true
-                self.refresh()
-                self.log(self.tr("已入库：AppID \(id)", "Added to library: AppID \(id)"))
-            } else {
-                self.pendingImport = ImportSession(plan: plan, automatic: true, complete: result.complete, notes: result.notes)
-                self.log(result.complete
-                         ? self.tr("待确认导入，尚未写入游戏库", "Awaiting import confirmation; library unchanged")
-                         : self.tr("内容缺失或待核实，尚未入库", "Content missing or unverified; not added to library"))
-            }
+            self.importActivity?.content = result.content
+            for warning in plan.warnings { self.recordImportProgress(warning) }
+            self.recordImportProgress(self.tr("检查结束，等待在导入预览中确认", "Checks finished; awaiting confirmation in import preview"))
+            self.pendingImport = ImportSession(plan: plan, automatic: true, complete: result.complete, notes: result.notes,
+                includeDLC: dlc, excludedDLC: excludingDLC.union(result.skippedDLC), checkLog: self.importActivity?.logs ?? [], content: result.content, verificationDepots: result.verificationDepots, installContext: context)
+            self.importActivity = nil
+            self.log(result.complete
+                ? self.tr("待确认导入，尚未写入游戏库", "Awaiting import confirmation; library unchanged")
+                : self.tr("内容缺失或待核实，尚未入库", "Content missing or unverified; not added to library"))
         }
     }
     func generate(_ id: Int, dlc: Bool, existing: Game? = nil) {
@@ -390,10 +441,11 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         }
     }
     func launchSteam() {
-        guard !testing else { return }
-        run(tr("启动 Steam", "Launch Steam")) { try await self.launchPreparedSteam() }
+        guard !testing, !busy else { return }
+        pendingRuntimeURL = nil; pendingRuntimeLaunch = 0
+        reconcileRuntimePreparation()
     }
-    private func launchPreparedSteam() async throws {
+    func launchPreparedSteam() async throws {
         if let task = automaticAchievementsTask { await task.value }
         if preferences.automaticallyPrepareAchievements != false && !steamRunning {
             publishAutomaticAchievements(try await AutomaticAchievements.process(paths: paths) { _ in })
@@ -428,14 +480,14 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         var messages: [String] = []
         func ids(_ list: [Int]) -> String { list.map(String.init).joined(separator: ", ") }
         if !report.applied.isEmpty {
-            let text = tr("已自动选择 NotProton：", "NotProton selected automatically: ") + ids(report.applied)
+            let text = tr("已自动应用所选兼容层：", "Selected translation backend applied automatically: ") + ids(report.applied)
             log(text); messages.append(text)
         }
         if !report.waitingForSteam.isEmpty {
             needsRestart = true
             messages.append(tr("已识别仅 Windows 内容，退出 Steam 后自动应用：", "Windows-only content detected; applies when Steam exits: ") + ids(report.waitingForSteam))
         }
-        if !report.waitingForTool.isEmpty { messages.append(tr("等待安装 NotProton 运行器：", "Waiting for an installed NotProton runtime: ") + ids(report.waitingForTool)) }
+        if !report.waitingForTool.isEmpty { messages.append(tr("请选择游戏兼容层：", "Choose a game translation backend: ") + ids(report.waitingForTool)) }
         if !report.unresolved.isEmpty { messages.append(tr("平台资料不足，已保留设置并等待重试：", "Platform data incomplete; settings preserved, retry pending: ") + ids(report.unresolved)) }
         automaticCompatibilityStatus = messages.joined(separator: "\n")
     }
@@ -448,18 +500,20 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 try await Task.sleep(for: .milliseconds(500))
             }
             guard !self.steamRunning else { throw AppFailure("Steam 尚未退出。请先结束游戏或关闭 Steam 的退出确认窗口 / Steam is still running; finish the game or handle its quit confirmation") }
-            try await self.launchPreparedSteam(); self.needsRestart = false
+            self.pendingRuntimeLaunch = 0; self.needsRestart = false
         }
     }
     func launchGame(_ game: Game) {
-        guard !testing else { return }
-        run(tr("检查运行器并启动游戏", "Check runtime and launch game")) {
-            if let task = self.automaticCompatibilityTask { await task.value }
-            let report = try await AutomaticCompatibility.process(paths: self.paths) { id in try await self.api.compatibilityInfo(id) }
-            self.publishAutomaticCompatibility(report)
-            guard !report.waitingForSteam.contains(game.id) else { throw AppFailure("已自动选好 NotProton，请先重启 Steam 应用此设置，再安装或启动游戏 / NotProton is ready; restart Steam to apply it before installing or launching this game") }
-            self.openURL("steam://rungameid/\(game.id)")
-        }
+        guard !testing, !busy else { return }
+        pendingRuntimeURL = nil; pendingRuntimeLaunch = game.id
+        reconcileRuntimePreparation()
+    }
+    func launchPreparedGame(_ game: Game) async throws {
+        if let task = automaticCompatibilityTask { await task.value }
+        let report = try await AutomaticCompatibility.process(paths: paths) { id in try await self.api.compatibilityInfo(id) }
+        publishAutomaticCompatibility(report)
+        guard !report.waitingForSteam.contains(game.id) else { throw AppFailure("请重启 Steam 应用此游戏的兼容层设置 / Restart Steam to apply the game's compatibility settings") }
+        openURL("steam://rungameid/\(game.id)")
     }
     func wineTool(_ game: Game, command: String) {
         guard !testing else { log("测试环境不启动 Wine 工具"); return }
@@ -519,17 +573,18 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             self.refresh()
         }
     }
-    func restore(_ record: BackupRecord) {
+    func restore(_ record: BackupRecord, appIDs: [Int]? = nil) {
         run(tr("还原备份", "Restore backup")) {
             guard !self.steamRunning else { throw AppFailure("请先退出 Steam，再还原配置备份 / Quit Steam before restoring configuration") }
-            try FileTransaction(backupRoot: self.paths.backups).restore(record, allowedRoots: [self.paths.steam, self.paths.macSteam, self.paths.lua, self.paths.data])
+            try self.service.restoreBackup(record, appIDs: appIDs)
             self.needsRestart = true; self.refresh()
+            if let ids = try appIDs ?? self.service.restoreGameIDs(record) { self.offerSaveRecovery(ids) }
         }
     }
     func switchAccount(_ account: SteamAccount) {
         run(tr("切换本地账号", "Switch local account")) {
             guard !self.steamRunning else { throw AppFailure("请先退出 Steam，再切换本地账号 / Quit Steam before switching local accounts") }
-            try Accounts.select(account, paths: self.paths); self.refresh(); try await self.launchPreparedSteam()
+            try Accounts.select(account, paths: self.paths); self.refresh(); self.pendingRuntimeLaunch = 0
         }
     }
     func fetchSelectedManifest(depot: Int, manifest: String, source: String? = nil, template: String? = nil, fallbacks: Bool? = nil) async throws -> Data {
@@ -664,7 +719,13 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             if source == "hub" { hubMonitorTask = task } else { monitorTask = task }
         } catch { fail(error) }
     }
-    func openURL(_ string: String) { if let url = URL(string: string) { NSWorkspace.shared.open(url) } }
+    func openURL(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        if url.scheme == "steam", !testing, !runtimePreparation.ready {
+            pendingRuntimeLaunch = nil; pendingRuntimeURL = url; reconcileRuntimePreparation(); return
+        }
+        NSWorkspace.shared.open(url)
+    }
     func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     func openFolder(_ url: URL) {
         guard FileStore.fm.fileExists(atPath: url.path) else { message = Message(title: tr("目录尚未创建", "Folder does not exist"), detail: url.path); return }

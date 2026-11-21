@@ -10,3 +10,4 @@ if [[ "$(git -C "$DOBBY_SOURCE" rev-parse HEAD)" != "$REVISION" ]]; then
 fi
 cmake -S "$ROOT_DIR/Native/ManifestPins" -B "$ROOT_DIR/work/pins-build" -DCMAKE_BUILD_TYPE=Release -DDOBBY_SOURCE="$DOBBY_SOURCE"
 cmake --build "$ROOT_DIR/work/pins-build" -j 6
+bash "$ROOT_DIR/script/add_bootstrap_slice.sh" "$ROOT_DIR/work/pins-build/fluent_manifest.dylib"

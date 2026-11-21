@@ -1,3 +1,4 @@
+#include "runtime_profile.h"
 // Integration test against a real Steam dylib in an isolated process and data root.
 // Never opens a Steam IPC session or touches the user's Steam directory.
 #include "vtable_hook.h"
@@ -73,13 +74,13 @@ int main(int argc,char** argv) {
     alignas(16) unsigned char engine[0x1700]={}, node[32]={}, appInfo[96]={}, kvRoot[32]={};
     auto cache=engine+kv.appInfoCacheOffset;
     *(int32_t*)(node+0)=-1;*(int32_t*)(node+4)=-1;*(uint32_t*)(node+16)=480;
-    *(void**)(node+24)=appInfo;*(void**)(cache+0x80)=node;*(void**)(appInfo+0x40)=kvRoot;
+    *(void**)(node+24)=appInfo;*(void**)(cache+RuntimeProfile::Get(base).appInfoNodes)=node;*(void**)(appInfo+0x40)=kvRoot;
     appInfo[0x20]=0xa5; // distinguish fixture from the empty app-cache digest
     auto find=(void*(*)(void*,const char*,uint8_t,void*))kv.kvFindKey;
     auto getU64=(uint64_t(*)(void*,uint64_t,void*))kv.kvGetUint64;
     auto getInt=(int(*)(void*,int,void*))kv.kvGetInt;
     auto ufs=find(kvRoot,"ufs",1,nullptr);require(ufs,"create real Steam KV subsection");
-    auto symbol=(uint32_t*)(base+0x1838ed8);auto oldSymbol=*symbol;*symbol=*(uint32_t*)((char*)ufs+16)&0x1ffffff;
+    auto symbol=(uint32_t*)(base+RuntimeProfile::Get(base).ufsSymbol);auto oldSymbol=*symbol;*symbol=*(uint32_t*)((char*)ufs+16)&0x1ffffff;
     auto priorEngine=*kv.globalEnginePtrPtr;*kv.globalEnginePtrPtr=engine;
     uint64_t quota=0;uint32_t maxFiles=0;
     require(SteamKvInjector::InjectAppQuota(480,1024*1024,128),"inject native UFS quota");
@@ -96,7 +97,7 @@ int main(int argc,char** argv) {
     auto respVT=VtableHook::FindVtableByRTTIName("36CCloud_GetAppFileChangelist_Response",base,size);
     require(reqVT&&respVT,"resolve real Steam protobuf vtables");
     auto request=((void*(*)(void*))reqVT[3])(nullptr);auto response=((void*(*)(void*))respVT[3])(nullptr);
-    auto parse=(bool(*)(void*,const void*,int))(base+0xb3e6e8);
+    auto parse=(bool(*)(void*,const void*,int))(base+RuntimeProfile::parse(base));
     unsigned char request480[]={8,0xe0,3};
     unsigned char request481[]={8,0xe1,3};
     CloudHooks::SetOriginals((void*)&passthrough,nullptr,nullptr);
@@ -164,6 +165,14 @@ int main(int argc,char** argv) {
     std::ofstream(root+"/Steam/steamapps/libraryfolders.vdf")<<"\"libraryfolders\"\n{\n\"1\"\n{\n\"path\" \""<<external<<"\"\n}\n}\n";
     auto wineRoots=AutoCloudScan::GetRootTokenDirectories(root+"/Steam",482,1);
     require(wineRoots["%WinAppDataLocal%"]==external+"/steamapps/compatdata/482/pfx/drive_c/users/steamuser/AppData/Local/"&&!wineRoots.count("%MacHome%"),"external-library NotProton prefix maps Windows roots only");
+    std::filesystem::create_directories(root+"/Steam/config");
+    std::ofstream(root+"/Steam/config/config.vdf")<<"\"InstallConfigStore\"\n{\n\"Software\"\n{\n\"Valve\"\n{\n\"Steam\"\n{\n\"CompatToolMapping\"\n{\n\"482\"\n{\n\"name\" \"fluent-proton-free\"\n}\n}\n}\n}\n}\n}\n";
+    std::ofstream(external+"/steamapps/appmanifest_482.acf")<<"\"AppState\" {}";
+    auto absentFreeRoots=AutoCloudScan::GetRootTokenDirectories(root+"/Steam",482,1);
+    require(absentFreeRoots["%WinAppDataLocal%"]==external+"/steamapps/compatdata/482/fluent-free/pfx/drive_c/users/steamuser/AppData/Local/"&&!absentFreeRoots.count("%MacHome%"),"missing free prefix never resolves to paid or native saves");
+    std::filesystem::create_directories(external+"/steamapps/compatdata/482/fluent-free/pfx/drive_c/users/steamuser/AppData/Local");
+    auto freeRoots=AutoCloudScan::GetRootTokenDirectories(root+"/Steam",482,1);
+    require(freeRoots["%WinAppDataLocal%"]==external+"/steamapps/compatdata/482/fluent-free/pfx/drive_c/users/steamuser/AppData/Local/","free runtime saves stay in the selected external-library prefix");
     require(AutoCloudUtil::AutoCloudRuleMatchesCurrentPlatform(2)&&!AutoCloudUtil::AutoCloudRuleMatchesCurrentPlatform(8),"macOS AutoCloud platform mask");
     auto status=Json::Parse("{"+CloudHooks::StatusJSONFields().substr(1)+"}");
     require(status["cloudReady"].boolean()&&status["cloudProvider"].str()=="folder"&&status["cloudRequests"].integer()>0,"runtime status reports actual folder and requests");

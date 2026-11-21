@@ -30,17 +30,17 @@ static uint32_t capture(void* u,void** games,int count) {
     return original(u,games,count);
 }
 bool Resolve(uintptr_t b,size_t size,ParseFromArrayFn p) {
-    if(size<RuntimeProfile::writePlaytime+32||!RuntimeProfile::Check_writePlaytime(b))return false;
+    if(size<RuntimeProfile::writePlaytime(b)+32||!RuntimeProfile::Check_writePlaytime(b))return false;
     responseVT=VtableHook::FindVtableByRTTIName("35CPlayer_GetLastPlayedTimes_Response",b,size);
     if(!responseVT)return false;base=b;parse=p;return true;
 }
 bool InstallUserCapture() {
     if(installed)return true;if(!base)return false;
-    installed=DobbyHook((void*)(base+RuntimeProfile::writePlaytime),(void*)&capture,(void**)&original)==0;
+    installed=DobbyHook((void*)(base+RuntimeProfile::writePlaytime(base)),(void*)&capture,(void**)&original)==0;
     return installed;
 }
 void RemoveUserCapture() {
-    if(installed)DobbyDestroy((void*)(base+RuntimeProfile::writePlaytime));
+    if(installed)DobbyDestroy((void*)(base+RuntimeProfile::writePlaytime(base)));
     installed=false;user=nullptr;std::lock_guard lock(queueMutex);pending.clear();
 }
 bool Ready(){return installed&&user.load(std::memory_order_acquire);}

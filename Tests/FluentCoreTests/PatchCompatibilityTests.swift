@@ -38,7 +38,7 @@ import Foundation
     @Test func previewInstallRestoreBindGameAndRuntime() throws {
         let (root, paths, game, exe, payload) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         let before = try FileStore.read(exe)
-        let plan = try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
+        let plan = try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
         #expect(plan.windowsTarget?.architecture == .x64)
         let updated = try GamePatches.addingOverrides(to: plan, executable: exe, libraries: ["version"], paths: paths)
         let receipt = try GamePatches.install(updated, paths: paths)
@@ -49,54 +49,54 @@ import Foundation
     @Test func architectureNativeAndUnknownTargetsFailBeforeWrites() throws {
         let (root, paths, game, exe, payload) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         try FileStore.write(pe(.x86, dll: true), to: payload.appendingPathComponent("version.dll"))
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
         try FileStore.write(Data([0xcf,0xfa,0xed,0xfe]), to: exe)
-        do { _ = try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths); Issue.record("Native executable accepted") }
+        do { _ = try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths); Issue.record("Native executable accepted") }
         catch { #expect(error.localizedDescription.contains("macOS")) }
         #expect(!FileStore.fm.fileExists(atPath: game.appendingPathComponent("version.dll").path))
         #expect(!FileStore.fm.fileExists(atPath: paths.data.appendingPathComponent("PatchBackups").path))
     }
     @Test func changedGameOrMissingBottleCannotInstall() throws {
         let (root, paths, game, exe, payload) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
-        let plan = try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
+        let plan = try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
         var changed = try FileStore.read(exe); changed[400] = 1; try FileStore.write(changed, to: exe)
         #expect(throws: (any Error).self) { try GamePatches.install(plan, paths: paths) }
         try FileStore.write(Data("WINE REGISTRY Version 2\n#arch=win32\n".utf8), to: URL(fileURLWithPath: plan.windowsTarget!.prefix).appendingPathComponent("system.reg"))
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
         try FileStore.fm.removeItem(at: URL(fileURLWithPath: plan.windowsTarget!.prefix).appendingPathComponent("system.reg"))
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
         #expect(!FileStore.fm.fileExists(atPath: game.appendingPathComponent("version.dll").path))
     }
     @Test func matchingX86AndExplicitCrossOverBottleAreSupported() throws {
         let (root, paths, game, exe, payload) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         try FileStore.write(pe(.x86), to: exe); try FileStore.write(pe(.x86, dll: true), to: payload.appendingPathComponent("version.dll"))
-        let nativePlan = try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
+        let nativePlan = try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
         #expect(nativePlan.windowsTarget?.architecture == .x86)
         let application = root.appendingPathComponent("CrossOver.app"), support = application.appendingPathComponent("Contents/SharedSupport")
         try FileStore.mkdir(support)
         try FileStore.fm.createSymbolicLink(at: support.appendingPathComponent("CrossOver"), withDestinationURL: paths.notProton.appendingPathComponent("runners/crossover-fixture/CrossOver"))
         let bottle = URL(fileURLWithPath: nativePlan.windowsTarget!.prefix)
-        let direct = try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths, bottle: bottle, crossOverApp: application)
+        let direct = try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths, bottle: bottle, crossOverApp: application)
         #expect(direct.windowsTarget?.kind == .crossOver); #expect(direct.windowsTarget?.architecture == .x86)
         try FileStore.write(pe(.x64, dll: true), to: payload.appendingPathComponent("version.dll"))
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths, bottle: bottle, crossOverApp: application) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths, bottle: bottle, crossOverApp: application) }
     }
     @Test func changedRunnerAndSymlinkedExecutableCannotInstall() throws {
         let (root, paths, game, exe, payload) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
-        let plan = try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
+        let plan = try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths)
         try FileStore.fm.removeItem(at: URL(fileURLWithPath: plan.windowsTarget!.loader))
         #expect(throws: (any Error).self) { try GamePatches.install(plan, paths: paths) }
         let external = root.appendingPathComponent("outside.exe"); try FileStore.write(pe(.x64), to: external)
         try FileStore.fm.removeItem(at: exe); try FileStore.fm.createSymbolicLink(at: exe, withDestinationURL: external)
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
         #expect(!FileStore.fm.fileExists(atPath: game.appendingPathComponent("version.dll").path))
     }
     @Test func rejectsMislabeledBinariesAndDrivers() throws {
         let (root, paths, game, exe, payload) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         try FileStore.write(pe(.x64), to: payload.appendingPathComponent("version.dll"))
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
         try FileStore.write(pe(.x64, dll: true), to: payload.appendingPathComponent("version.dll"))
         try FileStore.write(pe(.x64), to: payload.appendingPathComponent("driver.sys"))
-        #expect(throws: (any Error).self) { try GamePatches.onlinePlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
+        #expect(throws: (any Error).self) { try GamePatches.windowsPlan(package: payload, gameRoot: game, appID: 480, executable: exe, paths: paths) }
     }
 }

@@ -12,21 +12,33 @@ esac
 if [[ "$MODE" != "--build" ]]; then pkill -x "$APP_NAME" >/dev/null 2>&1 || true; fi
 swift build
 BIN_DIR="$(swift build --show-bin-path)"
-STAGING="$ROOT_DIR/work/app-staging"
-# Start with a clean generated bundle so removed features cannot survive incremental builds.
-rm -rf "$STAGING"
+mkdir -p "$ROOT_DIR/work"
+# Independent staging prevents simultaneous builds from modifying each other.
+STAGING="$(mktemp -d "$ROOT_DIR/work/app-staging.XXXXXX")"
+trap 'rm -rf "$STAGING"' EXIT
 mkdir -p "$STAGING/Contents/MacOS" "$STAGING/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$STAGING/Contents/MacOS/$APP_NAME"
 cp "$BIN_DIR/FluentUpdater" "$STAGING/Contents/MacOS/FluentUpdater"
+cp "$BIN_DIR/FluentRuntime" "$STAGING/Contents/MacOS/FluentRuntime"
+python3 "$ROOT_DIR/script/bundle_connecttool.py" "$STAGING/Contents/Resources/Helpers/ConnectTool"
 cp "$ROOT_DIR/Resources/UpdatePublicKey.txt" "$STAGING/Contents/Resources/UpdatePublicKey.txt"
+ditto "$ROOT_DIR/Resources/FreeRuntime" "$STAGING/Contents/Resources/FreeRuntime"
 cp "$BIN_DIR/FluentSteamWorker" "$STAGING/Contents/MacOS/FluentSteamWorker"
 "$ROOT_DIR/script/build_engine.sh"
 "$ROOT_DIR/script/build_cloud.sh"
 "$ROOT_DIR/script/build_notproton.sh"
 "$ROOT_DIR/script/build_pins.sh"
-python3 "$ROOT_DIR/script/build_notproton_kernel.py"
+# The official Steam bootstrap is Intel-only even on Apple silicon. Its launch
+# environment must accept both architectures before handing off to native Steam.
+for architecture in x86_64 arm64; do
+  lipo "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" -verify_arch "$architecture"
+  lipo "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" -verify_arch "$architecture"
+done
+python3 "$ROOT_DIR/script/build_native_integration.py"
+python3 "$ROOT_DIR/script/build_crossover_bridge.py"
+python3 "$ROOT_DIR/script/bundle_native_integration.py" "$STAGING/Contents/Resources"
 mkdir -p "$STAGING/Contents/Resources/Helpers/NotProtonRepair"
-cp "$ROOT_DIR/work/notproton-kernel-source/out/notproton.dylib" "$ROOT_DIR/work/notproton-kernel-source/out/fluent-notproton-repair.json" "$STAGING/Contents/Resources/Helpers/NotProtonRepair/"
+cp "$ROOT_DIR/work/native-integration/notproton.dylib" "$ROOT_DIR/work/native-integration/fluent-notproton-repair.json" "$STAGING/Contents/Resources/Helpers/NotProtonRepair/"
 # The receipt is resource data, not executable code. Never place JSON in Helpers,
 # where deep signing gives it an xattr-only signature lost by ordinary ZIP extraction.
 rm -f "$ROOT_DIR/work/notproton-publish/notproton.dylib" "$ROOT_DIR/work/notproton-publish/fluent-notproton-repair.json"
@@ -55,8 +67,8 @@ cat > "$STAGING/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Fluent Steam Mac</string>
 <key>CFBundleDisplayName</key><string>Fluent Steam Mac</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.25</string>
-<key>CFBundleVersion</key><string>27</string>
+<key>CFBundleShortVersionString</key><string>0.2.34</string>
+<key>CFBundleVersion</key><string>36</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
@@ -81,6 +93,7 @@ for file in root.rglob('*'):
         subprocess.run(['codesign', '--force', '--sign', '-', str(file)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 PY_SIGN
 codesign --force --deep --sign - "$STAGING"
+python3 "$ROOT_DIR/script/verify_bundled_cores.py" "$STAGING"
 if [[ -d "$APP_BUNDLE" ]]; then
   # Remove only this script's generated bundle, after the new build has succeeded.
   /bin/rm -rf "$APP_BUNDLE"

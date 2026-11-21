@@ -15,6 +15,9 @@ struct InstallRequest: Codable {
     var remove: Bool?
     var cleanRunners: Bool?
     var recoverInterrupted: Bool?
+    var managedRoot: String?
+    var managedVersion: String?
+    var rebuildExecutable: String?
 }
 struct InstallSnapshot: Codable {
     struct Item: Codable { let original: String; let stored: String; let existed: Bool; let sha256: String }
@@ -127,6 +130,18 @@ enum InstallSession {
         setenv("FLUENT_NOTPROTON_RESOURCES", resources.path, 1)
         setenv("FLUENT_NOTPROTON_VERSION", (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"), 1)
     }
+    static func resources(_ r: InstallRequest) throws {
+        if let root = r.managedRoot {
+            try ManagedPayload.validate(r, provider: "notproton")
+            let bundle = URL(filePath: root).appending(path: "NotProtonRuntime.bundle")
+            guard Bundle(url: bundle) != nil else { throw StepFailure(step: "Components", detail: "Invalid managed resource bundle") }
+            unsetenv("FLUENT_NOTPROTON_APP")
+            setenv("FLUENT_NOTPROTON_RESOURCES", bundle.path, 1)
+            setenv("FLUENT_NOTPROTON_VERSION", r.managedVersion ?? "unknown", 1)
+            guard let executable = r.rebuildExecutable, executable.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: executable) else { throw StepFailure(step: "Components", detail: "Missing bundled prefix rebuild helper") }
+            setenv("FLUENT_REBUILD_EXECUTABLE", executable, 1)
+        } else { unsetenv("FLUENT_REBUILD_EXECUTABLE"); try companion(r.companion) }
+    }
     static func roots() -> [URL] {
         [SupportPaths.Steam.app, SupportPaths.support, SupportPaths.Steam.compatTools, SupportPaths.Steam.legacyCompat, SteamModifications.shared.file]
     }
@@ -141,6 +156,7 @@ enum InstallSession {
         guard r.steamApp.hasSuffix(".app") else { throw StepFailure(step: "Validate paths", detail: "A Steam.app bundle is required") }
         setenv("FLUENT_STEAM_APP", r.steamApp, 1); setenv("FLUENT_STEAM_DATA", r.steamData, 1)
         setenv("FLUENT_NOTPROTON_SUPPORT", r.notProton, 1); setenv("FLUENT_NOTPROTON_DOWNLOADS", URL(filePath: r.data).appending(path: "Cache/ValvePackages").path, 1)
+        setenv("FLUENT_INSTALL_SUPPORT", URL(filePath: r.notProton).deletingLastPathComponent().path, 1)
     }
     static func restore(_ r: InstallRequest) throws -> String {
         try configure(r); try requireIdle()
@@ -160,8 +176,8 @@ enum InstallSession {
         try Data("restored\n".utf8).write(to: folder.appending(path: "status"), options: .atomic)
         return recovery.path
     }
-    static func install(_ r: InstallRequest, progress: @escaping @Sendable (String) -> Void) async throws -> String {
-        try companion(r.companion)
+    static func install(_ r: InstallRequest, requireIdle: @Sendable () throws -> Void = InstallSession.requireIdle, register: @Sendable (URL) -> Void = SteamBundle.register, progress: @escaping @Sendable (String) -> Void) async throws -> String {
+        try resources(r)
         try configure(r); try requireIdle()
         guard SteamBundle.readInfoPlist(at: SupportPaths.Steam.infoPlist)?["CFBundleIdentifier"] as? String == "com.valvesoftware.steam" else { throw StepFailure(step: "Validate Steam", detail: "Target is not Steam.app") }
         let payload = try InstallPayload.locate(); let bridge = try BridgePayload.locate()
@@ -172,9 +188,9 @@ enum InstallSession {
         let snapshot = try InstallSnapshot.capture(roots(), in: backup)
         do {
             try requireIdle()
-            let outcome = try SteamInstaller.run(payload: payload, bridgePayload: bridge, holdingInstallationLock: true, stopClient: { _, _ in
-                guard !SteamBundle.isRunning else { throw StepFailure(step: "Install", detail: "Steam started during installation") }; return false
-            }, resetInputAccess: {}, report: { progress($0.label) })
+            let outcome = try SteamInstaller.run(payload: payload, bridgePayload: bridge, holdingInstallationLock: true, preserveExistingFonts: r.managedRoot != nil, stopClient: { _, _ in
+                try requireIdle(); return false
+            }, register: register, resetInputAccess: {}, report: { progress($0.label) })
             if let source = r.crossOver, !source.isEmpty {
                 let install = CrossOverSource.inspect(bundle: URL(filePath: source), isManual: true)
                 _ = try RunnerSetup.run(from: install) { progress($0.label) }
@@ -191,7 +207,7 @@ enum InstallSession {
             do { try requireIdle() }
             catch { throw StepFailure(step: "Recovery needed", detail: "Steam or a runner started during installation. Close it before restoring backup: \(backup.path)") }
             progress("Restoring installation backup")
-            do { try snapshot.restore(from: backup, beforeMutation: requireIdle); SteamBundle.register(SupportPaths.Steam.app); try InstallSnapshot.mark("restored", in: backup) }
+            do { try snapshot.restore(from: backup, beforeMutation: requireIdle); register(SupportPaths.Steam.app); try InstallSnapshot.mark("restored", in: backup) }
             catch let rollback { throw StepFailure(step: "Rollback", detail: "Installation failed and rollback needs repair: \(rollback.localizedDescription). Backup: \(backup.path)") }
             throw error
         }

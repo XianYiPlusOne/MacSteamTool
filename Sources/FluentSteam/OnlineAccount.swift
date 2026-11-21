@@ -125,6 +125,14 @@ struct OnlineAccountPanel: View {
     var visible: [OwnedGame] { model.ownedGames.filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || String($0.id).contains(filter) } }
     var body: some View {
         Panel {
+            if model.pendingAuthorizedRepair != nil {
+                HStack {
+                    Text(model.tr("登录后可继续核验游戏内容。", "Sign in to continue verifying game content.")).font(.caption)
+                    Spacer()
+                    Button(model.tr("继续核验内容", "Continue verification")) { model.repairAuthorizedContent() }.disabled(model.busy)
+                    Button(model.tr("取消补齐", "Cancel repair")) { model.pendingImport = model.pendingAuthorizedRepair; model.pendingAuthorizedRepair = nil }.disabled(model.busy)
+                }
+            }
             HStack {
                 Text(model.tr("SteamKit 在线提取", "SteamKit extraction")).font(.headline)
                 Spacer()

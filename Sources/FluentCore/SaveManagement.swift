@@ -22,6 +22,7 @@ public struct SaveManagerState: Codable, Sendable {
     public var version = 1
     public var games: [String: GameSaveOptions] = [:]
     public var backups: [GameSaveBackup] = []
+    public var pendingReinstallRestores: [Int]? = nil
     public init() {}
     public func options(for appID: Int) -> GameSaveOptions { games[String(appID)] ?? .init() }
     public func backups(for appID: Int) -> [GameSaveBackup] { backups.filter { $0.appID == appID }.sorted { $0.created > $1.created } }
@@ -117,6 +118,13 @@ public enum SaveManagerStore {
         try update(paths: paths) { state in
             state.backups.removeAll { $0.directory == backup.directory }
             state.backups.append(backup)
+        }
+    }
+    public static func remindAfterInstall(_ appIDs: [Int], enabled: Bool, paths: AppPaths) throws {
+        try update(paths: paths) { state in
+            var ids = Set(state.pendingReinstallRestores ?? [])
+            if enabled { ids.formUnion(appIDs) } else { ids.subtract(appIDs) }
+            state.pendingReinstallRestores = ids.sorted()
         }
     }
     private static func update(paths: AppPaths, _ mutation: (inout SaveManagerState) throws -> Void) throws {

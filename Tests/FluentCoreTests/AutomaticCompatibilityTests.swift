@@ -63,7 +63,7 @@ struct AutomaticCompatibilityTests {
         _ = try await AutomaticCompatibility.process(paths: p, steamRunning: { false }) { _ in info }
         #expect(try bytes(p) == after)
         let tx = FileTransaction(backupRoot: p.data.appendingPathComponent("CompatibilityBackups"))
-        let backup = try #require(tx.records().first { $0.reason.hasPrefix("自动选择") })
+        let backup = try #require(tx.records().first { $0.files.contains { $0.original == p.steam.appendingPathComponent("config/config.vdf").path } })
         try tx.restore(backup, allowedRoots: [p.data.deletingLastPathComponent()])
         #expect(try bytes(p) == original)
         #expect(try AutomaticCompatibility.state(paths: p).jobs[id]?.decision == .windowsOnly)

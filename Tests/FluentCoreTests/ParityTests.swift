@@ -46,7 +46,7 @@ import Testing
         try service.batch(games, action: .remove)
         #expect(try SteamLibrary.games(paths).isEmpty)
         let record = try #require(FileTransaction(backupRoot: paths.backups).records().first)
-        try FileTransaction(backupRoot: paths.backups).restore(record, allowedRoots: [paths.data, paths.macSteam, paths.steam])
+        try service.restoreBackup(record)
         #expect(try SteamLibrary.games(paths).count == 2)
         #expect(throws: (any Error).self) { try service.batch([Game(id: 1, name: "Native", source: "Steam")], action: .remove) }
     }

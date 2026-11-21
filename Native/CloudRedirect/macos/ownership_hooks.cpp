@@ -82,18 +82,14 @@ bool matchingMacSteam(uintptr_t base) {
 
 bool Install(uintptr_t steamBase,size_t steamSize) {
     if (installed) return true;
-    if (steamSize < 0xa64000 || !RuntimeProfile::UUID(steamBase)) return false;
-    // Reject a same-version binary with a different ownership layout as well.
-    const uint32_t ownerStore = 0xb9000a88, familyStore = 0x3900d688, borrowedStore = 0x3900c688, lockedStore = 0x3900ae89;
-    if (std::memcmp(reinterpret_cast<void*>(steamBase+0xa63cdc),&ownerStore,4) ||
-        std::memcmp(reinterpret_cast<void*>(steamBase+0xa63cf4),&familyStore,4) ||
-        std::memcmp(reinterpret_cast<void*>(steamBase+0xa63b98),&borrowedStore,4) ||
-        std::memcmp(reinterpret_cast<void*>(steamBase+0xa63b7c),&lockedStore,4)) return false;
+    if (steamSize < RuntimeProfile::familyStore(steamBase)+4 || !RuntimeProfile::UUID(steamBase)) return false;
+    if (!RuntimeProfile::Check_ownerStore(steamBase) || !RuntimeProfile::Check_familyStore(steamBase) ||
+        !RuntimeProfile::Check_borrowedStore(steamBase) || !RuntimeProfile::Check_lockedStore(steamBase)) return false;
     for (unsigned i=0;i<_dyld_image_count();i++) {
         const char* path = _dyld_get_image_name(i);
         if (!path || !std::string(path).ends_with("/macsteam.dylib")) continue;
         auto base = reinterpret_cast<uintptr_t>(_dyld_get_image_header(i));
-        if (!matchingMacSteam(base)) continue;
+        bool legacy=matchingMacSteam(base);
         auto handle = dlopen(path,RTLD_NOLOAD|RTLD_NOW);
         if (!handle) continue;
         auto version = reinterpret_cast<const char*(*)()>(dlsym(handle,"macsteam_version"));
@@ -101,14 +97,17 @@ bool Install(uintptr_t steamBase,size_t steamSize) {
         auto contains = reinterpret_cast<HasApp>(dlsym(handle,"sx_config_has_app"));
         auto config = reinterpret_cast<void**>(dlsym(handle,"sx_config_current"));
         const unsigned char prologue[] = {0xff,0x03,0x03,0xd1,0xf8,0x5f,0x08,0xa9,0xf6,0x57,0x09,0xa9,0xf4,0x4f,0x0a,0xa9};
+        auto abi=reinterpret_cast<const unsigned*>(dlsym(handle,"fluent_macsteam_ownership_abi"));
+        Dl_info ownerImage{};
+        bool owned=abi && *abi==1 && dladdr(fn,&ownerImage) && ownerImage.dli_fbase==reinterpret_cast<void*>(base);
         bool valid = version && std::string(version())=="0.8.2" && fn && contains && config &&
-            !std::memcmp(fn,prologue,sizeof(prologue));
+            (owned || (legacy && !std::memcmp(fn,prologue,sizeof(prologue))));
         dlclose(handle);
         if (!valid) continue;
         hasApp=contains; configSlot=config;
         if (DobbyHook(fn,reinterpret_cast<void*>(&normalize),reinterpret_cast<void**>(&original))) {hasApp=nullptr;configSlot=nullptr;return false;}
         target=fn;installed=true;
-        LOG("[Ownership] Native owner preservation and selected-game sharing flags installed (Steam 1792618285 / macSteam 0.8.2)");
+        LOG("[Ownership] Native owner preservation and selected-game sharing flags installed (verified Steam profile / maintained helper ABI)");
         return true;
     }
     LOG("[Ownership] Compatible macSteam helper unavailable; ownership correction disabled");

@@ -1,3 +1,4 @@
+#include "runtime_profile.h"
 #include "cloud_hooks.h"
 #include "cloud_intercept.h"
 #include "stats_hooks.h"
@@ -102,16 +103,12 @@ static SerializeToArray_t g_serializeToArray = nullptr;
 static ParseFromArray_t   g_parseFromArray   = nullptr;
 
 bool CloudHooks::ResolveProtobufHelpers(void* steamclientBase, size_t steamclientSize) {
-    constexpr size_t parseOffset=0xb3e6e8, serializeOffset=0xb3e738;
-    static const unsigned char parseGuard[]={0xf6,0x57,0xbd,0xa9,0xf4,0x4f,0x01,0xa9,0xfd,0x7b,0x02,0xa9,0xfd,0x83,0x00,0x91,0xe2,0x01,0xf8,0x37,0xf4,0x03,0x01,0xaa,0xf3,0x03,0x00,0xaa,0xf5,0x03,0x02,0x2a};
-    static const unsigned char serializeGuard[]={0xff,0xc3,0x02,0xd1,0xf6,0x57,0x08,0xa9,0xf4,0x4f,0x09,0xa9,0xfd,0x7b,0x0a,0xa9,0xfd,0x83,0x02,0x91,0xf3,0x03,0x01,0xaa,0xf4,0x03,0x00,0xaa,0x48,0x5b,0x00,0xd0};
-    if(steamclientSize<serializeOffset+32)return false;
-    auto base=(unsigned char*)steamclientBase;
-    if(memcmp(base+parseOffset,parseGuard,32)||memcmp(base+serializeOffset,serializeGuard,32)){
+    auto base=reinterpret_cast<uintptr_t>(steamclientBase);
+    if(steamclientSize<RuntimeProfile::serialize(base)+32 || !RuntimeProfile::Check_parse(base) || !RuntimeProfile::Check_serialize(base)) {
         LOG("[macOS] Unsupported Steam protobuf helpers; no hooks installed");return false;
     }
-    g_parseFromArray=(ParseFromArray_t)(base+parseOffset);
-    g_serializeToArray=(SerializeToArray_t)(base+serializeOffset);
+    g_parseFromArray=(ParseFromArray_t)(base+RuntimeProfile::parse(base));
+    g_serializeToArray=(SerializeToArray_t)(base+RuntimeProfile::serialize(base));
     return true;
 }
 

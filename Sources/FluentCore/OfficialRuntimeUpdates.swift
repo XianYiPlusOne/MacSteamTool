@@ -28,8 +28,9 @@ public struct PreparedRuntime: Sendable {
     public let supportedSteamBuilds: [String]
 }
 public enum OfficialRuntimeUpdates {
-    public static func check(_ provider: String, engine: URL) async throws -> OfficialRuntimeRelease {
+    public static func check(_ provider: String, engine: URL, tag: String? = nil) async throws -> OfficialRuntimeRelease {
         var request = SteamEngineRequest("runtime-release"); request.provider = provider
+        request.query = tag ?? ""
         guard let release = try await SteamEngine.run(request, executable: engine).runtimeRelease else { throw AppFailure("没有版本信息 / No release metadata") }
         try release.validate(); return release
     }
@@ -122,17 +123,22 @@ public enum OfficialRuntimeUpdates {
         }
     }
     public static func validate(_ app: URL, release: OfficialRuntimeRelease) async throws -> [String] {
-        try release.validate(); try validateLinks(app)
+        try release.validate()
+        return try await validateApplication(app, provider: release.provider, version: release.version)
+    }
+    public static func validateApplication(_ app: URL, provider: String, version: String) async throws -> [String] {
+        guard ["macsteam", "notproton"].contains(provider) else { throw AppFailure("Unknown runtime provider") }
+        try validateLinks(app)
         let info = try PropertyListSerialization.propertyList(from: FileStore.read(app.appendingPathComponent("Contents/Info.plist")), format: nil) as? [String: Any] ?? [:]
-        let executable = release.provider == "macsteam" ? "MacsteamApp" : "NotProtonApp"
-        guard info["CFBundleIdentifier"] as? String == (release.provider == "macsteam" ? "com.macsteam.app" : "com.notproton.NotProton"),
-              info["CFBundleShortVersionString"] as? String == release.version, info["CFBundleExecutable"] as? String == executable else { throw AppFailure("官方应用标识或版本不符 / Official application identity or version mismatch") }
+        let executable = provider == "macsteam" ? "MacsteamApp" : "NotProtonApp"
+        guard info["CFBundleIdentifier"] as? String == (provider == "macsteam" ? "com.macsteam.app" : "com.notproton.NotProton"),
+              info["CFBundleShortVersionString"] as? String == version, info["CFBundleExecutable"] as? String == executable else { throw AppFailure("官方应用标识或版本不符 / Official application identity or version mismatch") }
         let (code, detail) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", app.path])
         guard code == 0 else { throw AppFailure("运行器代码签名校验失败 / Runtime code signature failed: \(detail.suffix(1000))") }
         let (arch, text) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/lipo"), ["-archs", app.appendingPathComponent("Contents/MacOS/\(executable)").path])
         guard arch == 0, text.split(whereSeparator: \.isWhitespace).contains("arm64") else { throw AppFailure("运行器不支持 ARM64 / Runtime does not contain ARM64") }
-        let payload = app.appendingPathComponent(release.provider == "macsteam" ? "Contents/Resources" : "Contents/Resources/NotProtonApp_NotProtonApp.bundle/Contents/Resources/payload")
-        let required = release.provider == "macsteam" ? ["macsteam.dylib"] : ["notproton.dylib", "overlay-shim.dylib", "iconmaker", "appinfo", "run", "build-time"]
+        let payload = app.appendingPathComponent(provider == "macsteam" ? "Contents/Resources" : "Contents/Resources/NotProtonApp_NotProtonApp.bundle/Contents/Resources/payload")
+        let required = provider == "macsteam" ? ["macsteam.dylib", "macsteam.dylib.version"] : ["notproton.dylib", "overlay-shim.dylib", "iconmaker", "appinfo", "run", "build-time"]
         guard required.allSatisfy({ FileStore.fm.fileExists(atPath: payload.appendingPathComponent($0).path) }) else { throw AppFailure("运行器缺少内核资源 / Runtime payload incomplete") }
         let builds = FileStore.files(payload.appendingPathComponent("signatures/macos.arm64")).filter { $0.pathExtension == "json" }.map { $0.deletingPathExtension().lastPathComponent }.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }.sorted()
         guard !builds.isEmpty else { throw AppFailure("运行器缺少 Steam 兼容数据 / Runtime Steam profiles missing") }; return builds

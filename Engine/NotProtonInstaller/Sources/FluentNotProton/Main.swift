@@ -8,6 +8,17 @@ import Darwin
     static func main() async {
         let args = Array(CommandLine.arguments.dropFirst())
         do {
+            if args.count == 3, args[0] == "--test-owned-backend" { try InstallerSelfTest.ownedBackend(application: args[1], crossOver: args[2]); return }
+            if args.count == 2, args[0] == "--test-core" { try InstallerSelfTest.coreIntegration(application: args[1]); return }
+            if args.count == 5, args[0] == "--test-managed" {
+                let root = try await InstallerSelfTest.managedIntegration(steam: args[1], mac: args[2], np: args[3], repair: args[4])
+                print(String(decoding: try JSONSerialization.data(withJSONObject: ["fixture": root]), as: UTF8.self)); return
+            }
+            if args.first == "--rebuild-prefix" {
+                _ = setsid()
+                try RebuildPrefixCommand.run(Array(args.dropFirst()))
+                return
+            }
             if args.count == 2, args[0] == "--test-kernel" { try InstallerSelfTest.kernelIntegration(companion: args[1]); return }
             if args == ["--self-test"] { try InstallerSelfTest.run(); return }
             if args.count == 2, args[0] == "--test-notproton-repair" { try InstallerSelfTest.notProtonRepair(source: args[1]); return }
@@ -27,7 +38,7 @@ import Darwin
             else { backup = try await InstallSession.install(r) { message in try? write(["progress": message], to: output + ".status") } }
             try write(["ok": true, "backup": backup], to: output)
         } catch {
-            if args.count == 3 { try? write(["ok": false, "error": error.localizedDescription], to: args[2]) }
+            if args.count == 3, ["--install", "--restore", "--kernel", "--restore-kernel"].contains(args[0]) { try? write(["ok": false, "error": error.localizedDescription], to: args[2]) }
             else { let data = try? JSONSerialization.data(withJSONObject: ["ok": false, "error": error.localizedDescription]); print(String(decoding: data ?? Data(), as: UTF8.self)) }
             exit(1)
         }

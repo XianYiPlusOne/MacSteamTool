@@ -100,13 +100,36 @@ static std::vector<std::filesystem::path> GetSteamLibraryPaths(const std::string
     return paths;
 }
 
-// Resolve NotProton prefixes in any Steam library, not only the primary one.
+static bool UsesFreeRuntime(const std::string& steamPath,uint32_t appId) {
+    bool freeRuntime=false;
+#ifdef __APPLE__
+    // A free runner uses its own prefix. Never fall back to the paid prefix,
+    // including before the free prefix has been created for the first time.
+    std::ifstream config(steamPath+"/config/config.vdf",std::ios::binary|std::ios::ate);
+    if(config && config.tellg()>=0 && config.tellg()<=8*1024*1024) {
+        config.seekg(0);std::string content((std::istreambuf_iterator<char>(config)),{});
+        auto app=std::to_string(appId);std::string tool;
+        const char* section[]={"InstallConfigStore","Software","Valve","Steam","CompatToolMapping",app.c_str()};
+        auto field=[&](const VdfUtil::FieldInfo& value){if(value.key=="name")tool=std::string(value.value);return true;};
+        if(!VdfUtil::ForEachFieldInSection(content,section,6,field)) {
+            section[5]="0";VdfUtil::ForEachFieldInSection(content,section,6,field);
+        }
+        freeRuntime=tool=="fluent-proton-free";
+    }
+#endif
+    return freeRuntime;
+}
+
+// Resolve the selected runtime's prefix in any Steam library.
 static std::string FindCompatdataBase(const std::string& steamPath,uint32_t appId) {
+    const bool freeRuntime=UsesFreeRuntime(steamPath,appId);
     for(const auto& lib:GetSteamLibraryPaths(steamPath)) {
         auto dir=lib/"steamapps"/"compatdata"/std::to_string(appId);
+        if(freeRuntime)dir/="fluent-free";
         std::error_code ec;if(std::filesystem::is_directory(dir/"pfx",ec))return dir.string();
+        if(freeRuntime&&std::filesystem::exists(lib/"steamapps"/("appmanifest_"+std::to_string(appId)+".acf"),ec))return dir.string();
     }
-    return steamPath+"/steamapps/compatdata/"+std::to_string(appId);
+    return steamPath+"/steamapps/compatdata/"+std::to_string(appId)+(freeRuntime?"/fluent-free":"");
 }
 static std::string FindWineUserHome(const std::string& compatdataBase) {
     auto users=std::filesystem::path(compatdataBase)/"pfx/drive_c/users";
@@ -290,6 +313,7 @@ static AutoCloudEffectivePlatform DetectEffectivePlatform(const std::string& ste
     return AutoCloudEffectivePlatform::Current;  // Windows is always Windows
 #else
     // Use known accountId or first numeric userdata folder.
+    if(UsesFreeRuntime(steamPath,appId))return AutoCloudEffectivePlatform::Windows;
     std::filesystem::path userdataPath = FileUtil::Utf8ToPath(steamPath) / "userdata";
     std::error_code ec;
     std::string userId;

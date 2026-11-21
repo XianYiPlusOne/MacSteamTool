@@ -95,9 +95,10 @@ public struct InstalledGame: Hashable, Sendable {
     public var bytes: Int64
     public var depots: [Int: String]
     public var prefix: URL? {
-        let p = library.appendingPathComponent("steamapps/compatdata/\(id)/pfx")
+        let p = selectedPrefix ?? library.appendingPathComponent("steamapps/compatdata/\(id)/pfx")
         return FileManager.default.fileExists(atPath: p.path) ? p : nil
     }
+    public var selectedPrefix: URL? = nil
 }
 
 public struct GameMetadata: Codable, Identifiable, Sendable {
@@ -119,6 +120,7 @@ public struct BackupRecord: Identifiable, Codable, Sendable {
     public var date: Date
     public var reason: String
     public var files: [BackupFile]
+    public var libraryAppIDs: [Int]? = nil
 }
 public struct BackupFile: Codable, Sendable {
     public var original: String

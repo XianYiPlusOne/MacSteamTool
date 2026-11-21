@@ -470,7 +470,7 @@ struct OfflineToolTests {
         var schema = try OfflineSchema.parse(Data(#"{"game":{"availableGameStats":{"achievements":[{"name":"TEST","hidden":1,"icon":"https://cdn.akamai.steamstatic.com/480/test.png"}]}}}"#.utf8))
         let imagePath = try #require(OfflineSchema.imagePath(schema.definitions[0].icon))
         schema.images[imagePath] = Data([137,80,78,71])
-        let plan = try OfflineTools.goldberg(package: package, gameRoot: game, appID: 480, dlcs: [481], accountName: "Fixture", language: "english", lan: false, achievements: [Achievement(id: "TEST", name: "Test", detail: "Fixture", achieved: true, unlockedAt: 1)], schema: schema, destination: root.appendingPathComponent("stage"))
+        let plan = try OfflineTools.goldberg(package: package, gameRoot: game, appID: 480, dlcs: [481], accountName: "Fixture", language: "english", achievements: [Achievement(id: "TEST", name: "Test", detail: "Fixture", achieved: true, unlockedAt: 1)], schema: schema, destination: root.appendingPathComponent("stage"))
         #expect(plan.entries.filter(\.replacing).count == 3)
         let receipt = try GamePatches.install(plan, paths: paths)
         #expect(try FileStore.read(game.appendingPathComponent("steam_api64.dll")) == assets["release/regular/x64/steam_api64.dll"])

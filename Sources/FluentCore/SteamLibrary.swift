@@ -14,6 +14,7 @@ public enum SteamLibrary {
     }
     public static func installed(_ paths: AppPaths) -> [InstalledGame] {
         var result: [InstalledGame] = []
+        let compatibility = try? FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))
         for library in libraries(paths) {
             for manifest in FileStore.files(library.appendingPathComponent("steamapps")) where manifest.lastPathComponent.hasPrefix("appmanifest_") && manifest.pathExtension == "acf" {
                 guard let text = try? FileStore.text(manifest), let app = try? VDF.parse(text).object("AppState"),
@@ -25,16 +26,19 @@ public enum SteamLibrary {
                 }
                 result.append(InstalledGame(id: id, name: app.string("name") ?? "App \(id)", library: library,
                                             folder: library.appendingPathComponent("steamapps/common/\(dir)"),
-                                            buildID: app.string("buildid") ?? "", bytes: Int64(app.string("SizeOnDisk") ?? "0") ?? 0, depots: depots))
+                                            buildID: app.string("buildid") ?? "", bytes: Int64(app.string("SizeOnDisk") ?? "0") ?? 0, depots: depots,
+                                            selectedPrefix: FreeRuntime.selected(compatibility, appID: id) ? FreeRuntime.prefix(in: library.appendingPathComponent("steamapps/compatdata/\(id)")) : nil))
             }
         }
         return result
     }
     public static func prefixes(_ paths: AppPaths) -> [(id: Int, url: URL)] {
-        libraries(paths).flatMap { library in
+        let compatibility = try? FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))
+        return libraries(paths).flatMap { library in
             FileStore.files(library.appendingPathComponent("steamapps/compatdata")).compactMap { root in
-                let pfx = root.appendingPathComponent("pfx")
-                guard let id = TextUtil.validID(root.lastPathComponent), FileStore.fm.fileExists(atPath: pfx.path) else { return nil }
+                guard let id = TextUtil.validID(root.lastPathComponent) else { return nil }
+                let pfx = FreeRuntime.selected(compatibility, appID: id) ? FreeRuntime.prefix(in: root) : root.appendingPathComponent("pfx")
+                guard FileStore.fm.fileExists(atPath: pfx.path) else { return nil }
                 return (id, pfx)
             }
         }
@@ -148,7 +152,7 @@ public final class LibraryService {
         var (config, hash) = try configSnapshot(); config.remove(game.id)
         var changes: [(URL, Data?)] = [(paths.config, Data(config.serialized().utf8))]
         for file in [paths.lua.appendingPathComponent("\(game.id).lua"), paths.disabled.appendingPathComponent("\(game.id).lua")] where FileStore.fm.fileExists(atPath: file.path) { changes.append((file, nil)) }
-        try applyLibraryChanges(changes, config: config, hash: hash, apps: [], removing: [game.id], reason: "移除 \(game.name)")
+        try applyLibraryChanges(changes, config: config, hash: hash, apps: [], removing: [game.id], restoreScope: [game.id], reason: "移除 \(game.name)")
     }
     public enum BatchAction { case enable, disable, remove }
     public func batch(_ games: [Game], action: BatchAction) throws {
@@ -172,7 +176,7 @@ public final class LibraryService {
             }
         }
         changes.append((paths.config, Data(config.serialized().utf8)))
-        try applyLibraryChanges(changes, config: config, hash: hash, apps: enabled, removing: removed, reason: "批量管理 \(games.count) 个游戏")
+        try applyLibraryChanges(changes, config: config, hash: hash, apps: enabled, removing: removed, restoreScope: action == .remove ? games.map(\.id) : nil, reason: "批量管理 \(games.count) 个游戏")
     }
     public func export(_ games: [Game], to url: URL) throws {
         let (config, _) = try configSnapshot(); var files: [ImportFile] = []; var names = Set<String>()
@@ -198,17 +202,103 @@ public final class LibraryService {
         let target = game.luaURL ?? (game.enabled ? paths.lua : paths.disabled).appendingPathComponent("\(game.id).lua")
         try applyLibraryChanges([(target, Data(text.utf8)), (paths.config, Data(config.serialized().utf8))], config: config, hash: hash, apps: game.enabled ? [game.id] : [], removing: game.enabled ? [] : [game.id], reason: "编辑 \(game.name)")
     }
-    private func applyLibraryChanges(_ changes: [(URL, Data?)], config: MacSteamConfig, hash: String, apps: [Int], removing: [Int] = [], reason: String) throws {
+    private func applyLibraryChanges(_ changes: [(URL, Data?)], config: MacSteamConfig, hash: String, apps: [Int], removing: [Int] = [], restoreScope: [Int]? = nil, additionalExpectations: [URL: String] = [:], reason: String) throws {
         var changes = changes
-        var expectations = [paths.config: hash]
+        var expectations = additionalExpectations
+        expectations[paths.config] = hash
         if let pending = try AutomaticCompatibility.queueChange(paths: paths, config: config, apps: apps, removing: removing) {
             changes.append((pending.url, pending.data)); expectations[pending.url] = pending.expected
         }
         if let pending = try AutomaticAchievements.queueChange(paths: paths, config: config, apps: apps, removing: removing) {
             changes.append((pending.url, pending.data)); expectations[pending.url] = pending.expected
         }
-        try FileTransaction(backupRoot: paths.backups).apply(changes, reason: reason, expectations: expectations)
+        try FileTransaction(backupRoot: paths.backups).apply(changes, reason: reason, expectations: expectations, libraryAppIDs: restoreScope)
     }
+    /// Older removal records did not store IDs; recover them only from exact
+    /// managed Lua paths. Config-only legacy records cannot be scoped safely.
+    public func restoreGameIDs(_ record: BackupRecord) throws -> [Int]? {
+        if let ids = record.libraryAppIDs {
+            guard !ids.isEmpty, Set(ids).count == ids.count,
+                  ids.allSatisfy({ TextUtil.validID(String($0)) != nil }) else { throw AppFailure("备份游戏范围无效 / Invalid backup game scope") }
+            return ids.sorted()
+        }
+        guard record.reason.hasPrefix("移除 ") || record.reason.hasPrefix("批量管理 ") else { return nil }
+        let ids = Set(record.files.compactMap { file -> Int? in
+            let url = URL(fileURLWithPath: file.original).standardizedFileURL
+            guard [paths.lua.standardizedFileURL, paths.disabled.standardizedFileURL].contains(url.deletingLastPathComponent()),
+                  url.pathExtension == "lua" else { return nil }
+            return TextUtil.validID(url.deletingPathExtension().lastPathComponent)
+        })
+        guard !ids.isEmpty else { throw AppFailure("旧备份缺少游戏范围，无法安全地单独恢复 / Legacy backup has no game scope; cannot restore without affecting other games") }
+        return ids.sorted()
+    }
+
+    public func restoreBackup(_ record: BackupRecord, appIDs: [Int]? = nil) throws {
+        let journal = FileTransaction(backupRoot: paths.backups)
+        let roots = [paths.steam, paths.macSteam, paths.lua, paths.data]
+        guard let available = try restoreGameIDs(record) else {
+            guard appIDs == nil else { throw AppFailure("此备份不支持按游戏恢复 / This backup does not support per-game restore") }
+            try journal.restore(record, allowedRoots: roots)
+            return
+        }
+        let ids = appIDs ?? available
+        guard !ids.isEmpty, Set(ids).count == ids.count, Set(ids).isSubset(of: available) else { throw AppFailure("所选游戏不在备份范围内 / Selected games are outside the backup scope") }
+        let saved = try journal.verifiedChanges(record, allowedRoots: roots)
+        guard let configEntry = saved.first(where: { $0.0 == paths.config.standardizedFileURL }) else {
+            throw AppFailure("备份缺少入库配置 / Backup has no library configuration")
+        }
+        let old = try configEntry.1.map { bytes -> MacSteamConfig in
+            guard let text = String(data: bytes, encoding: .utf8) else { throw AppFailure("备份配置编码无效 / Invalid backup configuration encoding") }
+            return try MacSteamConfig.parse(text)
+        } ?? MacSteamConfig()
+        var (current, hash) = try configSnapshot()
+        let selected = Set(ids)
+        // Include only descendants of the selected games, never another game's
+        // DLC or a selected ID that has since become owned by another game.
+        func family(_ config: MacSteamConfig) -> Set<Int> {
+            var result = selected
+            while true {
+                let next = result.union(config.parents.filter { result.contains($0.value) }.keys)
+                if next == result { return result }
+                result = next
+            }
+        }
+        let previousFamily = family(old), currentFamily = family(current)
+        guard previousFamily.intersection(current.apps).isSubset(of: currentFamily) else {
+            throw AppFailure("备份内容与其他游戏冲突，未恢复 / Backup content conflicts with another game; nothing restored")
+        }
+        for id in previousFamily.union(currentFamily) {
+            if let parent = old.parents[id], !previousFamily.contains(parent) { throw AppFailure("备份中的 DLC 归属冲突 / Backup DLC ownership conflict") }
+            if let parent = current.parents[id], !currentFamily.contains(parent) { throw AppFailure("该内容现属于其他游戏，未恢复 / Content now belongs to another game; nothing restored") }
+        }
+        for id in ids { current.remove(id) }
+        for id in old.apps where previousFamily.contains(id) {
+            if !current.apps.contains(id) { current.apps.append(id) }
+            current.parents[id] = old.parents[id]
+            current.names[id] = old.names[id]
+            current.keys[id] = old.keys[id]
+            current.manifestPins[id] = old.manifestPins[id]
+            current.accessTokens[id] = old.accessTokens[id]
+        }
+        try current.validate()
+        var changes: [(URL, Data?)] = [(paths.config, Data(current.serialized().utf8))]
+        var expectations: [URL: String] = [:]
+        for id in ids {
+            for directory in [paths.lua, paths.disabled] {
+                let url = directory.appendingPathComponent("\(id).lua").standardizedFileURL
+                let data = saved.first(where: { $0.0 == url })?.1
+                expectations[url] = FileStore.fm.fileExists(atPath: url.path) ? FileStore.hash(try FileStore.read(url)) : "missing"
+                changes.append((url, data))
+            }
+        }
+        // Requeue only restored games against today's state. Historical queue
+        // snapshots must not replace other games' jobs or manual choices.
+        let enabled = ids.filter { current.topLevel.contains($0) }
+        try applyLibraryChanges(changes, config: current, hash: hash, apps: enabled,
+            removing: ids.filter { !enabled.contains($0) }, restoreScope: ids,
+            additionalExpectations: expectations, reason: "还原 \(record.reason)")
+    }
+
     public func synchronizeManifestPins() throws {
         var (config, hash) = try configSnapshot()
         for file in FileStore.files(paths.lua) where file.pathExtension.lowercased() == "lua" {

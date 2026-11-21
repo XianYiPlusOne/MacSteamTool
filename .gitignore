@@ -7,3 +7,4 @@ dist/
 Engine/**/bin/
 Engine/**/obj/
 __pycache__/
+steam-repair-backup/

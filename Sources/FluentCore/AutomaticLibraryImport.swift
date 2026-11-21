@@ -4,18 +4,23 @@ public struct AutomaticLibraryResult: Sendable {
     public var files: [ImportFile]
     public var warnings: [String]
     public var complete: Bool
+    public var skippedDLC: Set<Int> = []
+    public var verificationDepots: Set<Int> = []
     public var notes: [String] = []
+    public var content: [LibraryContentReport] = []
 }
 
 /// Resolves content before any library writes. A successful download alone is not
 /// evidence of completeness: every requested app and depot must be accounted for.
 public enum AutomaticLibraryImport {
     public static func resolve(
-        appID: Int, includeDLC: Bool, context: LibraryInstallContext = .init(),
+        appID: Int, includeDLC: Bool, excludingDLC: Set<Int> = [], skipUnavailableDLC: Bool = false, context: LibraryInstallContext = .init(),
         appInfo: (Int) async throws -> AppInfo,
         cachedKeys: () async throws -> [Int: String],
         refreshKeys: () async throws -> [Int: String],
         remote: () async throws -> [ImportFile],
+        remoteFallback: (() async throws -> [ImportFile])? = nil,
+        contentUpdate: ([LibraryContentReport]) async -> Void = { _ in },
         progress: (String) async -> Void = { _ in }
     ) async throws -> AutomaticLibraryResult {
         try Task.checkCancellation()
@@ -23,14 +28,24 @@ public enum AutomaticLibraryImport {
         await progress("正在检查游戏内容… / Checking game content…")
         var requirements: LibraryRequirements?
         var failures: [String] = []
-        do { requirements = try await LibraryRequirements.load(appID, includeDLC: includeDLC, context: context, appInfo: appInfo) }
-        catch { try Task.checkCancellation(); if error is CancellationError { throw error }; failures.append("无法核实内容完整性 / Could not verify content: \(error.localizedDescription)") }
+        do { requirements = try await LibraryRequirements.load(appID, includeDLC: includeDLC, context: context, excludingDLC: excludingDLC, appInfo: appInfo, progress: progress) }
+        catch { try Task.checkCancellation(); if error is CancellationError { throw error }; failures.append("无法核实内容完整性 / Could not verify content: \(error.localizedDescription)"); await progress(failures.last!) }
 
+        func report(_ result: AutomaticLibraryResult, stage: String) async {
+            await contentUpdate(result.content)
+            let depots = result.content.flatMap(\.depots)
+            await progress("\(stage)：\(result.content.count) 个内容 · \(depots.filter(\.hasKey).count)/\(depots.count) 个 Depot 有密钥")
+            for item in result.content where !item.missingDepots.isEmpty || !item.metadataKnown {
+                await progress("\(item.isMain ? "主游戏" : "DLC") \(item.name) · AppID \(item.id)：" +
+                    (item.metadataKnown ? "缺少 Depot 密钥 \(item.missingDepots.map(String.init).joined(separator: ", "))" : "内容资料待核实"))
+            }
+        }
         var keys: [Int: String] = [:]
         if let requirements {
             do { keys = try await cachedKeys() }
-            catch { try Task.checkCancellation(); if error is CancellationError { throw error } }
+            catch { try Task.checkCancellation(); if error is CancellationError { throw error }; await progress("本地密钥缓存不可用：\(error.localizedDescription)") }
             var candidate = requirements.result(keys: keys)
+            await report(candidate, stage: "本地缓存检查")
             if candidate.complete { return candidate }
 
             await progress("正在更新入库数据… / Updating library data…")
@@ -38,47 +53,89 @@ public enum AutomaticLibraryImport {
                 let refreshed = try await refreshKeys()
                 // Retain cached keys that a temporarily smaller response omits.
                 keys.merge(refreshed) { _, fresh in fresh }
-            } catch { try Task.checkCancellation(); if error is CancellationError { throw error }; failures.append("更新密钥失败 / Key refresh failed: \(error.localizedDescription)") }
+            } catch { try Task.checkCancellation(); if error is CancellationError { throw error }; failures.append("更新密钥失败 / Key refresh failed: \(error.localizedDescription)"); await progress(failures.last!) }
             candidate = requirements.result(keys: keys)
+            await report(candidate, stage: "刷新密钥后检查")
             if candidate.complete { return candidate }
+            if skipUnavailableDLC, includeDLC, let main = requirements.apps.first {
+                let unavailable = candidate.content.filter {
+                    $0.isUnavailableOptionalDLC
+                }
+                let skipped = Set(unavailable.map(\.id)).intersection(main.dlc)
+                if !skipped.isEmpty {
+                    let known = Dictionary(requirements.apps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    let scoped = try await LibraryRequirements.load(appID, includeDLC: true, context: context,
+                        excludingDLC: excludingDLC.union(skipped), appInfo: { id in
+                            if let info = known[id] { return info }
+                            return try await appInfo(id)
+                        }, progress: progress)
+                    var reduced = scoped.result(keys: keys)
+                    if reduced.complete {
+                        reduced.skippedDLC = skipped
+                        await report(reduced, stage: "跳过不可用的可选 DLC 后检查")
+                        return reduced
+                    }
+                }
+            }
         }
 
         try Task.checkCancellation()
         await progress("正在尝试备用来源补齐内容… / Trying another source to complete content…")
-        do {
-            let files = try await remote()
-            try Task.checkCancellation()
-            guard files.count == 1, let file = files.first, file.name.lowercased().hasSuffix(".lua"),
-                  let text = String(data: file.data, encoding: .utf8) else {
-                throw AppFailure("备用来源必须提供一份匹配的 Lua / Alternate source must provide one matching Lua")
+        var remoteResult: AutomaticLibraryResult?
+        for index in 0..<(remoteFallback == nil ? 1 : 2) {
+            if index > 0 { await progress("正在尝试 GitHub 后备来源… / Trying GitHub fallback…") }
+            do {
+                let files: [ImportFile]
+                if index == 0 { files = try await remote() }
+                else if let remoteFallback { files = try await remoteFallback() }
+                else { continue }
+                try Task.checkCancellation()
+                guard files.count == 1, let file = files.first, file.name.lowercased().hasSuffix(".lua"),
+                      let text = String(data: file.data, encoding: .utf8) else {
+                    throw AppFailure("备用来源必须提供一份匹配的 Lua / Alternate source must provide one matching Lua")
+                }
+                let document = try LuaDocument.parse(text, suggestedID: appID)
+                guard document.entries.first?.id == appID else { throw AppFailure("备用来源游戏不匹配 / Alternate source game mismatch") }
+                await progress("已解析 AppID \(appID) 的 Lua：\(document.dlcIDs.count) 个 DLC · \(document.depots.count) 个 Depot 密钥条目")
+                var remoteKeys: [Int: String] = [:]
+                for entry in document.depots {
+                    if let old = remoteKeys[entry.id], old != entry.key { throw AppFailure("备用来源密钥冲突：Depot \(entry.id) / Conflicting remote keys") }
+                    remoteKeys[entry.id] = entry.key
+                }
+                // Depot keys should agree across sources; never silently choose a
+                // different key when combining complementary packages.
+                let relevant = requirements.map { $0.depotIDs.union($0.requested) } ?? Set(remoteKeys.keys)
+                for (id, key) in remoteKeys where relevant.contains(id) {
+                    if let old = keys[id], old != key { throw AppFailure("来源之间的密钥冲突：Depot \(id) / Sources disagree on a depot key") }
+                }
+                keys.merge(remoteKeys) { old, _ in old }
+                if let requirements {
+                    var result = requirements.result(keys: keys, remote: document)
+                    await report(result, stage: index == 0 ? "备用源补齐后检查" : "GitHub 补齐后检查")
+                    if result.complete { return result }
+                    if result.warnings == [LuaDocument.versionPinNotice], !requirements.depotIDs.isEmpty {
+                        result.verificationDepots = requirements.depotIDs
+                        return result
+                    }
+                    result.warnings += failures
+                    remoteResult = result
+                    continue
+                }
+                // Without metadata, preserve the remote candidate for explicit
+                // review, but never label it complete or import it automatically.
+                let scoped = includeDLC ? text : mainOnly(document)
+                remoteResult = AutomaticLibraryResult(files: [ImportFile(name: "\(appID).lua", data: Data(scoped.utf8))], warnings: failures + document.warnings, complete: false)
+            } catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                let failure = "备用来源未能补齐 / Alternate source failed: \(error.localizedDescription)"
+                failures.append(failure)
+                await progress(failure)
             }
-            let document = try LuaDocument.parse(text, suggestedID: appID)
-            guard document.entries.first?.id == appID else { throw AppFailure("备用来源游戏不匹配 / Alternate source game mismatch") }
-            var remoteKeys: [Int: String] = [:]
-            for entry in document.depots {
-                if let old = remoteKeys[entry.id], old != entry.key { throw AppFailure("备用来源密钥冲突：Depot \(entry.id) / Conflicting remote keys") }
-                remoteKeys[entry.id] = entry.key
-            }
-            // Depot keys should agree across sources; never silently choose a
-            // different key when combining complementary packages.
-            let relevant = requirements.map { $0.depotIDs.union($0.requested) } ?? Set(remoteKeys.keys)
-            for (id, key) in remoteKeys where relevant.contains(id) {
-                if let old = keys[id], old != key { throw AppFailure("来源之间的密钥冲突：Depot \(id) / Sources disagree on a depot key") }
-            }
-            keys.merge(remoteKeys) { old, _ in old }
-            if let requirements {
-                var result = requirements.result(keys: keys, remote: document)
-                if !result.complete { result.warnings += failures }
-                return result
-            }
-            // Without metadata, preserve the remote candidate for explicit
-            // review, but never label it complete or import it automatically.
-            let scoped = includeDLC ? text : mainOnly(document)
-            return AutomaticLibraryResult(files: [ImportFile(name: "\(appID).lua", data: Data(scoped.utf8))], warnings: failures + document.warnings, complete: false)
-        } catch {
-            try Task.checkCancellation()
-            if error is CancellationError { throw error }
-            failures.append("备用来源未能补齐 / Alternate source failed: \(error.localizedDescription)")
+        }
+        if var result = remoteResult {
+            result.warnings = Array(Set(result.warnings + failures)).sorted()
+            return result
         }
         if let requirements {
             var candidate = requirements.result(keys: keys)

@@ -44,6 +44,37 @@ public enum SteamCompatibility {
         for (index, key) in path.enumerated() { node = try child(node, key: key, required: index < 4) }
         return try child(node, key: "0", required: false).string("name")
     }
+    /// Seed a fresh configuration; an existing global choice (including an
+    /// explicit empty/automatic choice) and every per-game mapping are retained.
+    public static func seedDefault(_ bytes: Data?, tool: String, replacingExisting: Bool = false) throws -> Data {
+        guard validTool(tool) else { throw AppFailure("Invalid default compatibility tool") }
+        var doc = try bytes.map { try VDF.parse(String(decoding: $0, as: UTF8.self)) } ?? VDF()
+        if let bytes { _ = try globalTool(bytes) }
+        var changed = false
+        func fill(_ node: inout VDF, depth: Int) throws {
+            if depth == path.count {
+                if !replacingExisting, node.entries.contains(where: { $0.key == "0" }) { return }
+                var value = VDF(); value.set("name", value: tool); value.set("config", value: ""); value.set("priority", value: "75")
+                node.set("0", object: value); changed = true; return
+            }
+            let key = path[depth]; var nested = try child(node, key: key, required: bytes != nil && depth < 4)
+            try fill(&nested, depth: depth + 1); node.set(key, object: nested)
+        }
+        try fill(&doc, depth: 0)
+        return changed ? Data(doc.serialized().utf8) : (bytes ?? Data(doc.serialized().utf8))
+    }
+    /// An explicit backend choice changes only the default, never per-game mappings.
+    public static func chooseDefault(paths: AppPaths, tool: String, requireIdle: () throws -> Void = {
+        guard !SteamProcesses.isRunning else { throw AppFailure("请退出 Steam 后继续 / Quit Steam to continue") }
+    }) throws {
+        try requireIdle()
+        guard try tools(paths: paths).contains(where: { $0.id == tool }) else { throw AppFailure("兼容层尚未就绪 / Translation backend is not ready") }
+        let file = paths.steam.appendingPathComponent("config/config.vdf")
+        let before = FileStore.fm.fileExists(atPath: file.path) ? try FileStore.read(file) : nil
+        if let before, try globalTool(before) == tool { return }
+        let after = try seedDefault(before, tool: tool, replacingExisting: true)
+        _ = try FileTransaction(backupRoot: paths.data.appendingPathComponent("CompatibilityBackups")).apply([(file, after)], reason: "Default translation backend: \(tool)", expectations: [file: before.map(FileStore.hash) ?? "missing"], validate: requireIdle)
+    }
     public static func edit(_ bytes: Data, appID: Int, tool: String?) throws -> Data {
         _ = try mapping(bytes, appID: appID)
         guard tool == nil || validTool(tool!) else { throw AppFailure("运行器标识无效 / Invalid compatibility tool identifier") }

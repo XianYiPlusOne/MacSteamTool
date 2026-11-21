@@ -51,4 +51,5 @@ with tempfile.TemporaryDirectory(prefix='FluentPatchTests-') as folder:
     request.write_text(json.dumps(dict(operation='onlinefix-detail',url='http://127.0.0.1:1/')))
     subprocess.run([str(engine),str(request),str(response)],check=False,timeout=15,capture_output=True)
     assert json.loads(response.read_text())['ok'] is False
-    print('PASS: ZIP/7z binary and empty files, encrypted ZIP, incorrect password, traversal, absolute and Windows paths, case aliases, trailing dot, symlink, CRC, cleanup, output permissions and source URL restrictions')
+    assert 'removed' in json.loads(response.read_text())['error']
+    print('PASS: ZIP/7z binary and empty files, encrypted ZIP, incorrect password, traversal, absolute and Windows paths, case aliases, trailing dot, symlink, CRC, cleanup, output permissions and retired multiplayer requests fail before network access')

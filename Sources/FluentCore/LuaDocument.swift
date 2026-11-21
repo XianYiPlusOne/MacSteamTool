@@ -12,6 +12,7 @@ public struct ManifestPin: Equatable, Sendable {
     public var active: Bool
 }
 public struct LuaDocument: Sendable {
+    static let versionPinNotice = "版本锁定需安装 Fluent Manifest 扩展并缓存对应 Manifest；当前仅支持 Steam build 1792618285 的 public 分支 / Version pinning requires Fluent Manifest and the matching cached manifest; currently supports Steam build 1792618285 public branch"
     public var raw: String
     public var appID: Int
     public var entries: [LuaEntry]
@@ -49,7 +50,7 @@ public struct LuaDocument: Sendable {
         }
         guard let appID = main, entries.contains(where: { $0.id == appID }) else { throw AppFailure("未找到主游戏的 addappid；文件名与内容必须一致 / Main addappid missing; filename and contents must match") }
         if !tokens.isEmpty { warnings.append("addtoken 需要安装 Fluent 原生运行时扩展；仅用于已启用的对应 AppID / addtoken requires the Fluent native runtime and applies only to the enabled matching AppID") }
-        if pins.contains(where: \.active) { warnings.append("版本锁定需安装 Fluent Manifest 扩展并缓存对应 Manifest；当前仅支持 Steam build 1792618285 的 public 分支 / Version pinning requires Fluent Manifest and the matching cached manifest; currently supports Steam build 1792618285 public branch") }
+        if pins.contains(where: \.active) { warnings.append(versionPinNotice) }
         return LuaDocument(raw: text, appID: appID, entries: entries, pins: pins, tokens: tokens, warnings: warnings)
     }
 

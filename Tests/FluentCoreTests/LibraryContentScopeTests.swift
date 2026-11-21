@@ -18,6 +18,45 @@ import Testing
     func ids(_ result: AutomaticLibraryResult) throws -> Set<Int> {
         Set(try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self)).depots.map(\.id))
     }
+    @Test func optionalDLCWithMissingMetadataOrKeysIsOmittedFromPreview() async throws {
+        let id = 2852190
+        let available = 3581270
+        let missing = [3932360, 4283830, 3879370, 3879420]
+        let main = info(id, depots: ["2852191": depot()], dlc: missing + [available])
+        let result = try await AutomaticLibraryImport.resolve(appID: id, includeDLC: true,
+            skipUnavailableDLC: true, appInfo: { child in
+                if child == id { return main }
+                if child == missing.first { throw AppFailure("Metadata unavailable") }
+                return info(child, depots: [String(child): depot()])
+            }, cachedKeys: { [2852191: key, available: key] }, refreshKeys: { [:] },
+            remote: { Issue.record("Optional content should be skipped"); return [] })
+        #expect(result.complete)
+        #expect(result.skippedDLC == Set(missing))
+        #expect(try ids(result) == [2852191, available])
+        #expect(try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self)).dlcIDs == [available])
+    }
+
+    @Test func explicitlyExcludedOptionalDLCIsNotQueriedOrWritten() async throws {
+        var childDepot = depot(); childDepot["dlcappid"] = 490
+        let main = info(depots: ["481": depot(), "491": childDepot], dlc: [490])
+        var queries: [Int] = []
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: true, excludingDLC: [490], appInfo: { id in
+            queries.append(id); return main
+        }, cachedKeys: { [481: key] }, refreshKeys: { Issue.record("Excluded DLC must not require keys"); return [:] }, remote: { [] })
+        #expect(result.complete)
+        #expect(queries == [480])
+        #expect(try ids(result) == [481])
+        #expect(try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self)).dlcIDs.isEmpty)
+        #expect(result.notes.contains { $0.contains("490") })
+    }
+    @Test func exclusionCannotSuppressBaseOrSharedDepotRequirements() async throws {
+        let main = info(depots: ["481": depot(), "482": depot()], dlc: [490])
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: true, excludingDLC: [480, 482, 490], appInfo: { _ in main }, cachedKeys: { [481: key] }, refreshKeys: { [:] }, remote: { [ImportFile(name: "480.lua", data: Data("addappid(480)".utf8))] })
+        #expect(!result.complete)
+        #expect(result.warnings.contains { $0.contains("482") })
+        #expect(try ids(result) == [481])
+    }
+
     @Test func hadesMacDoesNotRequireMissingWindowsDepot() async throws {
         let game = info(1145360, os: "windows,macos", depots: ["1145361": depot("windows"), "1145362": depot("windows"), "1145363": depot("windows"), "1145364": depot("macos", arch: "64")])
         var downloads = 0
@@ -27,6 +66,29 @@ import Testing
         let windows = try await resolve(game, keys: [1145361: key, 1145363: key, 1145364: key], context: .init(platform: .windows))
         #expect(!windows.complete); #expect(windows.warnings.contains { $0.contains("1145362") })
         #expect(try ids(windows) == [1145361, 1145363])
+    }
+
+    @Test func contentCheckerReportsMissingKeysForSelectedPlatform() async throws {
+        let game = info(4618570, os: "windows,macos", depots: [
+            "4618572": depot("all"),
+            "4618573": depot("macos"),
+            "4618571": depot("windows")
+        ])
+        let context = LibraryInstallContext(platform: .macos)
+        let complete = try await LibraryContentChecker.check(
+            appID: game.id, includeDLC: false, context: context,
+            keys: [4618572: key, 4618573: key],
+            appInfo: { _ in game }
+        )
+        #expect(complete.complete)
+
+        let missing = try await LibraryContentChecker.check(
+            appID: game.id, includeDLC: false, context: context,
+            keys: [4618572: key],
+            appInfo: { _ in game }
+        )
+        #expect(missing.missingDepotIDs == [4618573])
+        #expect(!missing.complete)
     }
     @Test func unpublishedMacPlaceholderDoesNotDisplaceWindowsBuild() async throws {
         let game = info(os: "windows,macos", depots: ["481": depot("windows"), "482": depot("macos", manifests: [:]), "483": depot(manifests: [:])])

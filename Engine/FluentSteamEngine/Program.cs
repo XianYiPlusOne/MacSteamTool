@@ -20,11 +20,8 @@ internal static class Program
         try
         {
             var request = JsonSerializer.Deserialize<Request>(await File.ReadAllTextAsync(args[0]), Json) ?? throw new Exception("Invalid request");
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(request.Operation is "login" or "login-password" or "login-local" or "cloud-oauth" ? 180 : request.Operation is "onlinefix-download" or "patch-extract" or "library-import" or "tool-download" or "runtime-download" or "extract" ? 900 : 120));
-            if (request.Operation.StartsWith("onlinefix-"))
-            {
-                using var online = new OnlineFix(); Write(args[1], await online.Execute(request, timeout.Token)); return 0;
-            }
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(request.Operation is "login" or "login-password" or "login-local" or "cloud-oauth" ? 180 : request.Operation is "patch-extract" or "library-import" or "tool-download" or "runtime-download" or "extract" ? 900 : 120));
+            if (request.Operation.StartsWith("onlinefix-")) throw new NotSupportedException("Patch-based multiplayer has been removed. Use the bundled ConnectTool client.");
             if (request.Operation == "tool-download") { Write(args[1], await ToolPackages.Download(request, timeout.Token)); return 0; }
             if (request.Operation is "runtime-release" or "runtime-download") { Write(args[1], await RuntimeReleases.Run(request, timeout.Token)); return 0; }
             if (request.Operation is "patch-extract" or "library-import") { Write(args[1], await PatchArchive.Extract(request, timeout.Token)); return 0; }
@@ -48,7 +45,7 @@ internal static class Program
     }
 }
 
-internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null);
+internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null, uint[]? DepotIDs = null);
 
 internal sealed class Session : IDisposable
 {
@@ -138,7 +135,7 @@ internal sealed class Session : IDisposable
             }, async (depot, source) => {
                 var response = await apps.GetDepotDecryptionKey(depot, source).ToTask().WaitAsync(ct);
                 return (response.Result == EResult.OK ? Convert.ToHexString(response.DepotKey).ToLowerInvariant() : "", response.Result.ToString());
-            }, ct);
+            }, ct, r.DepotIDs is { Length: > 0 } ? r.DepotIDs.ToHashSet() : null);
         }
 
         if (r.Operation == "manifest")

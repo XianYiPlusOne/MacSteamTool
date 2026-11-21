@@ -1,3 +1,4 @@
+#include "runtime_profile.h"
 #include "vtable_hook.h"
 #include "log.h"
 
@@ -331,14 +332,8 @@ static bool IsLikelyAppCloudEnabledSlot(void** vtable, size_t slotIndex, uintptr
     if (!IsWithinSteamclient(fn, steamBase, steamSize) || !CanReadMemory(reinterpret_cast<void*>(fn), 30))
         return false;
 
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(fn);
-
-    // ARM64 CUserRemoteStorage::IsCloudEnabledForApp, Steam 1792618285.
-    // Checked against the per-app enable tree and ignoreexternalfiles/hidecloudui lookups.
-    static const uint32_t code[]={0xa9bd57f6,0xa9014ff4,0xa9027bfd,0x910083fd,
-        0xaa0103f3,0xaa0003f4,0xf0006cd5,0x9110e2b5};
-    return slotIndex==24 && CanReadMemory(p,sizeof(code)) && !memcmp(p,code,sizeof(code));
-    return false;
+    return slotIndex==24 && fn==steamBase+RuntimeProfile::cloudEnabled(steamBase) &&
+        RuntimeProfile::Check_cloudEnabled(steamBase);
 }
 
 static size_t ResolveCloudEnabledSlot(void** vtable, uintptr_t steamBase, size_t steamSize)
@@ -489,7 +484,8 @@ void* VtableHook::FindGlobalWithVtable(void* vtablePtr,
 
 bool VtableHook::InstallCloudEnabledHook(void** vtable, CloudEnabledHookInfo& info)
 {
-    size_t slotIndex = ResolveCloudEnabledSlot(vtable, 0, UINTPTR_MAX);
+    size_t steamSize=0; auto steamBase=FindSteamclient(steamSize);
+    size_t slotIndex = steamBase ? ResolveCloudEnabledSlot(vtable, steamBase, steamSize) : SIZE_MAX;
     if (slotIndex == SIZE_MAX)
     {
         Log::Error("Could not resolve CUserRemoteStorage cloud-enabled slot");

@@ -5,9 +5,6 @@
 #include "xdg.h"
 #include "steam_profile.h"
 #include "runtime_settings.h"
-#include "ticket_hooks.h"
-#include "ownership_hooks.h"
-#include "onlinefix.h"
 #include "manifest_provider.h"
 #include <unistd.h>
 #include <cstring>
@@ -24,9 +21,6 @@ extern "C" void FluentCloudRemoveHooks() {
     if(!active.exchange(false))return;
     RuntimeSettings::Stop();
     ManifestProvider::Remove();
-    OnlineFix::Remove();
-    OwnershipHooks::Remove();
-    TicketHooks::Remove();
     CloudHooks::BeginShutdown();
     VtableHook::RemoveHooks(hooks);
     VtableHook::RemoveCloudEnabledHook(cloudEnabled);
@@ -48,9 +42,6 @@ extern "C" int FluentCloudInstallHooks() {
     CloudHooks::InitializeStorage();
     RuntimeSettings::Start();
     CloudHooks::InstallGamesPlayedObserver(base,size);
-    TicketHooks::Install(base,size);
-    OwnershipHooks::Install(base,size);
-    OnlineFix::Install(base,size);
     ManifestProvider::Install();
     active=true;std::atexit(&FluentCloudRemoveHooks);Log::Info("macOS ARM64 cloud RPC / cloud-enabled hooks and KV helpers installed");return 1;
 }

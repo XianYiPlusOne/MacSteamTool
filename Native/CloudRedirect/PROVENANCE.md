@@ -6,7 +6,7 @@ License: MIT (included). Common/provider sources copied unchanged initially. mac
 
 
 Native runtime additions (2026-11-05)
-- ARM64 Steam build 1792618285, Mach-O UUID 1D282616-B67E-30A6-B0AF-E4D5880610E7. Each detour requires exact entry bytes and the UUID.
+- ARM64 Steam builds 1792618285 and 1794424036. Reviewed UUIDs, exact entry guards and layouts are shared in `../SteamIntegration/profiles.json`; see `../SteamIntegration/PROFILE-NOTES.md`. Each detour requires the selected image identity and exact code bytes.
 - CCMInterface send 0x693cf8; CProtoBufMsg EMsg +40, header +48, body +56. Typed MessageLite factories and serializers remain Steam's own.
 - CUser playtime writer 0xa7d1b0; repeated protobuf games count +24, rep +32, element array rep+8. Calls only from the Steam callback/send thread; shutdown drops pending UI work.
 - CUser encrypted ticket getter 0xa762c4; job run 0xa84d20; original job completion 0x603068. Does not fabricate API call IDs or change ticket contents.
@@ -23,9 +23,7 @@ Reset handling: explicit StoreUserStats masks carry a persistent reset revision,
 Compatibility presence (0.2.6): independently implements shortcut-first / Spacewar fallback and most-recent-game selection after reviewing huanyuejue/OpenSteamTool revision de8189572db4495ec9d0d4d14ece1d2fc4703445, Hooks_NetPacket.cpp1095–1117. The bounded binary-KV reader and ARM64 typed-message adapter are newly written. No Windows hook implementation, blanket family owner mask or manufactured self-PersonaState packet is included. Current-account registered shortcuts only; local language requirement retained. Native isolated tests cover both branches without network sends; live friend visibility is recorded separately.
 
 
-Explicit onlinefix mode (0.2.14): newly written ARM64 adapter follows the original project's optional `-onlinefix` behavior (FSL 1.5.4.2, commit 93d86eb93fe612140675d925664ca8d9aa7b70d6; local OpenSteamTool Hooks_Misc.cpp reference). No Windows hook implementation is copied. Managed base games only, explicit exact token, single active title; no launch option is added automatically. This optional lobby mode uses 480 authentication identity while restoring the real app identity for overlay/GetAppID; ordinary friend presence remains separate.
-
-Pinned native Steam ARM64 build 1792618285, UUID 1d282616b67e30a6b0afe4d5880610e7: Spawn 0xa70f2c, BuildSpawnEnv 0xa6ebf0, GetAppID dispatch marker 0x839030 and post-call result 0x83be90. All four sites require UUID and instruction fingerprints. Marker placement preserves adjacent switch case 0x839048. Verification loads the real binary in a private process and checks four hook install/restore operations, adjacent bytes, and actual entry instrumentation; test collectors return before process creation. GetAppID identity mapping is checked without Steam IPC. This is not live two-player lobby acceptance. See script/test_onlinefix_native.py.
+Multiplayer migration (2026-11-11): removed the optional onlinefix launch/identity hooks and profile. Multiplayer now uses the native embedded ConnectTool page and a source-built windowless networking service; ordinary game presence remains unchanged.
 
 Statistics concurrency (0.2.14): Folder metadata uses an exclusive per-path lock, atomic replacement and content-version checks on the same filesystem. Google Drive/OneDrive metadata uses immutable content-addressed snapshots with generation ordering, verified readback, complete-list checks and included-record-only compaction; stats.json remains a legacy compatibility cache. These newly written adapters retain existing StatsStore merge/reset rules. Local concurrent-client fixtures and a common-path WebDAV regression passed; no external Drive account or replicated-folder distributed lock guarantee is claimed. See script/test_stats_concurrency.py.
 

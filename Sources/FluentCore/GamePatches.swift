@@ -1,16 +1,5 @@
 import Foundation
 
-public struct OnlineFixResult: Codable, Identifiable, Sendable {
-    public var title: String; public var url: String; public var version: String
-    public var id: String { url }
-}
-public struct OnlineFixFile: Codable, Identifiable, Sendable {
-    public var name: String; public var url: String; public var info: String; public var directory: String
-    public var id: String { url }
-}
-public struct OnlineFixDetail: Codable, Sendable {
-    public var title: String; public var url: String; public var instructions: String; public var files: [OnlineFixFile]
-}
 public struct PatchEntry: Identifiable, Sendable {
     public var id: String { relative }
     public let relative: String; public let data: Data; public let originalHash: String
@@ -74,7 +63,7 @@ public enum GamePatches {
         guard !entries.isEmpty else { throw AppFailure("补丁目录没有文件 / Patch directory is empty") }
         return PatchPlan(appID: appID, gameRoot: root, source: source.lastPathComponent, entries: entries.sorted { $0.relative < $1.relative })
     }
-    public static func onlinePlan(package: URL, gameRoot: URL, appID: Int, executable: URL, paths: AppPaths, bottle: URL? = nil, crossOverApp: URL? = nil) throws -> PatchPlan {
+    public static func windowsPlan(package: URL, gameRoot: URL, appID: Int, executable: URL, paths: AppPaths, bottle: URL? = nil, crossOverApp: URL? = nil) throws -> PatchPlan {
         let target = try PatchWindowsTarget.inspect(executable: executable, gameRoot: gameRoot, appID: appID, paths: paths, bottle: bottle, crossOverApp: crossOverApp)
         var result = try plan(package: package, gameRoot: gameRoot, appID: appID)
         try target.validateFiles(result.entries); result.windowsTarget = target; return result

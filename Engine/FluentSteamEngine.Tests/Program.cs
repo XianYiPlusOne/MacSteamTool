@@ -32,6 +32,13 @@ Check(release.Version=="1.2.4" && release.SHA256==hash,"official asset parser");
 foreach(var bad in new[]{release with { URL=release.URL+"?redirect=evil" }, release with { SHA256="" },release with { AssetName="other.zip" }, release with { Tag="../evil" }}) await Fails(()=>{RuntimeReleases.Validate(bad);return Task.CompletedTask;});
 await Fails(()=>{RuntimeReleases.Parse("notproton",new Uri("https://evil.example/releases/tag/v1.2.4"),html);return Task.CompletedTask;});
 await Fails(()=>{RuntimeReleases.Parse("notproton",new Uri(release.ReleaseURL),html.Replace("sha256:","none:"));return Task.CompletedTask;});
+// Content repair requests only the explicitly selected, accessible depot.
+requested.Clear();
+var repair = await OwnedExtraction.Run(100, false, owned, Fetch, Key, default, new HashSet<uint> { 101 });
+Check(repair.Depots.Length == 1 && requested.SequenceEqual(new[] { ((uint)101, (uint)100) }), "repair only requests selected depot with owner app");
+requested.Clear();
+await Fails(() => OwnedExtraction.Run(100, false, owned, Fetch, Key, default, new HashSet<uint> { 999 }));
+Check(requested.Count == 0, "unknown depot fails before key requests");
 Console.WriteLine("PASS: owned-license gate, recursive DLC/cycles, DLC opt-out, unlicensed and inaccessible DLC, shared-source keys, depot deduplication, partial metadata/key failures, cancellation, UInt64 metadata, official release parser and URL/digest validation");
 var temp=Path.Combine(Path.GetTempPath(),"FluentTar-"+Guid.NewGuid());Directory.CreateDirectory(temp);
 try {

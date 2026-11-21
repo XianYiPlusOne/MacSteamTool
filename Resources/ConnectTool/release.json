@@ -1,0 +1,11 @@
+{
+  "version": "1.6.0",
+  "tag": "v1.6.0",
+  "url": "https://github.com/moeleak/connecttool-qt/releases/download/v1.6.0/connecttool-qt-macos-x86_64.dmg",
+  "sha256": "f2e0b13ee9dec154c9758be2cafc2493b62c9ad7970aa2e68acc9abd142db95e",
+  "architecture": "x86_64",
+  "bundle": "connecttool-qt.app",
+  "executable": "connecttool-qt",
+  "source": "https://github.com/moeleak/connecttool-qt/tree/v1.6.0",
+  "commit": "7a2d7aae95010a38badb6f6cc501a685601d9cfa"
+}

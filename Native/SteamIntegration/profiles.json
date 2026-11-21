@@ -1,0 +1,443 @@
+[
+  {
+    "build": 1792618285,
+    "uuid": "1d282616b67e30a6b0afe4d5880610e7",
+    "arm64_sha256": "ca51ef82e17d69eb21c0a71c61597e3732810eb49fd260d5971c3172cf5ce3c5",
+    "functions": {
+      "send": {
+        "offset": "0x693cf8",
+        "bytes": "f44fbea9fd7b01a9fd430091f40301aaf30300aa850200948001003461fe45b9"
+      },
+      "writePlaytime": {
+        "offset": "0xa7d1b0",
+        "bytes": "ff4301d1f85f01a9f65702a9f44f03a9fd7b04a9fd0301915f0400712b050054"
+      },
+      "getETicket": {
+        "offset": "0xa762c4",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091830400b4f50303aaf40302aaf30301aa"
+      },
+      "ticketJob": {
+        "offset": "0xa84d20",
+        "bytes": "ff8303d1f6570ba9f44f0ca9fd7b0da9fd430391f30300aa68008052a8c31db8"
+      },
+      "completeJob": {
+        "offset": "0x603068",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f40303aaf50302aaf60301aaf30300aa"
+      },
+      "currentApp": {
+        "offset": "0xa1be24",
+        "bytes": "0de053b9bf05003140020054093041b908fc49f90a1100910b038052ac7d4093"
+      },
+      "put": {
+        "offset": "0x109f7b8",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd8300915f040071eb020054f40302aaf50301aa"
+      },
+      "get": {
+        "offset": "0xd2938",
+        "bytes": "fd7bbfa9fd030091081840b9091040b90801094b1f01026bea000054610100b4"
+      },
+      "tag": {
+        "offset": "0x10a0038",
+        "bytes": "ff4301d1f44f03a9fd7b04a9fd030191f40301aaf30300aa4830009008b140f9"
+      },
+      "bufferCtor": {
+        "offset": "0x109e094",
+        "bytes": "00e4006f000000ad0800009008b10791087c02a90800009008d10791087c03a9"
+      },
+      "bufferDtor": {
+        "offset": "0xa0f0c",
+        "bytes": "f44fbea9fd7b01a9fd430091f30300aa080c40b98801f837610240f9210100b4"
+      },
+      "parse": {
+        "offset": "0xb3e6e8",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091e201f837f40301aaf30300aaf503022a"
+      },
+      "serialize": {
+        "offset": "0xb3e738",
+        "bytes": "ffc302d1f65708a9f44f09a9fd7b0aa9fd830291f30301aaf40300aa485b00d0"
+      },
+      "cloudEnabled": {
+        "offset": "0xadb60c",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f30301aaf40300aad56c00f0b5e21091"
+      },
+      "readManifest": {
+        "offset": "0x5b0394",
+        "bytes": "ff8301d1f65703a9f44f04a9fd7b05a9fd430191f40302aaf50301aaf30300aa"
+      },
+      "getAppInfo": {
+        "offset": "0x59fd60",
+        "bytes": "0a6840b95f050031e0010054084040f9091100914a7d40930b150a8b6d1140b9"
+      },
+      "getSection": {
+        "offset": "0x59c108",
+        "bytes": "3f1400712d0200543f500071e8030054280080520821c11a090095526901a072"
+      },
+      "readConfigU64": {
+        "offset": "0x59fefc",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f30304aaf40303aaf50302aa92ffff97"
+      },
+      "kvFindKey": {
+        "offset": "0x1096b60",
+        "bytes": "fc6fbaa9fa6701a9f85f02a9f65703a9f44f04a9fd7b05a9fd430191ff8310d1"
+      },
+      "kvGetUint64": {
+        "offset": "0x1097d50",
+        "bytes": "ffc300d1f44f01a9fd7b02a9fd830091f30301aae83300915f0000f11401829a"
+      },
+      "kvGetInt": {
+        "offset": "0x1097acc",
+        "bytes": "ffc300d1f44f01a9fd7b02a9fd830091f30301aae83300915f0000f11401829a"
+      },
+      "kvSetUint64": {
+        "offset": "0x1098644",
+        "bytes": "c00100b4f44fbea9fd7b01a9fd430091f40301aaf30300aa10f1ff97740200f9"
+      },
+      "kvSetInt": {
+        "offset": "0x1098608",
+        "bytes": "c00100b4f44fbea9fd7b01a9fd430091f40301aaf30300aa1ff1ff97740200b9"
+      },
+      "kvSetString": {
+        "offset": "0x1098420",
+        "bytes": "a00500b4f657bda9f44f01a9fd7b02a9fd830091f40301aaf30300aa98f1ff97"
+      },
+      "lastPlayed": {
+        "offset": "0xa6a084",
+        "bytes": "ff4301d1f65702a9f44f03a9fd7b04a9fd0301913f040c71a0060054f40302aa"
+      },
+      "mapMinutes": {
+        "offset": "0xa69a6c",
+        "bytes": "ffc301d1fc6f01a9fa6702a9f85f03a9f65704a9f44f05a9fd7b06a9fd830191"
+      },
+      "saveMinutes": {
+        "offset": "0xa74100",
+        "bytes": "ff4301d1f85f01a9f65702a9f44f03a9fd7b04a9fd030191087000d008e11091"
+      },
+      "notify": {
+        "offset": "0x5d52a0",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091e60304aaf30303aaf40302aaf50301aa"
+      },
+      "ownerStore": {
+        "offset": "0xa63cdc",
+        "bytes": "880a00b9"
+      },
+      "familyStore": {
+        "offset": "0xa63cf4",
+        "bytes": "88d60039"
+      },
+      "borrowedStore": {
+        "offset": "0xa63b98",
+        "bytes": "88c60039"
+      },
+      "lockedStore": {
+        "offset": "0xa63b7c",
+        "bytes": "89ae0039"
+      }
+    },
+    "layout": {
+      "engineGlobal": "0x1876438",
+      "appInfoCache": "0x1518",
+      "ticketJobApp": "0x16c",
+      "ticketJobUser": "0x180",
+      "ticketTreeRoot": "0x6388",
+      "engineAppRoot": "0x13e0",
+      "engineAppNodes": "0x13f8",
+      "userIdentity": "0x242",
+      "ufsSymbol": "0x1838ed8",
+      "appInfoNodes": "0x80"
+    }
+  },
+  {
+    "build": 1794424036,
+    "uuid": "633e6624a5213f89ad7db3320c4ee73b",
+    "arm64_sha256": "b3073f4ae9a8011a1851347a655cd79027f09b209a39b9047f0d98f33db9e4e2",
+    "functions": {
+      "send": {
+        "offset": "0x6acdf4",
+        "bytes": "f44fbea9fd7b01a9fd430091f40301aaf30300aa8702009480010034610646b9"
+      },
+      "writePlaytime": {
+        "offset": "0xaaf48c",
+        "bytes": "ff4301d1f85f01a9f65702a9f44f03a9fd7b04a9fd0301915f0400712b050054"
+      },
+      "getETicket": {
+        "offset": "0xaa8540",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091830400b4f50303aaf40302aaf30301aa"
+      },
+      "ticketJob": {
+        "offset": "0xab6ffc",
+        "bytes": "ff8303d1f6570ba9f44f0ca9fd7b0da9fd430391f30300aa68008052a8c31db8"
+      },
+      "completeJob": {
+        "offset": "0x61b7dc",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f40303aaf50302aaf60301aaf30300aa"
+      },
+      "currentApp": {
+        "offset": "0xa4e7e8",
+        "bytes": "0d5054b9bf05003140020054093041b908344af90a1100910b038052ac7d4093"
+      },
+      "put": {
+        "offset": "0x10d26c0",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd8300915f040071eb020054f40302aaf50301aa"
+      },
+      "get": {
+        "offset": "0xda574",
+        "bytes": "fd7bbfa9fd030091081840b9091040b90801094b1f01026bea000054610100b4"
+      },
+      "tag": {
+        "offset": "0x10d2f40",
+        "bytes": "ff4301d1f44f03a9fd7b04a9fd030191f40301aaf30300aa883000d008f947f9"
+      },
+      "bufferCtor": {
+        "offset": "0x10d0f9c",
+        "bytes": "00e4006f000000ad080000b008d10391087c02a9080000b008f10391087c03a9"
+      },
+      "bufferDtor": {
+        "offset": "0xfa6b0",
+        "bytes": "f44fbea9fd7b01a9fd430091f30300aa080c40b98801f837610240f9210100b4"
+      },
+      "parse": {
+        "offset": "0xb71c88",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091e201f837f40301aaf30300aaf503022a"
+      },
+      "serialize": {
+        "offset": "0xb71cd8",
+        "bytes": "ffc302d1f65708a9f44f09a9fd7b0aa9fd830291f30301aaf40300aa885b00f0"
+      },
+      "cloudEnabled": {
+        "offset": "0xb0dbb0",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f30301aaf40300aa356d00d0b5a23291"
+      },
+      "readManifest": {
+        "offset": "0x5c81c4",
+        "bytes": "ff8301d1f65703a9f44f04a9fd7b05a9fd430191f40302aaf50301aaf30300aa"
+      },
+      "getAppInfo": {
+        "offset": "0x5b79e0",
+        "bytes": "0a2840b95f050031e0010054082040f9091100914a7d40930b150a8b6d1140b9"
+      },
+      "getSection": {
+        "offset": "0x5b3e38",
+        "bytes": "3f1400712d0200543f500071e8030054280080520821c11a090095526901a072"
+      },
+      "readConfigU64": {
+        "offset": "0x5b7b7c",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f30304aaf40303aaf50302aa92ffff97"
+      },
+      "kvFindKey": {
+        "offset": "0x10c9b2c",
+        "bytes": "fc6fbaa9fa6701a9f85f02a9f65703a9f44f04a9fd7b05a9fd430191ff8310d1"
+      },
+      "kvGetUint64": {
+        "offset": "0x10cad1c",
+        "bytes": "ffc300d1f44f01a9fd7b02a9fd830091f30301aae83300915f0000f11401829a"
+      },
+      "kvGetInt": {
+        "offset": "0x10caa98",
+        "bytes": "ffc300d1f44f01a9fd7b02a9fd830091f30301aae83300915f0000f11401829a"
+      },
+      "kvSetUint64": {
+        "offset": "0x10cb554",
+        "bytes": "c00100b4f44fbea9fd7b01a9fd430091f40301aaf30300aa3ff1ff97740200f9"
+      },
+      "kvSetInt": {
+        "offset": "0x10cb518",
+        "bytes": "c00100b4f44fbea9fd7b01a9fd430091f40301aaf30300aa4ef1ff97740200b9"
+      },
+      "kvSetString": {
+        "offset": "0x10cb330",
+        "bytes": "a00500b4f657bda9f44f01a9fd7b02a9fd830091f40301aaf30300aac7f1ff97"
+      },
+      "lastPlayed": {
+        "offset": "0xa9bf7c",
+        "bytes": "ff4301d1f65702a9f44f03a9fd7b04a9fd0301913f040c71a0060054f40302aa"
+      },
+      "mapMinutes": {
+        "offset": "0xa9b964",
+        "bytes": "ffc301d1fc6f01a9fa6702a9f85f03a9f65704a9f44f05a9fd7b06a9fd830191"
+      },
+      "saveMinutes": {
+        "offset": "0xaa637c",
+        "bytes": "ff4301d1f85f01a9f65702a9f44f03a9fd7b04a9fd030191687000b008a13291"
+      },
+      "notify": {
+        "offset": "0x5ed8bc",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091e60304aaf30303aaf40302aaf50301aa"
+      },
+      "ownerStore": {
+        "offset": "0xa95bc8",
+        "bytes": "880a00b9"
+      },
+      "familyStore": {
+        "offset": "0xa95be0",
+        "bytes": "88d60039"
+      },
+      "borrowedStore": {
+        "offset": "0xa95a84",
+        "bytes": "88c60039"
+      },
+      "lockedStore": {
+        "offset": "0xa95a68",
+        "bytes": "89ae0039"
+      }
+    },
+    "layout": {
+      "engineGlobal": "0x18b3ca8",
+      "appInfoCache": "0x15c8",
+      "ticketJobApp": "0x17c",
+      "ticketJobUser": "0x190",
+      "ticketTreeRoot": "0x6488",
+      "engineAppRoot": "0x1450",
+      "engineAppNodes": "0x1468",
+      "userIdentity": "0x242",
+      "ufsSymbol": "0x1878b60",
+      "appInfoNodes": "0x40"
+    }
+  },
+  {
+    "build": 1794536281,
+    "uuid": "221faa3a6a2c36c99130b0a45028af1b",
+    "arm64_sha256": "ee464b5dac55c641535cc7ff7bcd2b32bd31f5e887194299a715d60df8f82be5",
+    "functions": {
+      "send": {
+        "offset": "0x6acdbc",
+        "bytes": "f44fbea9fd7b01a9fd430091f40301aaf30300aa8702009480010034610646b9"
+      },
+      "writePlaytime": {
+        "offset": "0xaaf5b8",
+        "bytes": "ff4301d1f85f01a9f65702a9f44f03a9fd7b04a9fd0301915f0400712b050054"
+      },
+      "getETicket": {
+        "offset": "0xaa866c",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091830400b4f50303aaf40302aaf30301aa"
+      },
+      "ticketJob": {
+        "offset": "0xab7128",
+        "bytes": "ff8303d1f6570ba9f44f0ca9fd7b0da9fd430391f30300aa68008052a8c31db8"
+      },
+      "completeJob": {
+        "offset": "0x61b7a4",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f40303aaf50302aaf60301aaf30300aa"
+      },
+      "currentApp": {
+        "offset": "0xa4e914",
+        "bytes": "0d5054b9bf05003140020054093041b908344af90a1100910b038052ac7d4093"
+      },
+      "put": {
+        "offset": "0x10d26c0",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd8300915f040071eb020054f40302aaf50301aa"
+      },
+      "get": {
+        "offset": "0xda574",
+        "bytes": "fd7bbfa9fd030091081840b9091040b90801094b1f01026bea000054610100b4"
+      },
+      "tag": {
+        "offset": "0x10d2f40",
+        "bytes": "ff4301d1f44f03a9fd7b04a9fd030191f40301aaf30300aa883000d008f947f9"
+      },
+      "bufferCtor": {
+        "offset": "0x10d0f9c",
+        "bytes": "00e4006f000000ad080000b008d10391087c02a9080000b008f10391087c03a9"
+      },
+      "bufferDtor": {
+        "offset": "0xfa678",
+        "bytes": "f44fbea9fd7b01a9fd430091f30300aa080c40b98801f837610240f9210100b4"
+      },
+      "parse": {
+        "offset": "0xb71dc8",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091e201f837f40301aaf30300aaf503022a"
+      },
+      "serialize": {
+        "offset": "0xb71e18",
+        "bytes": "ffc302d1f65708a9f44f09a9fd7b0aa9fd830291f30301aaf40300aa885b00f0"
+      },
+      "cloudEnabled": {
+        "offset": "0xb0dcdc",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f30301aaf40300aa356d00d0b5a23291"
+      },
+      "readManifest": {
+        "offset": "0x5c818c",
+        "bytes": "ff8301d1f65703a9f44f04a9fd7b05a9fd430191f40302aaf50301aaf30300aa"
+      },
+      "getAppInfo": {
+        "offset": "0x5b79a8",
+        "bytes": "0a2840b95f050031e0010054082040f9091100914a7d40930b150a8b6d1140b9"
+      },
+      "getSection": {
+        "offset": "0x5b3e00",
+        "bytes": "3f1400712d0200543f500071e8030054280080520821c11a090095526901a072"
+      },
+      "readConfigU64": {
+        "offset": "0x5b7b44",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091f30304aaf40303aaf50302aa92ffff97"
+      },
+      "kvFindKey": {
+        "offset": "0x10c9b2c",
+        "bytes": "fc6fbaa9fa6701a9f85f02a9f65703a9f44f04a9fd7b05a9fd430191ff8310d1"
+      },
+      "kvGetUint64": {
+        "offset": "0x10cad1c",
+        "bytes": "ffc300d1f44f01a9fd7b02a9fd830091f30301aae83300915f0000f11401829a"
+      },
+      "kvGetInt": {
+        "offset": "0x10caa98",
+        "bytes": "ffc300d1f44f01a9fd7b02a9fd830091f30301aae83300915f0000f11401829a"
+      },
+      "kvSetUint64": {
+        "offset": "0x10cb554",
+        "bytes": "c00100b4f44fbea9fd7b01a9fd430091f40301aaf30300aa3ff1ff97740200f9"
+      },
+      "kvSetInt": {
+        "offset": "0x10cb518",
+        "bytes": "c00100b4f44fbea9fd7b01a9fd430091f40301aaf30300aa4ef1ff97740200b9"
+      },
+      "kvSetString": {
+        "offset": "0x10cb330",
+        "bytes": "a00500b4f657bda9f44f01a9fd7b02a9fd830091f40301aaf30300aac7f1ff97"
+      },
+      "lastPlayed": {
+        "offset": "0xa9c0a8",
+        "bytes": "ff4301d1f65702a9f44f03a9fd7b04a9fd0301913f040c71a0060054f40302aa"
+      },
+      "mapMinutes": {
+        "offset": "0xa9ba90",
+        "bytes": "ffc301d1fc6f01a9fa6702a9f85f03a9f65704a9f44f05a9fd7b06a9fd830191"
+      },
+      "saveMinutes": {
+        "offset": "0xaa64a8",
+        "bytes": "ff4301d1f85f01a9f65702a9f44f03a9fd7b04a9fd030191687000b008a13291"
+      },
+      "notify": {
+        "offset": "0x5ed884",
+        "bytes": "f657bda9f44f01a9fd7b02a9fd830091e60304aaf30303aaf40302aaf50301aa"
+      },
+      "ownerStore": {
+        "offset": "0xa95cf4",
+        "bytes": "880a00b9"
+      },
+      "familyStore": {
+        "offset": "0xa95d0c",
+        "bytes": "88d60039"
+      },
+      "borrowedStore": {
+        "offset": "0xa95bb0",
+        "bytes": "88c60039"
+      },
+      "lockedStore": {
+        "offset": "0xa95b94",
+        "bytes": "89ae0039"
+      }
+    },
+    "layout": {
+      "engineGlobal": "0x18b3ca8",
+      "appInfoCache": "0x15c8",
+      "ticketJobApp": "0x17c",
+      "ticketJobUser": "0x190",
+      "ticketTreeRoot": "0x6488",
+      "engineAppRoot": "0x1450",
+      "engineAppNodes": "0x1468",
+      "userIdentity": "0x242",
+      "ufsSymbol": "0x1878b60",
+      "appInfoNodes": "0x40"
+    }
+  }
+]

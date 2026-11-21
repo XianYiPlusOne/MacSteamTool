@@ -116,6 +116,6 @@ struct GameSaveBackupList: View {
     }
     private func exists(_ backup: GameSaveBackup) -> Bool { FileStore.fm.fileExists(atPath: backup.directory + "/.fluent-checksums.json") }
     private func reason(_ backup: GameSaveBackup) -> String {
-        switch backup.reason { case "before-restore": model.tr("恢复前回退副本", "Before restoration"); case "before-clear": model.tr("清空前回退副本", "Before clearing"); default: model.tr("手动备份", "Manual backup") }
+        switch backup.reason { case "before-uninstall": model.tr("删除游戏前备份", "Before game removal"); case "before-restore": model.tr("恢复前回退副本", "Before restoration"); case "before-clear": model.tr("清空前回退副本", "Before clearing"); default: model.tr("手动备份", "Manual backup") }
     }
 }

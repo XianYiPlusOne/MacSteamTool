@@ -13,7 +13,7 @@ enum SupportPaths {
     }
 
     static var applicationSupport: URL {
-        home.appending(path: "Library/Application Support")
+        URL(filePath: ProcessInfo.processInfo.environment["FLUENT_INSTALL_SUPPORT"] ?? home.appending(path: "Library/Application Support").path)
     }
 
     // ~/Library/Application Support/notproton

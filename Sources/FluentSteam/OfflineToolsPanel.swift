@@ -11,7 +11,6 @@ struct OfflineToolsPanel: View {
     @ViewState<URL?> private var goldberg = nil
     @ViewState<String> private var executable = ""
     @ViewState<String> private var account = "Fluent Player"
-    @ViewState<Bool> private var lan = false
     @ViewState<Bool> private var withAchievements = true
     @ViewState<Bool> private var withInventory = false
     @ViewState<String> private var webAPIKey = ""
@@ -45,7 +44,6 @@ struct OfflineToolsPanel: View {
                 }
                 HStack {
                     TextField(model.tr("离线昵称", "Offline nickname"), text: $account).textFieldStyle(.roundedBorder)
-                    Toggle(model.tr("允许局域网", "Allow LAN"), isOn: $lan)
                     Toggle(model.tr("读取成就定义", "Read achievement definitions"), isOn: $withAchievements)
                 }
                 Text(model.tr("替换匹配架构的 Steam API，生成 AppID / DLC / 语言配置；模拟器存档使用游戏目录下独立的 FluentOfflineSaves 文件夹。读取成就定义可使用运行中的 Steam，或填写 Web API Key。", "Replace the matching Steam API and generate AppID, DLC and language settings. Emulator saves use a separate FluentOfflineSaves folder in the game directory. Read achievement definitions from running Steam, or supply a Web API key.")).font(.caption).foregroundStyle(.secondary)
@@ -97,7 +95,7 @@ struct OfflineToolsPanel: View {
     }
     private func prepareGoldberg(combined: Bool = false) {
         guard let goldberg, let gameRoot else { return }
-        let id = appID, dlcs = model.games.first(where: { $0.id == appID })?.dlcIDs ?? [], nickname = account, language = model.language, network = lan
+        let id = appID, dlcs = model.games.first(where: { $0.id == appID })?.dlcIDs ?? [], nickname = account, language = model.language
         let key = webAPIKey.trimmingCharacters(in: .whitespacesAndNewlines), wantInventory = withInventory, wantAchievements = withAchievements, images = withImages, imported = importedInventory
         model.run(model.tr("生成离线启动配置", "Prepare offline launch settings")) {
             let inventory: OfflineInventory?
@@ -118,7 +116,7 @@ struct OfflineToolsPanel: View {
             }
             let achievements = definitions, offlineSchema = schema
             let destination = model.paths.cache.appendingPathComponent("OfflineStages/\(UUID().uuidString)/Goldberg")
-            let plan = try await Task.detached { try OfflineTools.goldberg(package: goldberg, gameRoot: gameRoot, appID: id, dlcs: dlcs, accountName: nickname, language: language, lan: network, achievements: achievements, inventory: inventory, schema: offlineSchema, destination: destination) }.value
+            let plan = try await Task.detached { try OfflineTools.goldberg(package: goldberg, gameRoot: gameRoot, appID: id, dlcs: dlcs, accountName: nickname, language: language, achievements: achievements, inventory: inventory, schema: offlineSchema, destination: destination) }.value
             if combined {
                 guard let steamless else { throw AppFailure("请先下载 Steamless / Download Steamless first") }
                 let bridge = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/SteamlessBridge/SteamlessBridge.exe")

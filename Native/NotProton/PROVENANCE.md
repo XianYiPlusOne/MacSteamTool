@@ -11,13 +11,11 @@ The ninth existing service, OpenPrefixLog, otherwise cannot register. The patche
 kernel identifies itself as `1.2.3-fluent.1`. No game, Wine, Steam bridge, or runner
 payload is modified by this patch.
 
-`script/build_notproton_kernel.py` extracts the fixed original commit into an
-isolated source directory, applies this patch, and builds its dylib target with
-the existing pinned Dobby static library and Fluent's documented Darwin code-page
-writer. It does not modify the reference checkout or install anything. Rebuild
-using `script/build_and_run.sh --build`. The resulting source checkout is
-`work/notproton-kernel-source`; corresponding original source, patch, build script,
-and licenses remain available. This is not an official NotProton binary.
+The repair is now applied directly to maintained source in
+`Native/NotProtonCore`. `script/build_native_integration.py` compiles it alongside
+the native library integration. `script/build_notproton_kernel.py` is only a
+compatibility entrypoint. Neither build nor tests require an upstream checkout
+or original app. Source, licenses and modifications are shipped with this project.
 
 `script/test_notproton_routes.py` runs actual registration and factory code with
 AddressSanitizer/UndefinedBehaviorSanitizer. Original code must reject route 9;

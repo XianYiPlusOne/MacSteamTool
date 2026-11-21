@@ -50,7 +50,7 @@ public enum FileStore {
 public final class FileTransaction {
     public let backupRoot: URL
     public init(backupRoot: URL) { self.backupRoot = backupRoot }
-    @discardableResult public func apply(_ changes: [(URL, Data?)], reason: String, expectations: [URL: String] = [:], validate: () throws -> Void = {}) throws -> BackupRecord {
+    @discardableResult public func apply(_ changes: [(URL, Data?)], reason: String, expectations: [URL: String] = [:], libraryAppIDs: [Int]? = nil, validate: () throws -> Void = {}) throws -> BackupRecord {
         try FileStore.mkdir(backupRoot)
         let fd = open(backupRoot.appendingPathComponent(".write-lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard fd >= 0 else { throw AppFailure("无法锁定备份目录 / Cannot lock the backup directory") }
@@ -64,7 +64,7 @@ public final class FileTransaction {
         let id = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-") + "-" + String(UUID().uuidString.prefix(8))
         let folder = backupRoot.appendingPathComponent(id)
         try FileStore.mkdir(folder)
-        var record = BackupRecord(id: id, date: Date(), reason: reason, files: [])
+        var record = BackupRecord(id: id, date: Date(), reason: reason, files: [], libraryAppIDs: libraryAppIDs)
         var unique: [URL: Data?] = [:]
         for (url, data) in changes { unique.updateValue(data, forKey: url.standardizedFileURL) }
         let ordered = unique.keys.sorted { $0.path < $1.path }
@@ -101,6 +101,11 @@ public final class FileTransaction {
         FileStore.files(backupRoot).compactMap { try? FileStore.decode(BackupRecord.self, at: $0.appendingPathComponent("record.json")) }.sorted { $0.date > $1.date }
     }
     public func restore(_ record: BackupRecord, allowedRoots: [URL], expectations: [URL: String] = [:]) throws {
+        guard record.libraryAppIDs == nil else { throw AppFailure("请使用游戏配置恢复，以保留其他游戏 / Use library restore to preserve other games") }
+        let changes = try verifiedChanges(record, allowedRoots: allowedRoots)
+        try apply(changes, reason: "还原 \(record.reason)", expectations: expectations)
+    }
+    func verifiedChanges(_ record: BackupRecord, allowedRoots: [URL]) throws -> [(URL, Data?)] {
         var changes: [(URL, Data?)] = []
         for file in record.files {
             let url = URL(fileURLWithPath: file.original).standardizedFileURL
@@ -111,7 +116,7 @@ public final class FileTransaction {
             guard FileStore.hash(data ?? Data()) == file.sha256 else { throw AppFailure("备份校验失败 / Backup verification failed；未还原任何文件 / No files were restored") }
             changes.append((url, data))
         }
-        try apply(changes, reason: "还原 \(record.reason)", expectations: expectations)
+        return changes
     }
 }
 

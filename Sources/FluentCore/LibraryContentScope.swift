@@ -11,9 +11,12 @@ struct LibraryRequirements {
     var notes: [String]
     var depotIDs: Set<Int> { Set(content.map { $0.depot.id }) }
 
-    static func load(_ id: Int, includeDLC: Bool, context: LibraryInstallContext, appInfo: (Int) async throws -> AppInfo) async throws -> Self {
+    static func load(_ id: Int, includeDLC: Bool, context: LibraryInstallContext, excludingDLC: Set<Int> = [], appInfo: (Int) async throws -> AppInfo, progress: (String) async -> Void = { _ in }) async throws -> Self {
+        await progress("正在查询主游戏 AppID \(id)… / Fetching main game metadata…")
         let main = try await appInfo(id)
+        await progress("主游戏：\(main.name) · AppID \(id)")
         guard main.id == id else { throw AppFailure("游戏资料不匹配 / Game metadata mismatch") }
+        let excluded = excludingDLC.intersection(main.dlc).subtracting([id])
         var context = context
         if context.platform == .automatic {
             let primary = main.depots.filter {
@@ -41,7 +44,7 @@ struct LibraryRequirements {
             if all.isEmpty && app.declaresDepots != true && app.appType?.lowercased() != "dlc" {
                 result.issues.append("AppID \(app.id) 内容资料不完整 / Content metadata incomplete")
             }
-            for var depot in all where includeDLC || (depot.dlc == nil && !app.dlc.contains(depot.id)) {
+            for var depot in all where (includeDLC || (depot.dlc == nil && !app.dlc.contains(depot.id))) && !excluded.contains(depot.dlc ?? depot.id) {
                 // A known platform mismatch is enough to exclude a shared depot
                 // without fetching irrelevant Windows prerequisites on macOS.
                 guard matches(depot.os, context.platform.rawValue) else { continue }
@@ -58,6 +61,7 @@ struct LibraryRequirements {
                     }
                     do {
                         if cache[sourceID] == nil {
+                            await progress("正在查询共享来源 AppID \(sourceID) · Depot \(depot.id)…")
                             let fetched = try await appInfo(sourceID)
                             guard fetched.id == sourceID else { throw AppFailure("共享来源 AppID 不匹配 / Shared source AppID mismatch") }
                             cache[sourceID] = fetched
@@ -101,11 +105,13 @@ struct LibraryRequirements {
                 result.content.append(Content(owner: depot.dlc ?? app.id, depot: depot))
             }
             guard includeDLC else { continue }
-            for child in app.dlc where !result.requested.contains(child) {
+            for child in app.dlc where !result.requested.contains(child) && !excluded.contains(child) {
                 guard result.requested.count < 2048 else { throw AppFailure("DLC 数量超出检查限制 / Too many DLC entries to verify") }
                 result.requested.append(child)
                 do {
+                    await progress("正在查询 DLC AppID \(child)…")
                     let info = try await appInfo(child)
+                    await progress("DLC：\(info.name) · AppID \(child)")
                     guard info.id == child else { throw AppFailure("DLC 资料不匹配 / DLC metadata mismatch") }
                     cache[child] = info; result.apps.append(info)
                 } catch {
@@ -117,6 +123,7 @@ struct LibraryRequirements {
         if !result.content.contains(where: { $0.owner == id && (UInt64($0.depot.manifest) ?? 0) > 0 }) {
             result.issues.append("当前平台与分支没有可核实的主游戏内容 / No verified base game content for the selected platform and branch")
         }
+        for child in excluded.sorted() { result.notes.append("已排除可选 DLC \(child)，其附加内容将不可用 / Optional DLC excluded; its additional content will be unavailable") }
         result.notes.insert("检查范围 / Content scope: \(context.platform.rawValue) · \(context.architecture)-bit · \(context.branch)", at: 0)
         return result
     }
@@ -132,6 +139,28 @@ struct LibraryRequirements {
         let value = depot.branchManifests?[branch] ?? (branch == "public" ? depot.manifest : nil)
         guard let value, (UInt64(value) ?? 0) > 0 else { return nil }
         return value
+    }
+
+    func report(keys: [Int: String], remote: LuaDocument? = nil) -> [LibraryContentReport] {
+        let owners = requested + Set(content.map(\.owner)).subtracting(requested).sorted()
+        return owners.map { id in
+            let info = apps.first { $0.id == id }
+            var seen = Set<Int>()
+            let depots = content.filter { $0.owner == id && seen.insert($0.depot.id).inserted }.map {
+                LibraryDepotReport(id: $0.depot.id, platform: $0.depot.os,
+                    language: $0.depot.language, hasKey: keys[$0.depot.id].map(TextUtil.validKey) == true)
+            }.sorted { $0.id < $1.id }
+            let ids = Set([id] + depots.map(\.id))
+            let related = issues.filter { issue in
+                let mentioned = Set(TextUtil.matches(#"(?:AppID|DLC|Depot) (\d+)"#, issue).compactMap { Int($0[1]) })
+                return !ids.isDisjoint(with: mentioned) || (id == appID && mentioned.isEmpty)
+            }
+            let name = info?.name
+            let remoteName = remote?.entries.first { $0.id == id && !$0.name.isEmpty }?.name
+            let displayName = (name == nil || name == "App \(id)") ? (remoteName ?? "名称待核实 / Name unverified") : name!
+            return LibraryContentReport(id: id, name: displayName,
+                isMain: id == appID, issues: related, metadataKnown: info != nil, depots: depots)
+        }
     }
 
     func result(keys: [Int: String], remote: LuaDocument? = nil) -> AutomaticLibraryResult {
@@ -159,6 +188,42 @@ struct LibraryRequirements {
         warnings += (try? LuaDocument.parse(text, suggestedID: appID).warnings) ?? []
         warnings += remote?.warnings.filter { $0.hasPrefix("未转换语句") } ?? []
         warnings = Array(Set(warnings)).sorted()
-        return AutomaticLibraryResult(files: [ImportFile(name: "\(appID).lua", data: Data(text.utf8))], warnings: warnings, complete: warnings.isEmpty, notes: notes)
+        return AutomaticLibraryResult(files: [ImportFile(name: "\(appID).lua", data: Data(text.utf8))], warnings: warnings, complete: warnings.isEmpty, notes: notes, content: report(keys: keys, remote: remote))
+    }
+}
+
+/// Read-only content verification used for authorized repairs and diagnostics.
+/// It deliberately checks only metadata and the supplied key map; it never
+/// reaches for an alternate package source.
+public struct LibraryContentCheck: Equatable, Sendable {
+    public let missingDepotIDs: [Int]
+    public let issues: [String]
+    public let scope: String
+    public let content: [LibraryContentReport]
+
+    public var complete: Bool { missingDepotIDs.isEmpty && issues.isEmpty }
+
+    public init(missingDepotIDs: [Int], issues: [String], scope: String, content: [LibraryContentReport] = []) {
+        self.missingDepotIDs = missingDepotIDs
+        self.issues = issues
+        self.scope = scope
+        self.content = content
+    }
+}
+
+public enum LibraryContentChecker {
+    public static func check(
+        appID: Int,
+        includeDLC: Bool,
+        excludingDLC: Set<Int> = [],
+        context: LibraryInstallContext,
+        keys: [Int: String],
+        appInfo: @Sendable (Int) async throws -> AppInfo
+    ) async throws -> LibraryContentCheck {
+        let requirements = try await LibraryRequirements.load(appID, includeDLC: includeDLC, context: context, excludingDLC: excludingDLC, appInfo: appInfo)
+        let validKeys = keys.filter { TextUtil.validKey($0.value) }
+        let missing = requirements.depotIDs.subtracting(validKeys.keys).sorted()
+        let scope = requirements.notes.first(where: { $0.hasPrefix("检查范围") }) ?? ""
+        return LibraryContentCheck(missingDepotIDs: missing, issues: requirements.issues, scope: scope, content: requirements.report(keys: keys))
     }
 }

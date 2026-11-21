@@ -29,57 +29,54 @@ struct RuntimePage: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            PageHeader(title: model.tr("运行环境", "Runtime environment"), subtitle: model.tr("检测同一个原生 Steam 客户端中的 macSteam 与 NotProton。", "Inspect macSteam and NotProton in the same native Steam client.")) { Button(model.tr("重新检测", "Check again")) { model.refresh() } }
+            PageHeader(title: model.tr("运行环境", "Runtime environment"), subtitle: model.tr("选择 Wine 或自己购买的 CrossOver。原生 Steam 接入由程序自动维护。", "Choose Wine or your purchased CrossOver. Native Steam integration is maintained automatically.")) { Button(model.tr("重新检测", "Check again")) { model.refresh() } }
+            TranslationRuntimePanel(flow: model.runtimePreparation)
             Panel {
-                HStack(spacing: 15) {
-                    Image(systemName: model.runtime.bothInjected ? "checkmark.shield" : "exclamationmark.shield").font(.system(size: 32)).foregroundStyle(model.runtime.bothInjected ? Palette.green : Palette.amber)
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(model.runtime.bothInjected ? model.tr("两个内核均已配置加载", "Both runtime libraries are configured") : model.tr("运行环境需要检查", "Review your runtime setup")).font(.system(size: 18, weight: .semibold))
-                        Text(model.tr("检测加载配置与文件存在性；实际游戏兼容性需逐款验证。", "Checks launch configuration and files. Game compatibility still requires per-game verification.")).font(.system(size: 12)).foregroundStyle(.secondary)
+                Label(model.tr("独立游戏容器", "Per-game containers"), systemImage: "shippingbox").font(.headline)
+                Text(model.tr("为单个游戏创建容器、运行 Windows 工具，或备份和恢复整个容器。", "Create a container for a game, run Windows tools, or back up and restore a whole container.")).font(.caption).foregroundStyle(.secondary)
+                Button(model.tr("管理游戏容器", "Manage game containers")) { model.containerAppID = nil; model.page = .containers }
+            }
+            DisclosureGroup(model.tr("诊断与恢复（高级）", "Diagnostics and recovery (advanced)")) {
+                VStack(alignment: .leading, spacing: 22) {
+                    Panel {
+                        HStack(spacing: 15) {
+                            Image(systemName: model.runtime.bothInjected ? "checkmark.shield" : "exclamationmark.shield").font(.system(size: 32)).foregroundStyle(model.runtime.bothInjected ? Palette.green : Palette.amber)
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(model.runtime.bothInjected ? model.tr("原生 Steam 接入已配置", "Native Steam integration is configured") : model.tr("原生 Steam 接入待准备", "Native Steam integration needs preparation")).font(.system(size: 18, weight: .semibold))
+                                Text(model.tr("内置接入组件随本程序更新，由程序自动初始化和维护。这里显示配置和加载诊断。", "Built-in integration components update with this app and are initialized and maintained automatically. Configuration and loading diagnostics appear here.")).font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                }
-            }
-            HStack(alignment: .top, spacing: 16) {
-                Panel {
-                    Label("macSteam", systemImage: "square.stack.3d.up").font(.headline)
-                    InfoLine(title: model.tr("已部署版本", "Deployed version"), value: model.runtime.macSteamVersion)
-                    InfoLine(title: model.tr("配置文件", "Configuration"), value: model.runtime.configExists ? model.tr("已找到", "Found") : model.tr("未找到", "Missing"))
-                    InfoLine(title: model.tr("当前构建签名库", "Build signatures"), value: model.runtime.macSteamSignature ? model.tr("已找到", "Found") : model.tr("未确认", "Unconfirmed"))
-                    InfoLine(title: model.tr("当前 Steam 进程加载结果", "Current Steam process"), value: model.runtime.macSteamLoaded.isEmpty ? model.tr("尚无当前进程的成功记录", "No success record for this process") : model.runtime.macSteamLoaded)
-                    Divider().padding(.vertical, 8)
-                    Button(model.tr("打开 macSteam 安装 / 更新 / 卸载", "Open macSteam installer / updater")) { model.openCompanion("macSteam Config") }
-                    Button(model.tr("配置目录", "Configuration folder")) { model.openFolder(model.paths.macSteam) }
-                }
-                Panel {
-                    Label("NotProton", systemImage: "cpu").font(.headline)
-                    InfoLine(title: model.tr("已部署版本", "Deployed version"), value: model.runtime.notProtonVersion)
-                    InfoLine(title: "CrossOver", value: "\(model.runtime.runners.count) " + model.tr("个运行器", "runners"))
-                    InfoLine(title: model.tr("游戏前缀", "Game prefixes"), value: String(model.runtime.prefixCount))
-                    InfoLine(title: model.tr("当前构建签名库", "Build signatures"), value: model.runtime.notProtonSignature ? model.tr("已找到", "Found") : model.tr("未确认", "Unconfirmed"))
-                    InfoLine(title: model.tr("当前 Steam 进程加载结果", "Current Steam process"), value: model.runtime.notProtonLoaded.isEmpty ? model.tr("尚无当前进程的成功记录", "No success record for this process") : model.runtime.notProtonLoaded)
-                    Divider().padding(.vertical, 8)
-                    Button(model.tr("打开 NotProton 管理器", "Open NotProton manager")) { model.openCompanion("NotProton") }
-                    Button(model.tr("运行器目录", "Runners folder")) { model.openFolder(model.paths.notProton.appendingPathComponent("runners")) }
-                }
-            }
-            RuntimeActions()
-            SteamCompatibilityPanel()
-            Panel {
-                Text("Steam").font(.headline)
-                InfoLine(title: model.tr("应用路径", "Application"), value: model.paths.steamApp.path)
-                InfoLine(title: model.tr("数据目录", "Data directory"), value: model.paths.steam.path)
-                InfoLine(title: model.tr("客户端构建", "Client build"), value: model.runtime.build.isEmpty ? model.tr("未读取到", "Unknown") : model.runtime.build)
-                InfoLine(title: model.tr("游戏库目录", "Library folders"), value: SteamLibrary.libraries(model.paths).map(\.path).joined(separator: "\n"))
-                Divider().padding(.vertical, 8)
-                Text("DYLD_INSERT_LIBRARIES").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
-                ForEach(model.runtime.injectedLibraries, id: \.self) { path in Label(path, systemImage: model.runtime.missingLibraries.contains(path) ? "xmark.circle" : "checkmark.circle").font(.system(size: 11, design: .monospaced)).foregroundStyle(model.runtime.missingLibraries.contains(path) ? .red : Palette.green).textSelection(.enabled) }
-                HStack { Button(model.tr("启动 Steam", "Launch Steam")) { model.launchSteam() }; Button(model.tr("重启 Steam", "Restart Steam")) { model.restartSteam() }.disabled(model.busy); Spacer(); Button(model.tr("Steam 日志", "Steam logs")) { model.openFolder(model.paths.steam.appendingPathComponent("logs")) } }.padding(.top, 12)
-            }
-            Panel {
-                Text(model.tr("操作日志", "Activity log")).font(.headline)
-                if !model.runtime.runtimeWarnings.isEmpty { Text(model.runtime.runtimeWarnings.joined(separator: "\n")).font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.amber).textSelection(.enabled) }
-                if model.eventLog.isEmpty { Text(model.tr("尚无操作记录", "No recorded operations")).foregroundStyle(.secondary).font(.caption) }
-                Text(model.eventLog.prefix(25).joined(separator: "\n")).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                    Panel {
+                        Label(model.tr("接入诊断", "Integration diagnostics"), systemImage: "stethoscope").font(.headline)
+                        InfoLine(title: model.tr("配置文件", "Configuration"), value: model.runtime.configExists ? model.tr("已找到", "Found") : model.tr("未找到", "Missing"))
+                        InfoLine(title: model.tr("当前 Steam 适配数据", "Current Steam compatibility data"), value: model.runtime.macSteamSignature && model.runtime.notProtonSignature ? model.tr("已找到", "Found") : model.tr("未确认", "Unconfirmed"))
+                        InfoLine(title: model.tr("内容接入加载结果", "Content integration loading"), value: model.runtime.macSteamLoaded.isEmpty ? model.tr("尚无当前进程的成功记录", "No success record for this process") : model.runtime.macSteamLoaded)
+                        InfoLine(title: model.tr("游戏启动接入加载结果", "Game launch integration loading"), value: model.runtime.notProtonLoaded.isEmpty ? model.tr("尚无当前进程的成功记录", "No success record for this process") : model.runtime.notProtonLoaded)
+                        Divider().padding(.vertical, 8)
+                        InfoLine(title: "Wine", value: FreeRuntime.installedRoot(model.paths) == nil ? model.tr("未安装", "Not installed") : model.tr("免费 · DX11", "Free · DX11"))
+                        InfoLine(title: "CrossOver", value: "\(model.runtime.runners.count) " + model.tr("个运行器", "runners"))
+                        InfoLine(title: model.tr("游戏独立环境", "Per-game environments"), value: String(model.runtime.prefixCount))
+                    }
+                    RuntimeActions()
+                    Panel {
+                        Text("Steam").font(.headline)
+                        InfoLine(title: model.tr("应用路径", "Application"), value: model.paths.steamApp.path)
+                        InfoLine(title: model.tr("数据目录", "Data directory"), value: model.paths.steam.path)
+                        InfoLine(title: model.tr("客户端构建", "Client build"), value: model.runtime.build.isEmpty ? model.tr("未读取到", "Unknown") : model.runtime.build)
+                        InfoLine(title: model.tr("游戏库目录", "Library folders"), value: SteamLibrary.libraries(model.paths).map(\.path).joined(separator: "\n"))
+                        Divider().padding(.vertical, 8)
+                        InfoLine(title: model.tr("接入文件", "Integration files"), value: model.runtime.bothInjected ? model.tr("完整", "Complete") : model.tr("等待自动准备", "Awaiting automatic preparation"))
+                        HStack { Button(model.tr("启动 Steam", "Launch Steam")) { model.launchSteam() }; Button(model.tr("重启 Steam", "Restart Steam")) { model.restartSteam() }.disabled(model.busy); Spacer(); Button(model.tr("Steam 日志", "Steam logs")) { model.openFolder(model.paths.steam.appendingPathComponent("logs")) } }.padding(.top, 12)
+                    }
+                    Panel {
+                        Text(model.tr("操作日志", "Activity log")).font(.headline)
+                        if !model.runtime.runtimeWarnings.isEmpty { Text(model.runtime.runtimeWarnings.joined(separator: "\n")).font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.amber).textSelection(.enabled) }
+                        if model.eventLog.isEmpty { Text(model.tr("尚无操作记录", "No recorded operations")).foregroundStyle(.secondary).font(.caption) }
+                        Text(model.eventLog.prefix(25).joined(separator: "\n")).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    SteamCompatibilityPanel()
+                }.padding(.top, 12)
             }
         }
     }
@@ -104,8 +101,6 @@ struct SettingsPage: View {
                     Text(model.tr("本地目录", "Local folders")).font(.headline)
                     pathField("Steam.app", value: $model.preferences.steamAppPath, placeholder: model.defaults.steamApp.path, app: true)
                     pathField(model.tr("Steam 数据", "Steam data"), value: $model.preferences.steamPath, placeholder: model.defaults.steam.path)
-                    pathField("macSteam", value: $model.preferences.macSteamPath, placeholder: model.defaults.macSteam.path)
-                    pathField("NotProton", value: $model.preferences.notProtonPath, placeholder: model.defaults.notProton.path)
                     pathField("Lua", value: $model.preferences.luaPath, placeholder: model.defaults.lua.path)
                     Toggle(model.tr("更改或重置 Lua 目录时迁移原清单（含已禁用）", "Migrate Lua files, including disabled games, when changing or resetting the folder"), isOn: $migrateLua)
                     Text(model.tr("留空使用默认目录。迁移前请退出 Steam；复制校验成功才切换，原目录保留。同名不同内容不会覆盖。", "Leave blank for the default folder. Quit Steam before migration. Switch only after copy verification; originals are retained and conflicts are not overwritten.")).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -158,7 +153,7 @@ struct CompatibilityPage: View {
         .init(name: "名称 / AppID 搜索与生成入库", english: "Search and generate Lua", level: 2, note: "Steam 商店 + depot 数据源，入库前预览", englishNote: "Steam Store and depot sources, with import preview"),
         .init(name: "DLC 查询、补全、清单启用 / 禁用", english: "DLC lookup, completion, enable/disable", level: 2, note: "写入 macSteam 的 Apps / DepotKeys", englishNote: "Updates macSteam Apps and DepotKeys"),
         .init(name: "Lua addtoken 访问令牌", english: "Lua addtoken access tokens", level: 1, note: "随 AppID 启用与禁用、热加载；真实 Steam PICS 请求与 UInt64 精度隔离测试通过，在线消费待验证", englishNote: "Follows AppID enable/disable with hot reload; real Steam PICS and UInt64 isolation tests passed; online consumption unverified"),
-        .init(name: "NotProton 前缀 / Wine 工具 / 游戏启动", english: "NotProton prefixes, Wine tools, launch", level: 2, note: "按游戏使用对应 CrossOver 运行器", englishNote: "Uses the game's matching CrossOver runtime"),
+        .init(name: "独立游戏容器 / Windows 工具 / 备份恢复", english: "Game containers, Windows tools, backup and restore", level: 2, note: "按游戏创建 Wine / CrossOver 容器，支持设置、注册表、EXE / MSI、备份恢复与重置", englishNote: "Per-game Wine/CrossOver containers with settings, registry, EXE/MSI, backups, restoration and reset"),
         .init(name: "Steam 启动 / 重启 / 本地账号切换", english: "Steam launch, restart, account switch", level: 2, note: "复用已保存登录记录，切换前需退出 Steam", englishNote: "Uses remembered logins; Steam must be closed for switching"),
         .init(name: "版本锁定 / Manifest 下载", english: "Version pins / manifest downloads", level: 1, note: "Fluent Manifest 扩展已通过真实 ARM64 Steam 函数隔离测试；支持 build 1792618285 public 分支和有效缓存，真实下载待回归", englishNote: "Fluent Manifest passed isolated tests against real ARM64 Steam functions; build 1792618285 public branch and validated caches supported, live downloads unverified"),
         .init(name: "内核安装 / 更新 / 卸载", english: "Kernel install, update and uninstall", level: 2, note: "官方版本查询、下载与校验已实测；匹配 Steam build 后选为来源，沿用备份安装与恢复", englishNote: "Official release checks, downloads and validation passed; matching Steam builds select a source for backed-up installation and restore"),
@@ -169,7 +164,7 @@ struct CompatibilityPage: View {
         .init(name: "游戏启动检查", english: "Game startup diagnostics", level: 2, note: "按选定游戏读取最近 Unity 日志，区分初始化失败、成功和无法判断；不修改游戏或存档", englishNote: "Reads only the selected game's latest Unity log and distinguishes failed, successful and unknown initialization without modifying game data"),
         .init(name: "创意工坊", english: "Steam Workshop", level: 2, note: "深空当铺订阅下载问题已修复，用户确认正常；实际游戏识别到 14 个工坊项目", englishNote: "Probably Stolen subscription downloads repaired and confirmed working by the user; the game detected 14 Workshop items"),
         .init(name: "Denuvo appticket / eticket", english: "Denuvo appticket / eticket", level: 1, note: "双票据导入、账号绑定消费与异步回调已实现；480 原生实机消费通过，Denuvo 游戏待验证", englishNote: "Import, account-bound consumption and async callbacks implemented; live native 480 consumption passed; Denuvo games unverified"),
-        .init(name: "480 / OnlineFix 一键联机补丁", english: "480 / OnlineFix patch automation", level: 1, note: "Windows 补丁按程序、容器及架构校验；可检查实际 DLL 模块加载；隔离链路通过，未进行真实双人联机", englishNote: "Windows executable/bottle/architecture validation and actual DLL module checks; isolated workflow passed, real multiplayer unverified"),
+        .init(name: "ConnectTool 联机", english: "ConnectTool multiplayer", level: 1, note: "页面内集成房间、邀请、聊天/置顶、TCP 和 TUN；本机房间流程通过，双设备待验收", englishNote: "Embedded rooms, invitations, chat/pinning, TCP and TUN; local room flow passed; two-device acceptance pending"),
         .init(name: "SteamStub 去除 / Goldberg 部署", english: "SteamStub removal / Goldberg deployment", level: 1, note: "官方 Steamless 插件与合成 PE 解包通过；Goldberg 本地 480 API / 成就往返通过，实际游戏待测", englishNote: "Official Steamless plugins and synthetic PE unpack passed; Goldberg local 480 API/achievement round trip passed; actual games pending"),
         .init(name: "自选游戏目录 / 离线成就定义", english: "Custom game folders / offline achievement definitions", level: 1, note: "文件夹名称查询 AppID、手动输入、Web API 成就定义和可选图标；商店查询实测通过，在线定义待提供 API Key", englishNote: "Folder-name AppID search, manual entry, Web API definitions and optional icons; live Store search passed; online definitions await an API key"),
         .init(name: "Manifest 自动监听修复 / CDN 切换", english: "Manifest monitoring and CDN fallback", level: 2, note: "监听新增日志请求，验证内容后写入 depotcache", englishNote: "Tails new log requests and validates downloaded manifests before caching"),

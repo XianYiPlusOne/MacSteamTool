@@ -60,8 +60,6 @@ public struct SteamEngineResponse: Decodable, Sendable {
     public var warnings: [String]?
     public var path: String?
     public var cloudTokens: [String: String]?
-    public var fixes: [OnlineFixResult]?
-    public var fixDetail: OnlineFixDetail?
     public var patchFiles: [String]?
     public var runtimeRelease: OfficialRuntimeRelease?
     public func lua() throws -> String {
@@ -94,6 +92,7 @@ public struct SteamEngineRequest: Encodable, Sendable {
     public var token = ""
     public var appID = 0
     public var depotID = 0
+    public var depotIDs: [Int] = []
     public var manifestID: UInt64 = 0
     public var depotKey = ""
     public var destination = ""
@@ -124,8 +123,8 @@ public enum SteamEngine {
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         let task = Task.detached {
             try Task.checkCancellation(); try process.run()
-            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() } }
-            let deadline = Date().addingTimeInterval(["login", "login-password", "login-local", "cloud-oauth"].contains(request.operation) ? 190 : ["onlinefix-download", "patch-extract", "library-import", "tool-download", "runtime-download", "extract"].contains(request.operation) ? 910 : 130)
+            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+            let deadline = Date().addingTimeInterval(["login", "login-password", "login-local", "cloud-oauth"].contains(request.operation) ? 190 : ["patch-extract", "library-import", "tool-download", "runtime-download", "extract"].contains(request.operation) ? 910 : 130)
             var last = "", lastChallenge = ""
             while process.isRunning && Date() < deadline && !Task.isCancelled {
                 if let data = try? FileStore.read(URL(fileURLWithPath: output.path + ".status")),
@@ -146,9 +145,17 @@ public enum SteamEngine {
             if process.isRunning {
                 process.terminate(); try? await Task.sleep(for: .milliseconds(250))
                 if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                process.waitUntilExit(); throw AppFailure("SteamKit 会话已取消或超时 / SteamKit session cancelled or timed out")
+                // Await reaping without a thread-bound RunLoop wait. This
+                // detached cleanup still waits when the caller is cancelled.
+                await Task.detached {
+                    let end = Date().addingTimeInterval(3)
+                    while process.isRunning && Date() < end { try? await Task.sleep(for: .milliseconds(10)) }
+                }.value
+                throw AppFailure("SteamKit 会话已取消或超时 / SteamKit session cancelled or timed out")
             }
-            process.waitUntilExit()
+            // isRunning is already false. After an await this task can resume
+            // on a different thread; waitUntilExit may wait forever for the
+            // original thread's RunLoop even though the child has exited.
             guard FileStore.fm.fileExists(atPath: output.path) else { throw AppFailure("SteamKit 进程未返回结果 / SteamKit process returned no result（\(process.terminationStatus)）") }
             let result = try FileStore.decode(SteamEngineResponse.self, at: output)
             guard result.ok else { throw AppFailure(result.error ?? "SteamKit 请求失败 / SteamKit request failed") }

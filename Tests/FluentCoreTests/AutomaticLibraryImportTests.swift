@@ -15,6 +15,33 @@ import Testing
     func document(_ result: AutomaticLibraryResult) throws -> LuaDocument {
         try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self))
     }
+    @Test func partialRemoteIsCompletedByGitHubFallback() async throws {
+        var calls = 0
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false,
+            appInfo: { _ in info(depots: [481, 482]) }, cachedKeys: { [:] }, refreshKeys: { [:] },
+            remote: { package([481]) }, remoteFallback: { calls += 1; return package([482]) })
+        #expect(result.complete); #expect(calls == 1)
+        #expect(try Set(document(result).depots.map(\.id)) == [481, 482])
+    }
+    @Test func completeRemoteDoesNotRequestGitHubFallback() async throws {
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false,
+            appInfo: { _ in info() }, cachedKeys: { [:] }, refreshKeys: { [:] },
+            remote: { package([481]) }, remoteFallback: { Issue.record("Unneeded fallback"); return [] })
+        #expect(result.complete)
+    }
+    @Test func contentReportMapsNamedDLCToMissingDepot() async throws {
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: true,
+            appInfo: { id in
+                var value = info(id, depots: id == 480 ? [481] : [491], dlc: id == 480 ? [490] : [])
+                value.name = id == 480 ? "Main game" : "Soundtrack DLC — Full title"
+                return value
+            }, cachedKeys: { [481: key] }, refreshKeys: { [:] }, remote: { throw AppFailure("Offline") })
+        #expect(!result.complete)
+        let dlc = try #require(result.content.first { $0.id == 490 })
+        #expect(dlc.name == "Soundtrack DLC — Full title"); #expect(!dlc.isMain)
+        #expect(dlc.missingDepots == [491]); #expect(dlc.metadataKnown)
+        #expect(result.content.first { $0.id == 480 }?.missingDepots.isEmpty == true)
+    }
     @Test func completeCacheDoesNotRefreshOrDownload() async throws {
         var refreshes = 0, downloads = 0
         let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: true, appInfo: { _ in info() }, cachedKeys: { [481: key] }, refreshKeys: { refreshes += 1; return [:] }, remote: { downloads += 1; return [] })

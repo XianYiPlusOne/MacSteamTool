@@ -1,6 +1,7 @@
 // Runs real macSteam code and the new wrapper in a disposable process. Never
 // creates a Steam IPC pipe, launches a game, or opens save/achievement files.
 #include "ownership_hooks.h"
+#include "runtime_profile.h"
 #include <array>
 #include <cstring>
 #include <cstdio>
@@ -40,7 +41,7 @@ int main(int argc,char**argv){
     Dl_info image{};check(dladdr(dlsym(steam,"CreateInterface"),&image)&&image.dli_fbase,"resolve actual Steam image");
     auto base=reinterpret_cast<uintptr_t>(image.dli_fbase);
     check(!OwnershipHooks::Install(base,128),"unsupported image size refused");
-    check(OwnershipHooks::Install(base,0xa64000)&&OwnershipHooks::Installed(),"install guarded wrapper on macSteam export");
+    check(OwnershipHooks::Install(base,RuntimeProfile::familyStore(base)+4)&&OwnershipHooks::Installed(),"install guarded wrapper on macSteam export");
     auto repaired=native;check(helper(4348910,1,repaired.data(),0)==1,"selected helper keeps result");
     check(owner(repaired)==24680&&!repaired[0x31]&&!repaired[0x35]&&!repaired[0x2b],"native owner preserved and sharing flags cleared");
     auto expected=broken;owner(expected,24680);expected[0x31]=expected[0x35]=expected[0x2b]=0;

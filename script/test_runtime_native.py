@@ -6,7 +6,7 @@ root=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument('--tickets',type=Path);p.add_argument('--layout', choices=['standard','descriptor','unaligned'], default='standard');args=p.parse_args()
 steam=Path.home()/'Library/Application Support/Steam'
 client=steam/'Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib'
-mac=Path('/Applications/Steam.app/Contents/MacOS/macsteam.dylib')
+mac=root/'work/native-integration/macsteam.dylib'
 def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 # Keep real stats and all cloud-save roots unchanged; compare relevant stats inputs afterward.
 real_stats=list((steam/'appcache/stats').glob('*480.bin'));before={p:digest(p) for p in real_stats}

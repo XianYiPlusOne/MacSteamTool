@@ -16,7 +16,7 @@ subprocess.run(['xcrun', 'clang++', '-std=c++20', '-arch', 'arm64',
     str(root/'Native/CloudRedirect/tests/ownership_probe.cpp'), str(dobby),
     '-o', str(binary)], check=True)
 steam = Path.home()/'Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib'
-mac = Path('/Applications/Steam.app/Contents/MacOS/macsteam.dylib')
+mac = root/'work/native-integration/macsteam.dylib'
 with tempfile.TemporaryDirectory(prefix='fixture-', dir=work) as temp:
     result = subprocess.run([str(binary), str(steam), str(mac), str(Path(temp)/'data')],
         capture_output=True, text=True, timeout=30)

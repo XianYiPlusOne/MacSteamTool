@@ -2,6 +2,10 @@ import Foundation
 import CryptoKit
 
 extension InstallSession {
+    static var notProtonCoreTargets: [URL] {
+        [SupportPaths.deployedVersion, SupportPaths.support.appending(path: "signatures"), SupportPaths.overlayShim,
+         SupportPaths.iconmaker, SupportPaths.appinfo, SupportPaths.support.appending(path: RebuildPrefixCommand.executableRecord)]
+    }
     static func kernel(_ r: InstallRequest, requireIdle: () throws -> Void = InstallSession.requireIdle, register: (URL) -> Void = SteamBundle.register, progress: @escaping @Sendable (String) -> Void) throws -> String {
         try configure(r); try requireIdle()
         guard let kernel = r.kernel, ["macsteam.dylib", "cloud_redirect.dylib", "notproton.dylib", "fluent_manifest.dylib"].contains(kernel),
@@ -11,19 +15,47 @@ extension InstallSession {
         let fm = FileManager.default, app = SupportPaths.Steam.app
         let lock = try DeploymentContent.acquireInstallationLock(in: SupportPaths.applicationSupport, steamFolder: app.deletingLastPathComponent()); defer { lock.release() }
         var source: URL?, extras: [(URL, URL)] = []
+        let metadata = fm.temporaryDirectory.appending(path: "FluentCoreMetadata-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: metadata) }
         if r.remove != true {
             if kernel == "macsteam.dylib" {
-                guard let bundle = Bundle(path: r.companion), bundle.bundleIdentifier == "com.macsteam.app", let support = r.macSteam, support.hasPrefix("/"), support != "/" else { throw StepFailure(step: "Install macSteam", detail: "Choose the official macSteam Config.app") }
-                let resources = URL(filePath: r.companion).appending(path: "Contents/Resources")
+                guard let support = r.macSteam, support.hasPrefix("/"), support != "/" else { throw StepFailure(step: "Install macSteam", detail: "Missing macSteam support path") }
+                let resources: URL
+                if let root = r.managedRoot {
+                    try ManagedPayload.validate(r, provider: "macsteam")
+                    resources = URL(filePath: root).appending(path: "Resources")
+                } else {
+                    guard let bundle = Bundle(path: r.companion), bundle.bundleIdentifier == "com.macsteam.app" else { throw StepFailure(step: "Install macSteam", detail: "Choose the official macSteam Config.app") }
+                    resources = URL(filePath: r.companion).appending(path: "Contents/Resources")
+                }
                 source = resources.appending(path: kernel)
                 extras = [(resources.appending(path: "macsteam.dylib.version"), URL(filePath: support).appending(path: "dylib.version")), (resources.appending(path: "signatures"), URL(filePath: support).appending(path: "signatures"))]
                 for (from, _) in extras where !fm.fileExists(atPath: from.path) { throw StepFailure(step: "Install macSteam", detail: "Missing resource: \(from.lastPathComponent)") }
+            } else if kernel == "notproton.dylib", let root = r.managedRoot {
+                try ManagedPayload.validate(r, provider: "notproton")
+                let payload = URL(filePath: root).appending(path: "NotProtonRuntime.bundle/Contents/Resources/payload")
+                source = payload.appending(path: kernel)
+                guard let executable = r.rebuildExecutable, executable.hasPrefix("/"), fm.isExecutableFile(atPath: executable) else {
+                    throw StepFailure(step: "Install NotProton core", detail: "Missing bundled prefix rebuild helper")
+                }
+                try fm.createDirectory(at: metadata, withIntermediateDirectories: true)
+                try Data((r.managedVersion! + "\n").utf8).write(to: metadata.appending(path: "version"))
+                try RebuildPrefixCommand.recordExecutable(URL(filePath: executable), in: metadata)
+                guard try String(contentsOf: metadata.appending(path: RebuildPrefixCommand.executableRecord), encoding: .utf8) == executable else {
+                    throw StepFailure(step: "Install NotProton core", detail: "Cannot record bundled prefix rebuild helper")
+                }
+                let sources = [metadata.appending(path: "version"), payload.appending(path: "signatures"), payload.appending(path: "overlay-shim.dylib"),
+                               payload.appending(path: "iconmaker"), payload.appending(path: "appinfo"), metadata.appending(path: RebuildPrefixCommand.executableRecord)]
+                extras = Array(zip(sources, notProtonCoreTargets))
+                for (from, _) in extras where !fm.fileExists(atPath: from.path) {
+                    throw StepFailure(step: "Install NotProton core", detail: "Missing core resource: \(from.lastPathComponent)")
+                }
             } else {
                 guard let path = r.source, path.hasPrefix("/") else { throw StepFailure(step: "Install kernel", detail: "Missing bundled kernel") }
                 source = URL(filePath: path)
             }
             guard let source, try Shell.run("/usr/bin/lipo", ["-archs", source.path]).stdout.contains("arm64") else { throw StepFailure(step: "Install kernel", detail: "Kernel must support ARM64") }
-            if kernel == "notproton.dylib" { try validateNotProtonRepair(source) }
+            if kernel == "notproton.dylib", r.managedRoot == nil { try validateNotProtonRepair(source) }
         }
         guard r.cleanRunners != true || (kernel == "notproton.dylib" && r.remove == true) else { throw StepFailure(step: "Remove runners", detail: "Runner cleanup requires NotProton removal") }
         let cleanup = r.cleanRunners == true ? [SupportPaths.runners, SupportPaths.bridge, SupportPaths.toolList] + SupportPaths.Steam.notprotonTools() : []
@@ -47,6 +79,7 @@ extension InstallSession {
         }
         if libraries.isEmpty { env.removeValue(forKey: SteamBundle.insertKey) } else { env[SteamBundle.insertKey] = libraries.joined(separator: ":") }
         if kernel == "notproton.dylib", r.remove == true, env[SteamBundle.controllerBlockKey] as? String == SteamBundle.controllerBlockValue { env.removeValue(forKey: SteamBundle.controllerBlockKey) }
+        if kernel == "notproton.dylib", r.remove != true { env[SteamBundle.controllerBlockKey] = SteamBundle.controllerBlockValue }
         if kernel == "fluent_manifest.dylib" {
             if r.remove == true {
                 for key in ["FLUENT_PINS_CONFIG", "FLUENT_PINS_CACHE", "FLUENT_PINS_STATUS"] { env.removeValue(forKey: key) }
@@ -113,7 +146,7 @@ extension InstallSession {
         let snapshot = try JSONDecoder().decode(InstallSnapshot.self, from: Data(contentsOf: folder.appending(path: "snapshot.json")))
         var allowed = [SupportPaths.Steam.app.path]
         if let macSteam = r.macSteam { allowed += [URL(filePath: macSteam).appending(path: "dylib.version").path, URL(filePath: macSteam).appending(path: "signatures").path] }
-        allowed += [SupportPaths.runners.path, SupportPaths.bridge.path, SupportPaths.toolList.path]
+        allowed += [SupportPaths.runners.path, SupportPaths.bridge.path, SupportPaths.toolList.path] + notProtonCoreTargets.map(\.path)
         for item in snapshot.items {
             let path = URL(filePath: item.original)
             if path.deletingLastPathComponent().standardizedFileURL.path == SupportPaths.Steam.compatTools.standardizedFileURL.path && path.lastPathComponent.hasPrefix("notproton") { allowed.append(item.original) }

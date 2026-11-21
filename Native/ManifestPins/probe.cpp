@@ -1,3 +1,4 @@
+#include "../SteamIntegration/steam_profiles.h"
 #include "pins.h"
 #include <mach-o/dyld.h>
 #include <dlfcn.h>
@@ -34,8 +35,8 @@ int main(int argc,char** argv){
     void* client=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);require(client,"load real ARM64 steamclient without Steam IPC");
     uintptr_t base=0;for(uint32_t i=0;i<_dyld_image_count();++i)if(std::string_view(_dyld_get_image_name(i)).ends_with("/steamclient.dylib"))base=reinterpret_cast<uintptr_t>(_dyld_get_image_header(i));
     require(base,"locate loaded client image");
-    using Find=void*(*)(void*,const char*,uint8_t,void*);auto find=reinterpret_cast<Find>(base+0x1096b60);
-    using Set=void(*)(void*,uint64_t);auto set=reinterpret_cast<Set>(base+0x1098644);
+    using Find=void*(*)(void*,const char*,uint8_t,void*);auto find=reinterpret_cast<Find>(base+RuntimeProfile::kvFindKey(base));
+    using Set=void(*)(void*,uint64_t);auto set=reinterpret_cast<Set>(base+RuntimeProfile::kvSetUint64(base));
     alignas(16) unsigned char tree[32]={};
     set(find(tree,"621/manifests/public/gid",1,nullptr),111);
     set(find(tree,"621/manifests/public/size",1,nullptr),222);
@@ -44,7 +45,7 @@ int main(int argc,char** argv){
     set(find(tree,"622/manifests/public/gid",1,nullptr),555);
     set(find(tree,"622/manifests/public/size",1,nullptr),666);
     struct Depot {uint32_t id=621;uint32_t padding=0;uint64_t gid=0,size=0;} depot;
-    using Read=bool(*)(void*,void*,const char*);auto read=reinterpret_cast<Read>(base+0x5b0394);
+    using Read=bool(*)(void*,void*,const char*);auto read=reinterpret_cast<Read>(base+RuntimeProfile::readManifest(base));
     require(read(&depot,tree,"public") && depot.gid==111 && depot.size==222,"real depot helper ABI and native KV selection verified");
     require(FluentPinsInstall()==1 && FluentPinsCount()==1,"production dylib installs guarded ARM64 detour and validates cache");
     require(read(&depot,tree,"public") && depot.gid==gid && depot.size>222,"pinned gid and matching manifest disk size selected through real Steam function");

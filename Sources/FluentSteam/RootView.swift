@@ -5,6 +5,8 @@ import FluentCore
 struct RootView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.colorScheme) private var scheme
+    @ViewState<Bool> private var importSheetVisible = false
+    @ViewState<Bool> private var gameDetailVisible = false
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 222)
@@ -21,12 +23,7 @@ struct RootView: View {
                     Text(model.steamRunning ? model.tr("Steam 运行中", "Steam running") : model.tr("Steam 未运行", "Steam stopped")).foregroundStyle(.secondary)
                     Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).help(model.tr("刷新", "Refresh"))
                 }.font(.system(size: 11)).padding(.horizontal, 30).padding(.vertical, 18)
-                if !model.runtimeUpdateProviders.isEmpty {
-                    HStack {
-                        Label(model.tr("运行内核有更新：", "Runtime updates: ") + model.runtimeUpdateProviders.joined(separator: ", "), systemImage: "arrow.down.circle")
-                        Spacer(); Button(model.tr("查看更新", "View updates")) { model.page = .runtime }
-                    }.font(.caption).padding(12).background(Palette.accent.opacity(0.08)).padding(.horizontal, 30)
-                }
+                RuntimePreparationBanner(flow: model.runtimePreparation)
                 if model.needsRestart {
                     HStack {
                         Image(systemName: "arrow.triangle.2.circlepath")
@@ -40,11 +37,13 @@ struct RootView: View {
                         case .library: LibraryPage()
                         case .discover: DiscoverPage()
                         case .manifests: ManifestPage()
-                        case .patches: PatchesPage()
+                        case .multiplayer: MultiplayerPage()
+                        case .offlineTools: OfflineToolsPage()
                         case .achievements: AchievementsPage()
                         case .saves: SavesPage()
                         case .accounts: AccountsPage()
                         case .runtime: RuntimePage()
+                        case .containers: ContainersPage()
                         case .compatibility: CompatibilityPage()
                         case .settings: SettingsPage()
                         }
@@ -55,9 +54,15 @@ struct RootView: View {
         }
         .tint(Palette.accent)
         .task { await model.bootstrap() }
-        .sheet(item: $model.pendingImport) { session in ImportPreview(session: session).environmentObject(model) }
-        .sheet(item: $model.selectedGame) { game in GameDetailView(game: game).environmentObject(model) }
-        .alert(item: $model.message) { message in Alert(title: Text(message.title), message: Text(message.detail), dismissButton: .default(Text(model.tr("知道了", "OK")))) }
+        .sheet(isPresented: Binding(get: { model.importWorkflowPresented }, set: { if !$0 { model.closeImportWorkflow() } })) {
+            ImportWorkflowSheet().environmentObject(model).onAppear { importSheetVisible = true }.onDisappear { importSheetVisible = false }
+        }
+        .sheet(item: Binding(get: { gameDetailVisible ? nil : model.removalRequest }, set: { model.removalRequest = $0 })) { request in GameRemovalSheet(request: request).environmentObject(model) }
+        .sheet(item: Binding(get: { importSheetVisible || model.importWorkflowPresented || gameDetailVisible ? nil : model.saveRecoveryRequest }, set: { model.saveRecoveryRequest = $0 })) { request in ReinstallSaveRecoverySheet(request: request).environmentObject(model) }
+        .sheet(item: $model.selectedGame) { game in
+            GameDetailView(game: game).environmentObject(model).onAppear { gameDetailVisible = true }.onDisappear { gameDetailVisible = false }
+        }
+        .alert(item: Binding(get: { model.importActivity == nil ? model.message : nil }, set: { model.message = $0 })) { message in Alert(title: Text(message.title), message: Text(message.detail), dismissButton: .default(Text(model.tr("知道了", "OK")))) }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             Task { @MainActor in
                 var urls: [URL] = []
@@ -85,19 +90,19 @@ struct RootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(model.tr("游戏与内容", "GAMES & CONTENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.bottom, 10)
-                    ForEach([Page.library, .discover, .manifests, .patches, .achievements, .saves]) { row($0) }
+                    ForEach([Page.library, .discover, .manifests, .multiplayer, .offlineTools, .achievements, .saves]) { row($0) }
                     Text(model.tr("管理", "MANAGEMENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.top, 30).padding(.bottom, 10)
-                    ForEach([Page.accounts, .runtime, .compatibility, .settings]) { row($0) }
+                    ForEach([Page.accounts, .runtime, .containers, .compatibility, .settings]) { row($0) }
                 }
             }.scrollIndicators(.hidden)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Image(systemName: "link").foregroundStyle(Palette.accent)
-                    Text("macSteam + NotProton").font(.system(size: 10, weight: .semibold))
+                    Text(model.tr("原生 Steam 接入", "Native Steam integration")).font(.system(size: 10, weight: .semibold))
                 }
                 HStack(spacing: 6) {
                     Circle().fill(model.runtime.bothInjected ? Palette.green : Palette.amber).frame(width: 5, height: 5)
-                    Text(model.runtime.bothInjected ? model.tr("已检测到双内核", "Both libraries detected") : model.tr("查看环境状态", "Review runtime status")).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(model.runtime.bothInjected ? model.tr("自动管理", "Managed automatically") : model.tr("自动准备中", "Preparing automatically")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 Button { model.launchSteam() } label: {
                     Label(model.tr("启动 Steam", "Launch Steam"), systemImage: "play.fill").font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -133,7 +138,6 @@ struct LibraryPage: View {
     @EnvironmentObject var model: AppModel
     @ViewState<Bool> private var selecting = false
     @ViewState<Set<Int>> private var selected = []
-    @ViewState<Bool> private var confirmRemoval = false
     var chosen: [Game] { model.games.filter { selected.contains($0.id) && $0.source != "Steam" } }
     private func selection(_ game: Game) -> some View {
         Toggle("App \(game.id)", isOn: Binding(get: { selected.contains(game.id) }, set: { if $0 { selected.insert(game.id) } else { selected.remove(game.id) } })).toggleStyle(.checkbox).disabled(game.source == "Steam" || model.busy)
@@ -168,12 +172,9 @@ struct LibraryPage: View {
                     Spacer()
                     Button(model.tr("启用所选", "Enable selected")) { model.batchLibrary(chosen, action: .enable) }.disabled(chosen.isEmpty)
                     Button(model.tr("禁用所选", "Disable selected")) { model.batchLibrary(chosen, action: .disable) }.disabled(chosen.isEmpty)
-                    Button(model.tr("删除所选…", "Delete selected…"), role: .destructive) { confirmRemoval = true }.disabled(chosen.isEmpty)
+                    Button(model.tr("删除所选…", "Delete selected…"), role: .destructive) { model.requestGameRemoval(chosen); selected = [] }.disabled(chosen.isEmpty)
                 }
             }.disabled(model.busy)
-            .confirmationDialog(model.tr("备份后删除所选清单？游戏安装文件保留。", "Back up and delete selected entries? Installed games are retained."), isPresented: $confirmRemoval) {
-                Button(model.tr("删除 \(chosen.count) 个清单", "Delete \(chosen.count) entries"), role: .destructive) { model.batchLibrary(chosen, action: .remove); selected = [] }
-            }
             if model.visibleGames.isEmpty {
                 Panel {
                     EmptyMessage(icon: "tray.and.arrow.down", title: model.tr("从一份 Lua 清单开始", "Start with a Lua manifest"), detail: model.tr("拖入 Lua 或 ZIP 文件，也可以通过游戏名、AppID 搜索。已有 macSteam 入库记录会自动显示。", "Drop a Lua or ZIP file, or search by game name and AppID. Existing macSteam entries appear automatically."))

@@ -2,18 +2,17 @@
 """Prove the regression on the original, then verify patched real C functions."""
 from pathlib import Path
 import subprocess
-import tarfile
+import shutil
 ROOT = Path(__file__).resolve().parents[1]
 out = ROOT / "work/notproton-route-tests"
 out.mkdir(parents=True, exist_ok=True)
 original = out / "original"
-original.mkdir(exist_ok=True)
-archive = out / "original.tar"
-subprocess.run(["git", "-C", str(ROOT / "work/notproton"), "archive", "-o", str(archive),
-                "692b470e73d0d497ee9e474038efda819a037772", "dylib"], check=True)
-with tarfile.open(archive) as tar: tar.extractall(original, filter="data")
+if original.exists(): shutil.rmtree(original)
+shutil.copytree(ROOT / "Native/NotProtonCore/dylib", original / "dylib")
+# Recreate only the pre-fix regression baseline from our maintained source.
+subprocess.run(["git", "apply", "--reverse", str(ROOT / "Native/NotProton/webui-capacity.patch")], cwd=original, check=True)
 for label, source, expected in [("before", original, 1),
-                                ("after", ROOT / "work/notproton-kernel-source", 0)]:
+                                ("after", ROOT / "Native/NotProtonCore", 0)]:
     exe = out / label
     subprocess.run(["clang", "-std=c17", "-arch", "arm64", "-O0", "-g",
                     "-fsanitize=address,undefined", "-Wno-unused-parameter",

@@ -1,5 +1,12 @@
 import Foundation
 
+/// The installer also checks Steam's bootstrap process, which can appear before
+/// proc_pidpath exposes a usable client path to the UI process.
+public struct SteamPreparationRequiresExit: LocalizedError {
+    public init() {}
+    public var errorDescription: String? { "请退出 Steam 后自动继续 / Quit Steam to continue automatically" }
+}
+
 public struct RuntimeBackup: Identifiable, Sendable {
     public let folder: URL
     public let date: Date
@@ -22,6 +29,9 @@ public enum RuntimeInstaller {
         var remove: Bool?
         var cleanRunners: Bool?
         var recoverInterrupted: Bool?
+        var managedRoot: String?
+        var managedVersion: String?
+        var rebuildExecutable: String?
     }
     private struct Response: Decodable { var ok: Bool; var error: String?; var backup: String? }
     public static func backups(_ paths: AppPaths) -> [RuntimeBackup] {
@@ -34,12 +44,12 @@ public enum RuntimeInstaller {
             return RuntimeBackup(folder: folder, date: (try? folder.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast, interrupted: interrupted)
         }.sorted { $0.date > $1.date }
     }
-    public static func run(paths: AppPaths, kernel: String? = nil, source: URL? = nil, companion: URL? = nil, crossOver: URL? = nil, remove: Bool = false, cleanRunners: Bool = false, restoring: RuntimeBackup? = nil, status: @escaping @Sendable (String) async -> Void = { _ in }) async throws -> URL {
+    public static func run(paths: AppPaths, kernel: String? = nil, source: URL? = nil, companion: URL? = nil, crossOver: URL? = nil, remove: Bool = false, cleanRunners: Bool = false, restoring: RuntimeBackup? = nil, managedRoot: URL? = nil, managedVersion: String? = nil, application: URL = Bundle.main.bundleURL, status: @escaping @Sendable (String) async -> Void = { _ in }) async throws -> URL {
         guard #available(macOS 15, *) else { throw AppFailure("macSteam / NotProton 内核安装需要 macOS 15 或更新版本") }
-        let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NotProton/FluentNotProton")
+        let executable = application.appendingPathComponent("Contents/Helpers/NotProton/FluentNotProton")
         guard FileStore.fm.isExecutableFile(atPath: executable.path) else { throw AppFailure("未找到内核安装器，请重新完整打包应用 / Kernel installer missing; rebuild the complete application") }
-        let repair = kernel == "notproton.dylib" && !remove ? Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/NotProtonRepair/notproton.dylib") : nil
-        let r = Request(companion: companion?.path ?? "/Applications/NotProton.app", steamApp: paths.steamApp.path, steamData: paths.steam.path, notProton: paths.notProton.path, data: paths.data.path, crossOver: crossOver?.path, backup: restoring?.folder.path, kernel: kernel, source: (source ?? repair)?.path, macSteam: paths.macSteam.path, remove: remove, cleanRunners: cleanRunners, recoverInterrupted: restoring?.interrupted)
+        let repair = kernel == "notproton.dylib" && !remove ? application.appendingPathComponent("Contents/Resources/Helpers/NotProtonRepair/notproton.dylib") : nil
+        let r = Request(companion: companion?.path ?? "", steamApp: paths.steamApp.path, steamData: paths.steam.path, notProton: paths.notProton.path, data: paths.data.path, crossOver: crossOver?.path, backup: restoring?.folder.path, kernel: kernel, source: (source ?? repair)?.path, macSteam: paths.macSteam.path, remove: remove, cleanRunners: cleanRunners, recoverInterrupted: restoring?.interrupted, managedRoot: managedRoot?.path, managedVersion: managedVersion, rebuildExecutable: managedRoot == nil ? nil : executable.path)
         let command = restoring.map { $0.isNotProton ? "--restore" : "--restore-kernel" } ?? (kernel == nil ? "--install" : "--kernel")
         // Installation cannot be killed halfway through signing or swapping Steam.app.
         // The helper owns rollback and continues to completion even if this UI task is cancelled.
@@ -59,9 +69,10 @@ public enum RuntimeInstaller {
                 }
                 try await Task.sleep(for: .milliseconds(200))
             }
-            process.waitUntilExit()
+            // The child has exited; avoid a RunLoop wait after async polling.
             guard FileStore.fm.fileExists(atPath: output.path) else { throw AppFailure("内核安装器异常退出 / Kernel installer exited unexpectedly（\(process.terminationStatus)）；请检查 RuntimeBackups 中的备份 / Check the backup in RuntimeBackups") }
             let response = try FileStore.decode(Response.self, at: output)
+            if !response.ok, response.error?.hasPrefix("Close Steam:") == true { throw SteamPreparationRequiresExit() }
             guard response.ok, let backup = response.backup else { throw AppFailure(response.error ?? "内核操作失败 / Kernel operation failed") }
             return URL(fileURLWithPath: backup)
         }.value

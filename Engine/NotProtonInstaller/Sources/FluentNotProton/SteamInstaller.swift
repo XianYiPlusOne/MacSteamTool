@@ -67,6 +67,7 @@ enum SteamInstaller {
         backups: URL = SupportPaths.backups,
         compatTools: URL = SupportPaths.Steam.compatTools,
         holdingInstallationLock: Bool = false,
+        preserveExistingFonts: Bool = false,
         lockFolder: URL = SupportPaths.applicationSupport,
         modifications: SteamModifications = .shared,
         runnerIsRunning: @Sendable (URL) -> Bool = { RunnerInstaller.isRunning(from: $0) },
@@ -155,7 +156,7 @@ enum SteamInstaller {
         for file in files where file.destination != dylib {
             try installIfChanged(file)
         }
-        try removeStaleFonts(in: fonts, keeping: payload.fonts)
+        if !preserveExistingFonts { try removeStaleFonts(in: fonts, keeping: payload.fonts) }
 
         var backedUp = false
         if patching {
@@ -197,11 +198,17 @@ enum SteamInstaller {
             throw StepFailure(step: step, detail: String(localized: "These files did not update: \(remaining.joined(separator: ", "))."))
         }
 
-        if let source = ProcessInfo.processInfo.environment["FLUENT_NOTPROTON_APP"], let executable = Bundle(path: source)?.executableURL {
-            do {
+        let rebuild = ProcessInfo.processInfo.environment["FLUENT_REBUILD_EXECUTABLE"].map { URL(filePath: $0) }
+            ?? ProcessInfo.processInfo.environment["FLUENT_NOTPROTON_APP"].flatMap { Bundle(path: $0)?.executableURL }
+        if let executable = rebuild {
+            if ProcessInfo.processInfo.environment["FLUENT_REBUILD_EXECUTABLE"] != nil {
                 try RebuildPrefixCommand.recordExecutable(executable, in: support)
-            } catch {
-                AppLog.note("install: could not record the rebuild app: \(error.localizedDescription)")
+                guard (try? String(contentsOf: support.appending(path: RebuildPrefixCommand.executableRecord), encoding: .utf8)) == executable.path(percentEncoded: false) else {
+                    throw StepFailure(step: "Components", detail: "The bundled prefix rebuild helper cannot be retained; move Fluent to Applications first")
+                }
+            } else {
+                do { try RebuildPrefixCommand.recordExecutable(executable, in: support) }
+                catch { AppLog.note("install: could not record the rebuild app: \(error.localizedDescription)") }
             }
         }
         report(.finished)

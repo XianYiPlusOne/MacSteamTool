@@ -83,8 +83,8 @@ public enum AutomaticCompatibility {
         return windows ? .windowsOnly : .unknown
     }
     public static func preferredTool(_ tools: [SteamCompatibility.Tool], config: Data) throws -> String? {
-        let available = tools.filter { $0.id.hasPrefix("notproton-") }
-        // Preserve the user's global NotProton preference when it is installed.
+        let available = tools.filter { $0.id.hasPrefix("notproton-") || $0.id == FreeRuntime.toolID }
+        // Preserve the user's selected translation backend when it is installed.
         if let global = try SteamCompatibility.globalTool(config), available.contains(where: { $0.id == global }) { return global }
         return available.sorted { $0.id.compare($1.id, options: [.numeric, .literal]) == .orderedDescending }.first?.id
     }
@@ -162,7 +162,7 @@ public enum AutomaticCompatibility {
             var changes: [(URL, Data?)] = [(file(paths), try encoded(next))]
             if edited != original { changes.append((steamFile, edited)) }
             let editsSteam = edited != original
-            try FileTransaction(backupRoot: backupRoot(paths)).apply(changes, reason: "自动选择 NotProton \(report.applied.map(String.init).joined(separator: ","))",
+            try FileTransaction(backupRoot: backupRoot(paths)).apply(changes, reason: "自动应用游戏兼容层 \(report.applied.map(String.init).joined(separator: ","))",
                 expectations: [file(paths): hash, paths.config: FileStore.hash(configBytes), steamFile: FileStore.hash(original)], validate: {
                     if editsSteam && steamRunning() { throw AppFailure("Steam 已启动，自动运行器设置保留到下次退出 / Steam started; runtime changes remain queued until it exits") }
                 })

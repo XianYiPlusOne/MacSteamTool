@@ -108,16 +108,22 @@ public struct WineLaunch {
     public var environment: [String: String]
     public var prefix: URL
     public static func prepare(appID: Int, command: String, paths: AppPaths) throws -> Self {
-        guard let prefix = SteamLibrary.prefixes(paths).first(where: { $0.id == appID })?.url else { throw AppFailure("此游戏还没有 NotProton 前缀。请先通过 Steam 成功运行一次 Windows 版本 / No NotProton prefix; first launch the Windows version through Steam") }
+        guard let prefix = SteamLibrary.prefixes(paths).first(where: { $0.id == appID })?.url else { throw AppFailure("此游戏尚未初始化运行环境，请先通过原生 Steam 启动一次 / First launch this game through native Steam to initialize its environment") }
+        return try prepare(appID: appID, command: command, prefix: prefix, paths: paths)
+    }
+    /// Container tools must target the selected container, even when Steam is
+    /// currently configured to use this game's other translation backend.
+    public static func prepare(appID: Int, command: String, prefix: URL, paths: AppPaths, buildRecord: [String]? = nil) throws -> Self {
         let root = prefix.deletingLastPathComponent()
-        let record = (try? FileStore.text(root.appendingPathComponent("notproton-build")))?.components(separatedBy: .newlines)
+        if root.lastPathComponent == "fluent-free" { return try FreeRuntime.launch(appID: appID, command: command, prefix: prefix, paths: paths) }
+        let record = buildRecord ?? (try? FileStore.text(root.appendingPathComponent("notproton-build")))?.components(separatedBy: .newlines)
         let runners = RuntimeStatus.read(paths).runners
         let runner: URL
         if let build = record?.first, !build.isEmpty {
             let exact = paths.notProton.appendingPathComponent("runners/crossover-\(build)/CrossOver")
-            guard FileStore.fm.fileExists(atPath: exact.path) else { throw AppFailure("该前缀使用 CrossOver / This prefix uses CrossOver \(build)，但此运行器不存在，请在 NotProton 中修复 / Runner missing; repair it in NotProton") }; runner = exact
+            guard FileStore.fm.fileExists(atPath: exact.path) else { throw AppFailure("该前缀使用 CrossOver / This prefix uses CrossOver \(build)，但此运行器不存在，请在本程序的运行环境中重新选择该 CrossOver / Runner missing; reselect this CrossOver in this app’s runtime settings") }; runner = exact
         } else {
-            guard runners.count == 1, let only = runners.first else { throw AppFailure("无法唯一确定前缀运行器，请先在 NotProton 中运行此游戏 / Cannot identify the prefix runner; launch the game in NotProton first") }; runner = only
+            guard runners.count == 1, let only = runners.first else { throw AppFailure("无法确定此游戏使用的 CrossOver 版本，请在运行环境中选择兼容层，再通过原生 Steam 启动游戏 / Cannot identify this game's CrossOver version; choose a backend in Runtime, then launch the game through native Steam") }; runner = only
         }
         let flavor = record?.dropFirst().joined(separator: " ").lowercased() ?? ""
         let arm = runner.appendingPathComponent("lib/wine/aarch64-unix")
@@ -125,7 +131,7 @@ public struct WineLaunch {
         let unix = useFEX ? arm : runner.appendingPathComponent("lib/wine/x86_64-unix")
         let loader = useFEX ? unix.appendingPathComponent("wine.app/Contents/MacOS/wine") : unix.appendingPathComponent("wine")
         let server = runner.appendingPathComponent(useFEX ? "bin/wineserver-arm64" : "bin/wineserver")
-        guard FileStore.fm.isExecutableFile(atPath: loader.path), FileStore.fm.isExecutableFile(atPath: server.path) else { throw AppFailure("NotProton 的 Wine loader / wineserver 不完整") }
+        guard FileStore.fm.isExecutableFile(atPath: loader.path), FileStore.fm.isExecutableFile(atPath: server.path) else { throw AppFailure("CrossOver 运行器文件不完整，请在运行环境中重新选择 CrossOver / CrossOver runtime files are incomplete; reselect CrossOver in Runtime") }
         var env = ProcessInfo.processInfo.environment
         env["WINEPREFIX"] = prefix.path; env["CX_ROOT"] = runner.path
         env["CX_HOME"] = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/CrossOver").path

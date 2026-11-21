@@ -24,7 +24,7 @@ private struct DiscoverySearchContent: View {
             }
             DiscoveryChartsPanel(isExpanded: $flow.chartsExpanded)
             if flow.query.isEmpty {
-                EmptyMessage(icon: "sparkle.magnifyingglass", title: model.tr("搜索，然后添加到你的游戏库", "Search, then add to your library"), detail: model.tr("自动获取并检查内容，缺项时尝试备用来源。仍不完整时会提示；入库后可在 Steam 下载游戏。", "Content is checked automatically, with another source tried when needed. Any remaining gaps are shown; download the game in Steam after adding it."))
+                EmptyMessage(icon: "sparkle.magnifyingglass", title: model.tr("搜索，然后添加到你的游戏库", "Search, then add to your library"), detail: model.tr("点击“一键入库”后检查内容，缺项时尝试备用来源。仍不完整时会提示；入库后可在 Steam 下载游戏。", "Content is checked after clicking Add to library, with another source tried when needed. Any remaining gaps are shown; download the game in Steam after adding it."))
             } else if flow.results.isEmpty && !flow.loading && flow.error.isEmpty && flow.nextOffset == nil {
                 EmptyMessage(icon: "magnifyingglass", title: model.tr("没有找到相关游戏", "No games found"), detail: model.tr("试试其他名称或 AppID。", "Try another title or AppID."))
             }
@@ -36,6 +36,7 @@ private struct DiscoverySearchContent: View {
         .onChange(of: model.search) { _, value in
             if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { flow.clear() }
         }
+
     }
 
     private var searchFooter: some View {
@@ -87,4 +88,5 @@ private struct DiscoverySearchRow: View {
             }
         }
     }
+
 }

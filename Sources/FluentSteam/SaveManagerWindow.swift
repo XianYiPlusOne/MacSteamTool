@@ -115,7 +115,15 @@ struct ConfigurationHistoryPanel: View {
                 }.listStyle(.inset)
             }
         }.confirmationDialog(model.tr("还原所选配置？当前配置会再次备份。", "Restore this configuration? Current configuration will be backed up first."), isPresented: Binding(get: { restore != nil }, set: { if !$0 { restore = nil } })) {
-            Button(model.tr("确认还原", "Restore")) { if let restore { model.restore(restore) }; restore = nil }
+            if let record = restore, let ids = try? model.service.restoreGameIDs(record) {
+                ForEach(ids, id: \.self) { id in
+                    Button(model.tr("仅恢复游戏", "Restore only game") + " \(id)") {
+                        model.restore(record, appIDs: [id]); restore = nil
+                    }
+                }
+            } else {
+                Button(model.tr("确认还原", "Restore")) { if let restore { model.restore(restore) }; restore = nil }
+            }
         }
     }
 }

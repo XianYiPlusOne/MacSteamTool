@@ -62,7 +62,6 @@ macos/live_playtime.cpp
 macos/runtime_settings.cpp
 macos/ticket_hooks.cpp
 macos/ownership_hooks.cpp
-macos/onlinefix.cpp
 macos/manifest_provider.cpp
 macos/manifest_json.mm
 macos/access_tokens.cpp
@@ -88,9 +87,6 @@ target_link_libraries(FluentCloudProbe PRIVATE cloud_redirect)
 target_link_libraries(cloud_redirect PRIVATE dobby_static curl "-framework Foundation")
 target_link_options(cloud_redirect PRIVATE "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/macos/hidden_symbols.txt")
 add_executable(FluentRuntimeProbe tests/runtime_probe.cpp)
-add_executable(FluentOnlineFixProbe tests/onlinefix_probe.cpp)
-target_include_directories(FluentOnlineFixProbe PRIVATE common providers macos "${DOBBY_SOURCE}/include")
-target_link_libraries(FluentOnlineFixProbe PRIVATE cloud_redirect dobby_static)
 target_include_directories(FluentRuntimeProbe PRIVATE common providers macos)
 target_link_libraries(FluentRuntimeProbe PRIVATE cloud_redirect dobby_static)
 add_executable(FluentProviderProbe tests/provider_probe.cpp)

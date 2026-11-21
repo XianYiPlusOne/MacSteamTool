@@ -29,7 +29,7 @@ internal static class OwnedExtraction
     }
     public static async Task<ExtractionResult> Run(uint root, bool includeDLC, ISet<uint> owned,
         Func<uint, Task<ExtractionApp>> fetch, Func<uint, uint, Task<(string Key, string Result)>> key,
-        CancellationToken ct)
+        CancellationToken ct, ISet<uint>? requestedDepots = null)
     {
         if (!owned.Contains(root)) throw new Exception("This signed-in account has no license for the selected app");
         var warnings = new List<string>(); var known = new Dictionary<uint, ExtractionApp>();
@@ -58,6 +58,11 @@ internal static class OwnedExtraction
                 if (unique.Count >= 10000) throw new Exception("Depot graph exceeds 10000 entries");
                 unique.Add(depot.ID, depot);
             }
+        if (requestedDepots != null) {
+            if (requestedDepots.Count == 0 || requestedDepots.Any(id => !unique.ContainsKey(id)))
+                throw new Exception("Requested depot is not in this account's accessible app metadata");
+            foreach (var id in unique.Keys.Except(requestedDepots).ToArray()) unique.Remove(id);
+        }
         using var limit = new SemaphoreSlim(6);
         var requests = unique.Values.Select(async depot => {
             await limit.WaitAsync(ct);

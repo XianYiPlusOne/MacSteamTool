@@ -36,7 +36,7 @@ import FluentCore
             let direct = metadata["kind"] == "crossOver", bottle = root.appendingPathComponent("Library/Application Support/Steam/steamapps/compatdata/900001/pfx")
             guard bottle.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") else { throw AppFailure("Fixture bottle must be isolated") }
             if ["preview", "deploy"].contains(args[2]) {
-                var plan = try GamePatches.onlinePlan(package: root.appendingPathComponent("Payload"), gameRoot: game, appID: 900001, executable: exe, paths: paths, bottle: direct ? bottle : nil, crossOverApp: direct ? root.appendingPathComponent("CrossOver.app") : nil)
+                var plan = try GamePatches.windowsPlan(package: root.appendingPathComponent("Payload"), gameRoot: game, appID: 900001, executable: exe, paths: paths, bottle: direct ? bottle : nil, crossOverApp: direct ? root.appendingPathComponent("CrossOver.app") : nil)
                 plan = try GamePatches.addingOverrides(to: plan, executable: exe, libraries: ["version"], paths: paths)
                 if args[2] == "deploy" { try await PatchLoadVerification.assertStopped(target: plan.windowsTarget!, appID: plan.appID, paths: paths); try FileStore.json(GamePatches.install(plan, paths: paths), to: root.appendingPathComponent("receipt.json")) }
                 print("PASS: Windows \(plan.windowsTarget!.architecture.rawValue) / \(plan.windowsTarget!.kind.rawValue) platform and architecture validated; \(args[2])"); return

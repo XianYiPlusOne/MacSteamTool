@@ -23,7 +23,7 @@ public enum OfflineTools {
         let machine = UInt16(bytes[offset+4]) | UInt16(bytes[offset+5]) << 8
         guard machine == 0x14c || machine == 0x8664 else { throw AppFailure("仅支持 Windows x86 / x64 游戏") }; return machine
     }
-    public static func goldberg(package: URL, gameRoot: URL, appID: Int, dlcs: [Int], accountName: String, language: String, lan: Bool, achievements: [Achievement]?, inventory: OfflineInventory? = nil, schema: OfflineSchema? = nil, destination: URL) throws -> PatchPlan {
+    public static func goldberg(package: URL, gameRoot: URL, appID: Int, dlcs: [Int], accountName: String, language: String, achievements: [Achievement]?, inventory: OfflineInventory? = nil, schema: OfflineSchema? = nil, destination: URL) throws -> PatchPlan {
         let tool = try ToolPackage.load(package, provider: "goldberg")
         guard !FileStore.fm.fileExists(atPath: destination.path), UInt32(exactly: appID) != nil, appID > 0,
               !accountName.isEmpty, accountName.count <= 80, !accountName.contains(where: { "\r\n\0".contains($0) }), ["english", "schinese"].contains(language) else { throw AppFailure("离线配置或缓存目录无效 / Invalid offline configuration or cache directory") }
@@ -55,7 +55,7 @@ public enum OfflineTools {
                 try FileStore.write(Data("\(appID)\n".utf8), to: output.deletingLastPathComponent().appendingPathComponent("steam_appid.txt"))
                 let user = "[user::general]\naccount_name=\(accountName)\nlanguage=\(language)\n\n[user::saves]\nlocal_save_path=./steam_settings/FluentOfflineSaves\n"
                 let apps = "[app::dlcs]\nunlock_all=0\n" + dlcs.filter { $0 > 0 }.sorted().map { "\($0)=DLC \($0)\n" }.joined()
-                let main = "[main::connectivity]\ndisable_networking=\(lan ? 0 : 1)\noffline=\(lan ? 0 : 1)\n"
+                let main = "[main::connectivity]\ndisable_networking=1\noffline=1\n"
                 for (name, text) in [("configs.user.ini", user), ("configs.app.ini", apps), ("configs.main.ini", main)] { try FileStore.write(Data(text.utf8), to: settings.appendingPathComponent(name)) }
                 if let inventory {
                     try FileStore.json(inventory.items, to: settings.appendingPathComponent("items.json"))

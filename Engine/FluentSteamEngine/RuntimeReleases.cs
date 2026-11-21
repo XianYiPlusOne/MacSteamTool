@@ -62,7 +62,9 @@ internal static class RuntimeReleases
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FluentSteamMac/0.2");
         if (r.Operation == "runtime-release") {
             var repo = Repository(r.Provider);
-            using var latest = await http.GetAsync($"https://github.com/{repo}/releases/latest", HttpCompletionOption.ResponseHeadersRead, ct);
+            var requestedTag = r.Query?.Trim() ?? "";
+            if (requestedTag.Length > 0 && !Regex.IsMatch(requestedTag, "^v?[0-9]+(?:\\.[0-9]+){1,3}$")) throw new Exception("Invalid runtime release tag");
+            using var latest = await http.GetAsync($"https://github.com/{repo}/releases/" + (requestedTag.Length == 0 ? "latest" : "tag/" + requestedTag), HttpCompletionOption.ResponseHeadersRead, ct);
             latest.EnsureSuccessStatusCode(); var location = latest.RequestMessage!.RequestUri!;
             var prefix = $"https://github.com/{repo}/releases/tag/";
             if (!location.AbsoluteUri.StartsWith(prefix, StringComparison.Ordinal)) throw new Exception("Unexpected official release redirect");

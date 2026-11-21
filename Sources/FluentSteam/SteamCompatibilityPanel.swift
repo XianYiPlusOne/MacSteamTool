@@ -10,7 +10,7 @@ struct SteamCompatibilityPanel: View {
     var body: some View {
         Panel {
             Text(model.tr("新入库游戏自动选择运行器", "Automatic runtime for imported games")).font(.headline)
-            Text(model.tr("已启用：只有 Windows 可用内容时，自动选择已安装的 NotProton。保留已有逐游戏设置和可用 macOS 内容。Steam 运行时先排队，退出后自动备份应用；从本应用启动或重启 Steam 时也会先处理。", "Enabled: Windows-only content uses an installed NotProton runtime automatically. Existing per-game settings and available macOS content are preserved. Changes queue while Steam runs and apply with a backup after it exits, including before launch or restart from this app.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("已启用：只有 Windows 可用内容时，自动选择已安装的 Wine 或 CrossOver，优先保留全局偏好。保留已有逐游戏设置和可用 macOS 内容。Steam 运行时先排队，退出后自动备份应用。", "Enabled: Windows-only content uses an installed Wine or CrossOver backend, respecting the global preference. Existing per-game settings and available macOS content are preserved. Changes queue while Steam runs and apply with a backup after it exits.")).font(.caption).foregroundStyle(.secondary)
             if !model.automaticCompatibilityStatus.isEmpty { Text(model.automaticCompatibilityStatus).font(.caption).textSelection(.enabled) }
             Button(model.tr("重新检查待处理游戏", "Retry pending games")) { model.reconcileAutomaticCompatibility(force: true) }.disabled(model.busy || model.automaticCompatibilityTask != nil)
             Divider()
@@ -20,7 +20,7 @@ struct SteamCompatibilityPanel: View {
                 TextField("AppID", text: $appID).textFieldStyle(.roundedBorder).frame(width: 130).onChange(of: appID) { _, _ in readCurrent() }
                 Picker(model.tr("运行方式", "Runtime"), selection: $tool) {
                     Text(model.tr("跟随 Steam 默认设置", "Follow Steam defaults")).tag("")
-                    ForEach(tools) { Text($0.name).tag($0.id) }
+                    ForEach(tools) { Text(backendName($0.id)).tag($0.id) }
                 }
                 Button(model.tr("备份并保存", "Back up & save")) {
                     guard let id = TextUtil.validID(appID) else { return }
@@ -38,6 +38,7 @@ struct SteamCompatibilityPanel: View {
                 Button(model.tr("打开配置备份", "Open configuration backups")) { model.openFolder(model.paths.data.appendingPathComponent("CompatibilityBackups")) }
             }
         }.onAppear(perform: reload)
+            .onChange(of: model.busy) { _, busy in if !busy { reload() } }
     }
     private func reload() {
         do { tools = try SteamCompatibility.tools(paths: model.paths); readCurrent() } catch { model.fail(error) }
@@ -47,7 +48,15 @@ struct SteamCompatibilityPanel: View {
         do {
             let value = try SteamCompatibility.mapping(FileStore.read(model.paths.steam.appendingPathComponent("config/config.vdf")), appID: id)?.string("name")
             tool = tools.contains(where: { $0.id == value }) ? value! : ""
-            current = model.tr("当前：", "Current: ") + (value ?? model.tr("跟随 Steam 默认设置", "Follow Steam defaults"))
+            current = model.tr("当前：", "Current: ") + (value.map(backendName) ?? model.tr("跟随 Steam 默认设置", "Follow Steam defaults"))
         } catch { current = error.localizedDescription }
+    }
+    private func backendName(_ id: String) -> String {
+        if id == FreeRuntime.toolID { return model.tr("Wine（实验性 DX11）", "Wine (experimental DX11)") }
+        let name = tools.first(where: { $0.id == id })?.name ?? id
+        if id == "notproton" || id.hasPrefix("notproton-") {
+            return name.replacingOccurrences(of: "NotProton", with: "CrossOver", options: .caseInsensitive)
+        }
+        return name
     }
 }

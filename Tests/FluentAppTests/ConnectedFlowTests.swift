@@ -42,6 +42,9 @@ import Testing
         }
         model.addToLibrary(480, dlc: true); await settle(model)
         #expect(model.message == nil)
+        #expect(model.pendingImport?.complete == true); #expect(model.games.isEmpty)
+        #expect(model.pendingImport?.checkLog.isEmpty == false)
+        model.commitImport(); await settle(model)
         #expect(model.pendingImport == nil); #expect(model.games.first?.enabled == true)
         let imported = try FileStore.read(model.paths.lua.appendingPathComponent("480.lua"))
         model.batchLibrary(model.games, action: .disable); await settle(model)
@@ -126,7 +129,7 @@ import Testing
         await model.bootstrap()
         #expect(model.message == nil); #expect(model.preferences.theme == "dark"); #expect(model.preferences.language == "en")
         #expect(Page(rawValue: "trainers") == nil)
-        #expect(Set(Page.allCases.map(\.rawValue)) == Set(["library", "discover", "manifests", "patches", "achievements", "saves", "accounts", "runtime", "compatibility", "settings"]))
+        #expect(Set(Page.allCases.map(\.rawValue)) == Set(["library", "discover", "manifests", "multiplayer", "offlineTools", "achievements", "saves", "accounts", "runtime", "containers", "compatibility", "settings"]))
         let saved = try #require(JSONSerialization.jsonObject(with: FileStore.read(model.defaults.settings)) as? [String: Any])
         #expect(saved["trainers"] == nil); #expect(saved["independentTrainerMonitor"] == nil)
     }
