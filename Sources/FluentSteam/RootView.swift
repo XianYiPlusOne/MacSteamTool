@@ -44,7 +44,6 @@ struct RootView: View {
                         case .accounts: AccountsPage()
                         case .runtime: RuntimePage()
                         case .containers: ContainersPage()
-                        case .compatibility: CompatibilityPage()
                         case .settings: SettingsPage()
                         }
                     }.padding(30).frame(maxWidth: 1450, alignment: .topLeading).frame(maxWidth: .infinity)
@@ -92,7 +91,7 @@ struct RootView: View {
                     Text(model.tr("游戏与内容", "GAMES & CONTENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.bottom, 10)
                     ForEach([Page.library, .discover, .manifests, .multiplayer, .offlineTools, .achievements, .saves]) { row($0) }
                     Text(model.tr("管理", "MANAGEMENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.top, 30).padding(.bottom, 10)
-                    ForEach([Page.accounts, .runtime, .containers, .compatibility, .settings]) { row($0) }
+                    ForEach([Page.accounts, .runtime, .containers, .settings]) { row($0) }
                 }
             }.scrollIndicators(.hidden)
             VStack(alignment: .leading, spacing: 12) {

@@ -126,7 +126,7 @@ struct SettingsPage: View {
                 FeedbackPanel()
                 Panel {
                     Text("Fluent Steam Mac · " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0")).font(.headline)
-                    Text(model.tr("基于 Fluent-Steam-Lua 的功能设计重新实现的 macOS 移植开发版。详细实现范围见“功能对照”。", "A macOS development port based on Fluent-Steam-Lua's feature design. See Feature parity for implementation details.")).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(model.tr("基于 Fluent-Steam-Lua 的功能设计重新实现的 macOS 移植开发版。", "A macOS development port based on Fluent-Steam-Lua's feature design.")).font(.system(size: 12)).foregroundStyle(.secondary)
                     HStack { Button(model.tr("原项目 ↗", "Original project ↗")) { model.openURL("https://github.com/huanyuejue/Fluent-Steam-Lua") }; Button("macSteam ↗") { model.openURL("https://github.com/crghofficial/macsteam") }; Button("NotProton ↗") { model.openURL("https://github.com/NotProtonNot/NotProton") } }
                 }
             }.padding(model.page == .settings ? 0 : 24)
@@ -138,59 +138,5 @@ struct SettingsPage: View {
             TextField(placeholder, text: value).textFieldStyle(.roundedBorder).font(.system(size: 10))
             Button { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = app; if panel.runModal() == .OK, let url = panel.url { value.wrappedValue = url.path } } label: { Image(systemName: "folder") }
         }.padding(.vertical, 3)
-    }
-}
-
-struct FeatureRow: Identifiable {
-    let name: String; let english: String; let level: Int; let note: String; let englishNote: String
-    var id: String { name }
-}
-struct CompatibilityPage: View {
-    @EnvironmentObject var model: AppModel
-    let features: [FeatureRow] = [
-        .init(name: "游戏库 / 三种布局 / 搜索 / 封面", english: "Library, layouts, search, covers", level: 2, note: "读取 macSteam、Lua 和本地 Steam 库", englishNote: "Reads macSteam, Lua and local Steam libraries"),
-        .init(name: "多格式导入 / Lua、Manifest、Bin 导出", english: "Archive import / Lua, Manifest and Bin export", level: 2, note: "ZIP / TAR / 7z / RAR：受限解压、预览、备份与还原", englishNote: "ZIP/TAR/7z/RAR: bounded extraction, preview, backup and rollback"),
-        .init(name: "名称 / AppID 搜索与生成入库", english: "Search and generate Lua", level: 2, note: "Steam 商店 + depot 数据源，入库前预览", englishNote: "Steam Store and depot sources, with import preview"),
-        .init(name: "DLC 查询、补全、清单启用 / 禁用", english: "DLC lookup, completion, enable/disable", level: 2, note: "写入 macSteam 的 Apps / DepotKeys", englishNote: "Updates macSteam Apps and DepotKeys"),
-        .init(name: "Lua addtoken 访问令牌", english: "Lua addtoken access tokens", level: 1, note: "生成时写入 Steam 为当前账号签发的主游戏和 DLC 令牌，公开仓库资料缺失时向 Steam 补查。支持热启用与禁用，真实账号在线验证待完成。", englishNote: "Generation writes Steam-issued game and DLC tokens for the signed-in account and checks Steam for missing depot metadata. Supports live enable/disable. Live account verification pending."),
-        .init(name: "独立游戏容器 / Windows 工具 / 备份恢复", english: "Game containers, Windows tools, backup and restore", level: 2, note: "按游戏创建 Wine / CrossOver 容器，支持设置、注册表、EXE / MSI、备份恢复与重置", englishNote: "Per-game Wine/CrossOver containers with settings, registry, EXE/MSI, backups, restoration and reset"),
-        .init(name: "Steam 启动 / 重启 / 本地账号切换", english: "Steam launch, restart, account switch", level: 2, note: "复用已保存登录记录，切换前需退出 Steam", englishNote: "Uses remembered logins; Steam must be closed for switching"),
-        .init(name: "版本锁定 / Manifest 下载", english: "Version pins / manifest downloads", level: 1, note: "Fluent Manifest 扩展已通过真实 ARM64 Steam 函数隔离测试；支持 build 1792618285 public 分支和有效缓存，真实下载待回归", englishNote: "Fluent Manifest passed isolated tests against real ARM64 Steam functions; build 1792618285 public branch and validated caches supported, live downloads unverified"),
-        .init(name: "内核安装 / 更新 / 卸载", english: "Kernel install, update and uninstall", level: 2, note: "官方版本查询、下载与校验已实测；匹配 Steam build 后选为来源，沿用备份安装与恢复", englishNote: "Official release checks, downloads and validation passed; matching Steam builds select a source for backed-up installation and restore"),
-        .init(name: "本地存档备份 / 还原 / 清空", english: "Local save backup, restore and reset", level: 2, note: "校验后还原，替换和清空前保存当前副本", englishNote: "Verified restoration; current files are backed up before replacement or clearing"),
-        .init(name: "云存档 API 重定向 / 自动迁移", english: "Cloud API redirection and migration", level: 1, note: "本地 WebDAV/S3/R2 双客户端上传、恢复与错误路径已通过；真实外部服务和游戏内恢复待验证", englishNote: "Loopback WebDAV/S3/R2 independent-client upload, restore and failure paths passed; external services and in-game restoration remain unverified"),
-        .init(name: "正版账号在线提取 Lua / 密钥", english: "Online owned-game and key extraction", level: 1, note: "DLC 递归、共享仓库、权限与部分失败、可选本地成就 Bin 已接入；扫码实测暂缓", englishNote: "DLC recursion, shared depots, licensing, partial failures and optional local schema Bin implemented; authenticated testing deferred"),
-        .init(name: "成就管理 / 正常游玩解锁", english: "Achievement management and gameplay unlocks", level: 1, note: "新入库自动准备；深空当铺正常游玩解锁、通知及独立回读通过。本次正常初始化已验收，不代表 Valve 公开资料同步", englishNote: "Automatic preparation for new games; Probably Stolen gameplay unlock, notification and independent read passed. Current successful initialization accepted; no claim of Valve public-profile sync"),
-        .init(name: "游戏启动检查", english: "Game startup diagnostics", level: 2, note: "按选定游戏读取最近 Unity 日志，区分初始化失败、成功和无法判断；不修改游戏或存档", englishNote: "Reads only the selected game's latest Unity log and distinguishes failed, successful and unknown initialization without modifying game data"),
-        .init(name: "创意工坊", english: "Steam Workshop", level: 2, note: "深空当铺订阅下载问题已修复，用户确认正常；实际游戏识别到 14 个工坊项目", englishNote: "Probably Stolen subscription downloads repaired and confirmed working by the user; the game detected 14 Workshop items"),
-        .init(name: "Denuvo appticket / eticket", english: "Denuvo appticket / eticket", level: 1, note: "双票据导入、账号绑定消费与异步回调已实现；480 原生实机消费通过，Denuvo 游戏待验证", englishNote: "Import, account-bound consumption and async callbacks implemented; live native 480 consumption passed; Denuvo games unverified"),
-        .init(name: "ConnectTool 联机", english: "ConnectTool multiplayer", level: 1, note: "页面内集成房间、邀请、聊天/置顶、TCP 和 TUN；本机房间流程通过，双设备待验收", englishNote: "Embedded rooms, invitations, chat/pinning, TCP and TUN; local room flow passed; two-device acceptance pending"),
-        .init(name: "SteamStub 去除 / Goldberg 部署", english: "SteamStub removal / Goldberg deployment", level: 1, note: "官方 Steamless 插件与合成 PE 解包通过；Goldberg 本地 480 API / 成就往返通过，实际游戏待测", englishNote: "Official Steamless plugins and synthetic PE unpack passed; Goldberg local 480 API/achievement round trip passed; actual games pending"),
-        .init(name: "自选游戏目录 / 离线成就定义", english: "Custom game folders / offline achievement definitions", level: 1, note: "文件夹名称查询 AppID、手动输入、Web API 成就定义和可选图标；商店查询实测通过，在线定义待提供 API Key", englishNote: "Folder-name AppID search, manual entry, Web API definitions and optional icons; live Store search passed; online definitions await an API key"),
-        .init(name: "Manifest 自动监听修复 / CDN 切换", english: "Manifest monitoring and CDN fallback", level: 2, note: "监听新增日志请求，验证内容后写入 depotcache", englishNote: "Tails new log requests and validates downloaded manifests before caching"),
-        .init(name: "好友游玩状态广播", english: "Friend game presence", level: 2, note: "广播名称跟随应用语言；好友通知已通过用户实测验收", englishNote: "Presence titles follow the app language; friend notifications accepted through user testing"),
-        .init(name: "云统计 / 游戏时长", english: "Cloud statistics and playtime", level: 1, note: "WebDAV/S3/R2 同时写入版本校验、冲突重试、断线重开补传及独立客户端合并通过本地服务测试；外部账号与实体设备待验收", englishNote: "WebDAV/S3/R2 conditional writes, conflict retries, offline restart recovery and independent-client merges passed loopback tests; external accounts and physical devices remain unverified"),
-        .init(name: "内核 Manifest Provider 热切换", english: "Kernel manifest provider switching", level: 1, note: "macSteam / Steam / 自定义 HTTPS，按 AppID 热加载；实际 macSteam 函数隔离回归通过", englishNote: "Per-app hot switching between macSteam, Steam and custom HTTPS; isolated tests against the actual macSteam handler passed"),
-        .init(name: "签名自动更新 / 本地更新", english: "Signed online and local updates", level: 2, note: "可配置 HTTPS 更新源、启动检查、签名与摘要校验、原子替换及上一版备份；暂无公共发布地址", englishNote: "Configurable HTTPS feed, launch checks, signature/digest validation, atomic replacement and previous-version backup; no public feed yet"),
-        .init(name: "反馈报告 / 下载偏好 / 离线库存", english: "Feedback, download preferences and offline inventory", level: 2, note: "本地报告预览与导出、GitHub 镜像测速、Steam CDN 偏好、Goldberg 库存定义导入", englishNote: "Local report preview/export, GitHub mirror benchmarking, Steam CDN preferences and Goldberg inventory definitions"),
-        .init(name: "菜单栏常驻 / 窗口恢复", english: "Menu bar and window restoration", level: 2, note: "关闭主窗口后可继续监听，从菜单栏恢复", englishNote: "Monitoring continues after closing the main window; restore it from the menu bar"),
-        .init(name: "浅色 / 深色 / 语言 / 文件监控", english: "Themes, language, file monitoring", level: 2, note: "双语主界面、背景材质开关、核心错误和导入警告的双语说明", englishNote: "Bilingual UI, optional background material, and bilingual core errors and import warnings")
-    ]
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            PageHeader(title: model.tr("功能对照与移植进度", "Feature parity and port status"), subtitle: model.tr("对照原项目 1.5.4.2 · 已补齐主要编码缺口，以下注明各项验证范围。", "Compared with upstream 1.5.4.2. Major implementation gaps filled; validation scope is listed below.")) { EmptyView() }
-            Panel {
-                Text(model.tr("macSteam 是 macOS 内核；OpenSteamTool 是 Windows 内核。二者接口并不相同，Windows DLL 功能不能仅靠更换界面实现。", "macSteam and OpenSteamTool expose different runtime interfaces. Windows DLL features require additional native porting.")).font(.system(size: 13)).foregroundStyle(.secondary)
-            }
-            ForEach(features) { feature in
-                Panel(padding: 16) {
-                    HStack {
-                        Image(systemName: feature.level == 2 ? "checkmark.circle.fill" : feature.level == 1 ? "circle.lefthalf.filled" : "circle.dashed").foregroundStyle(feature.level == 2 ? Palette.green : feature.level == 1 ? Palette.amber : .secondary)
-                        VStack(alignment: .leading, spacing: 5) { Text(model.tr(feature.name, feature.english)).font(.system(size: 13, weight: .semibold)); Text(model.tr(feature.note, feature.englishNote)).font(.system(size: 11)).foregroundStyle(.secondary) }
-                        Spacer(); Pill(text: feature.level == 2 ? model.tr("已实现", "Implemented") : feature.level == 1 ? model.tr("部分实现", "Partial") : model.tr("待移植", "Not ported"), color: feature.level == 2 ? Palette.green : feature.level == 1 ? Palette.amber : .secondary)
-                    }
-                }
-            }
-        }
     }
 }

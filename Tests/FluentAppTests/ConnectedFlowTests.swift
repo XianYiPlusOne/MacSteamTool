@@ -142,7 +142,7 @@ import Testing
         await model.bootstrap()
         #expect(model.message == nil); #expect(model.preferences.theme == "dark"); #expect(model.preferences.language == "en")
         #expect(Page(rawValue: "trainers") == nil)
-        #expect(Set(Page.allCases.map(\.rawValue)) == Set(["library", "discover", "manifests", "multiplayer", "offlineTools", "achievements", "saves", "accounts", "runtime", "containers", "compatibility", "settings"]))
+        #expect(Set(Page.allCases.map(\.rawValue)) == Set(["library", "discover", "manifests", "multiplayer", "offlineTools", "achievements", "saves", "accounts", "runtime", "containers", "settings"]))
         let saved = try #require(JSONSerialization.jsonObject(with: FileStore.read(model.defaults.settings)) as? [String: Any])
         #expect(saved["trainers"] == nil); #expect(saved["independentTrainerMonitor"] == nil)
     }

@@ -4,13 +4,13 @@ import UniformTypeIdentifiers
 import FluentCore
 
 enum Page: String, CaseIterable, Identifiable {
-    case library, discover, manifests, multiplayer, offlineTools, achievements, saves, accounts, runtime, containers, compatibility, settings
+    case library, discover, manifests, multiplayer, offlineTools, achievements, saves, accounts, runtime, containers, settings
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .library: "square.grid.2x2"; case .discover: "plus.magnifyingglass"; case .manifests: "doc.text"
         case .saves: "externaldrive.badge.icloud"; case .accounts: "person.crop.circle"
-        case .runtime: "cpu"; case .compatibility: "checklist"; case .settings: "gearshape"
+        case .runtime: "cpu"; case .settings: "gearshape"
         case .achievements: "trophy"
         case .multiplayer: "network"
         case .offlineTools: "wrench.and.screwdriver"
@@ -21,7 +21,7 @@ enum Page: String, CaseIterable, Identifiable {
         switch self {
         case .library: ("游戏库", "Library"); case .discover: ("搜索入库", "Discover"); case .manifests: ("清单管理", "Manifests")
         case .saves: ("存档与备份", "Saves & backups"); case .accounts: ("Steam 账号", "Steam accounts")
-        case .runtime: ("运行环境", "Runtime"); case .compatibility: ("功能对照", "Feature parity"); case .settings: ("设置", "Settings")
+        case .runtime: ("运行环境", "Runtime"); case .settings: ("设置", "Settings")
         case .achievements: ("成就管理", "Achievements")
         case .multiplayer: ("联机", "Multiplayer")
         case .offlineTools: ("离线工具", "Offline tools")
