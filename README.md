@@ -219,6 +219,8 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 ### Lua 访问令牌
 
+“添加到游戏库”和“补全 DLC”在已登录 SteamKit 账号时，会把 Steam 为相应 AppID 签发的访问令牌写入生成的 Lua。公开资料缺少 depot 或查询失败时，生成器会用对应令牌向 Steam 补查仓库、分支清单和 DLC。没有登录或 Steam 没有签发令牌时，仍可使用公开资料生成清单。“补全 DLC”会保留已有 Lua 中的令牌。
+
 导入和启用 Lua 时，`addtoken` 同步为 `FluentAccessTokens`，禁用时随 AppID 移除。已有 Lua 使用“同步已有 Lua 锁定与令牌”；需要运行环境中的 Fluent 原生运行时扩展。令牌约每秒热加载，只注入已启用 AppID 的 PICS 请求；UInt64 使用十进制文本保存，不经过浮点转换。原生隔离测试验证真实 Steam protobuf、发送钩子和调用者数据恢复，没有发送虚构令牌到网络。
 
 ### 0.2.1：按 AppID 选择 Steam Play 运行器

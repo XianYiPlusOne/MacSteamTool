@@ -32,15 +32,14 @@ extension AppModel {
             let merged = try LuaDocument.parse(String(decoding: repaired.data, as: UTF8.self), suggestedID: id)
             var keys: [Int: String] = [:]
             for entry in merged.depots { keys[entry.id] = entry.key }
+            let metadata = self.generationMetadata(includeDLC: session.includeDLC, excludingDLC: session.excludedDLC)
             let check = try await LibraryContentChecker.check(appID: id, includeDLC: session.includeDLC,
-                excludingDLC: session.excludedDLC, context: context, keys: keys, appInfo: { appID in
-                    if let fetch = await self.libraryInfoFetch { return try await fetch(appID) }
-                    return try await self.api.appInfo(appID)
-                })
+                excludingDLC: session.excludedDLC, context: context, keys: keys, appInfo: { try await metadata.appInfo($0) })
             guard try LibraryInstallContext.read(appID: id, paths: self.paths) == context else {
                 throw AppFailure("运行设置已变化，请重新检查 / Runtime settings changed; retry the check")
             }
             var plan = try self.service.plan([repaired])
+            plan.warnings += await metadata.notices
             plan.warnings = Array(Set(plan.warnings + check.issues + check.missingDepotIDs.map { "Depot \($0) 缺少密钥 / Missing depot key" })).sorted()
             self.pendingImport = ImportSession(plan: plan, automatic: true, complete: check.complete,
                 notes: session.notes + [self.tr("已取得 Steam 授权内容：", "Authorized Steam content received: ") + missing.sorted().map(String.init).joined(separator: ", "),

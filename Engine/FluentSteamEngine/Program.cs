@@ -45,7 +45,7 @@ internal static class Program
     }
 }
 
-internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null, uint[]? DepotIDs = null);
+internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null, uint[]? DepotIDs = null, uint[]? AppIDs = null, uint[]? MissingDepotAppIDs = null);
 
 internal sealed class Session : IDisposable
 {
@@ -107,6 +107,7 @@ internal sealed class Session : IDisposable
             return new { ok = true, account = r.Account, token };
         }
         await LogOn(r, ct);
+        if (r.Operation == "generation-metadata") return await GenerationMetadata(r, ct);
         if (r.Operation == "anonymous") return new { ok = true, protocol = "SteamKit2 3.4.0", connected = true };
         if (r.Operation == "library")
         {
@@ -164,6 +165,56 @@ internal sealed class Session : IDisposable
         }
         throw new Exception("Unknown operation");
     }
+    async Task<object> GenerationMetadata(Request request, CancellationToken ct)
+    {
+        var ids = request.AppIDs?.Distinct().ToArray() ?? [];
+        if (ids.Length is 0 or > 100 || ids.Contains(0u)) throw new ArgumentException("Invalid generation AppIDs");
+        var issued = await apps.PICSGetAccessTokens(ids, []).ToTask().WaitAsync(ct);
+        var tokens = ids.Where(id => issued.AppTokens.GetValueOrDefault(id) != 0)
+            .ToDictionary(id => id, id => issued.AppTokens[id]);
+        var missing = (request.MissingDepotAppIDs ?? []).Intersect(tokens.Keys).ToArray();
+        var metadata = new Dictionary<uint, string>();
+        if (missing.Length > 0)
+        {
+            var requests = missing.Select(id => new SteamApps.PICSRequest(id, tokens[id]));
+            try
+            {
+                var response = await apps.PICSGetProductInfo(requests, []).ToTask().WaitAsync(TimeSpan.FromSeconds(30), ct);
+                foreach (var callback in response.Results ?? Enumerable.Empty<SteamApps.PICSProductInfoCallback>())
+                foreach (var (id, app) in callback.Apps)
+                {
+                    if (!app.MissingToken && missing.Contains(id))
+                        metadata[id] = ProductMetadataJson(app.KeyValues);
+                }
+            }
+            // The app tokens have already been issued. A missing product response
+            // is returned as null so the caller can retain them and the public data.
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is TimeoutException or AsyncJobFailedException or OperationCanceledException) { }
+        }
+        var generationApps = tokens.Select(pair => new {
+            id = pair.Key, accessToken = pair.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            productInfo = metadata.GetValueOrDefault(pair.Key)
+        });
+        return new { ok = true, generationApps };
+    }
+
+    internal static string ProductMetadataJson(KeyValue app)
+    {
+        // Keep the SteamCMD shape so both sources share the Swift depot/branch parser.
+        static object Value(KeyValue node)
+        {
+            if (node.Value != null) return node.Value;
+            var children = new Dictionary<string, object>();
+            foreach (var child in node.Children)
+                if (child.Name != null) children[child.Name] = Value(child);
+            return children;
+        }
+        var fields = new Dictionary<string, object>();
+        foreach (var field in app.Children)
+            if (field.Name is "common" or "extended" or "depots") fields[field.Name] = Value(field);
+        return JsonSerializer.Serialize(fields);
+    }
+
     async Task<HashSet<uint>> OwnedIDs(CancellationToken ct)
     {
         var list = await licenses.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);

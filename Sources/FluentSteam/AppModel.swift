@@ -136,7 +136,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     var monitorTask: Task<Void, Never>?
     var didBootstrap = false
     var remotePackageFetch: ((Int, Preferences, URL) async throws -> [ImportFile])?
-    var githubPackageFetch: (Int) async throws -> [ImportFile] = { try await RemoteLuaPackage.fetchGitHub(appID: $0) }
+    var libraryPackageFallbacks: (Int) -> [AutomaticLibraryImport.RemoteSource] = RemoteLuaPackage.libraryFallbacks
     var libraryInfoFetch: ((Int) async throws -> AppInfo)?
     var libraryKeyFetch: ((Bool) async throws -> [Int: String])?
     var hubCredentialLoad: () throws -> ManifestHubCredential? = { try ManifestHubCredential.load() }
@@ -397,6 +397,8 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             }, cachedKeys: {
                 if let fetch = self.libraryKeyFetch { return try await fetch(false) }
                 return try await self.content.libraryKeys(preferences: preferences, refresh: false)
+            }, steamCachedKeys: { missing in
+                try SteamLibrary.cachedDepotKeys(missing, paths: self.paths)
             }, refreshKeys: {
                 if let fetch = self.libraryKeyFetch { return try await fetch(true) }
                 return try await self.content.libraryKeys(preferences: preferences, refresh: true)
@@ -404,9 +406,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 if let fetch = self.remotePackageFetch { return try await fetch(id, preferences, self.engineExecutable) }
                 return try await RemoteLuaPackage.fetch(appID: id, preferences: preferences, engine: self.engineExecutable,
                     progress: { self.recordImportProgress($0) })
-            }, remoteFallback: {
-                try await self.githubPackageFetch(id)
-            }, contentUpdate: { self.importActivity?.content = $0 },
+            }, remoteFallbacks: self.libraryPackageFallbacks(id), contentUpdate: { self.importActivity?.content = $0 },
                progress: { self.recordImportProgress($0) })
             try Task.checkCancellation()
             guard try LibraryInstallContext.read(appID: id, paths: self.paths) == context else {

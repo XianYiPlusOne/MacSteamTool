@@ -30,7 +30,12 @@ import Testing
         var preferences = Preferences(); preferences.remotePackageMode = "direct"
         #expect(try RemoteLuaPackage.source(preferences).template == RemoteLuaPackage.defaultTemplate)
         model.preferences.remotePackageMode = "direct"
-        model.libraryInfoFetch = { id in AppInfo(id: id, dictionary: ["common": ["oslist": "windows"], "depots": ["481": ["config": ["oslist": "windows"], "manifests": ["public": ["gid": "123"]]]]]) }
+        model.libraryInfoFetch = { id in
+            AppInfo(id: id, dictionary: ["common": ["oslist": "windows"], "depots": [
+                "481": ["manifests": ["public": ["gid": "123"]]],
+                "482": ["manifests": ["public": ["gid": "124"]]]
+            ]])
+        }
         model.libraryKeyFetch = { _ in throw AppFailure("No local keys") }
         let zip = root.appendingPathComponent("remote.zip")
         let key = String(repeating: "ab", count: 32)
@@ -40,10 +45,16 @@ import Testing
             #expect(id == 480); #expect(try RemoteLuaPackage.source(preferences).template == RemoteLuaPackage.defaultTemplate)
             return try await RemoteLuaPackage.extract(bytes, appID: id, engine: engine)
         }
+        model.libraryPackageFallbacks = { id in
+            [("Fixture secondary", {
+                let lua = "addappid(\(id))\naddappid(482, 1, \"\(key)\")\n"
+                return [ImportFile(name: "\(id).lua", data: Data(lua.utf8))]
+            })]
+        }
         model.addToLibrary(480, dlc: true); await settle(model)
         #expect(model.message == nil)
         #expect(model.pendingImport?.complete == true); #expect(model.games.isEmpty)
-        #expect(model.pendingImport?.checkLog.isEmpty == false)
+        #expect(model.pendingImport?.checkLog.contains { $0.contains("Fixture secondary") } == true)
         model.commitImport(); await settle(model)
         #expect(model.pendingImport == nil); #expect(model.games.first?.enabled == true)
         let imported = try FileStore.read(model.paths.lua.appendingPathComponent("480.lua"))
@@ -52,7 +63,9 @@ import Testing
         #expect(try FileStore.read(model.paths.disabled.appendingPathComponent("480.lua")) == imported)
         model.batchLibrary(model.games, action: .enable); await settle(model)
         #expect(model.games.first?.enabled == true)
-        model.batchLibrary(model.games, action: .remove); await settle(model)
+        model.batchLibrary(model.games, action: .remove)
+        #expect(model.removalRequest != nil)
+        model.confirmGameRemoval(deleteFiles: false); await settle(model)
         #expect(model.games.isEmpty); #expect(!model.backups.isEmpty)
         let reloaded = AppModel(fixtureHome: root); reloaded.refresh(); #expect(reloaded.games.isEmpty)
     }

@@ -15,18 +15,26 @@ import Testing
     func document(_ result: AutomaticLibraryResult) throws -> LuaDocument {
         try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self))
     }
-    @Test func partialRemoteIsCompletedByGitHubFallback() async throws {
-        var calls = 0
+    @Test func incompleteAndUnavailableSourcesContinueToLaterFallbacks() async throws {
+        var calls: [String] = []
+        var log: [String] = []
         let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false,
-            appInfo: { _ in info(depots: [481, 482]) }, cachedKeys: { [:] }, refreshKeys: { [:] },
-            remote: { package([481]) }, remoteFallback: { calls += 1; return package([482]) })
-        #expect(result.complete); #expect(calls == 1)
-        #expect(try Set(document(result).depots.map(\.id)) == [481, 482])
+            appInfo: { _ in info(depots: [481, 482, 483]) }, cachedKeys: { [:] }, refreshKeys: { [:] },
+            remote: { package([481]) }, remoteFallbacks: [
+                ("Unavailable", { calls.append("Unavailable"); throw AppFailure("HTTP 404") }),
+                ("Partial", { calls.append("Partial"); return package([482]) }),
+                ("Complete", { calls.append("Complete"); return package([483]) }),
+                ("Unused", { Issue.record("Unneeded fallback"); return [] })
+            ], progress: { log.append($0) })
+        #expect(result.complete)
+        #expect(calls == ["Unavailable", "Partial", "Complete"])
+        #expect(log.contains { $0.contains("Unavailable") && $0.contains("HTTP 404") })
+        #expect(try Set(document(result).depots.map(\.id)) == [481, 482, 483])
     }
     @Test func completeRemoteDoesNotRequestGitHubFallback() async throws {
         let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false,
             appInfo: { _ in info() }, cachedKeys: { [:] }, refreshKeys: { [:] },
-            remote: { package([481]) }, remoteFallback: { Issue.record("Unneeded fallback"); return [] })
+            remote: { package([481]) }, remoteFallbacks: [("Unused", { Issue.record("Unneeded fallback"); return [] })])
         #expect(result.complete)
     }
     @Test func contentReportMapsNamedDLCToMissingDepot() async throws {
@@ -48,6 +56,39 @@ import Testing
         #expect(result.complete); #expect(result.warnings.isEmpty)
         #expect(refreshes == 0); #expect(downloads == 0)
         #expect(try document(result).depots.map(\.id) == [481])
+    }
+    @Test func steamLocalCacheCompletesImportBeforeNetwork() async throws {
+        let home = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentSteamCache-\(UUID())")
+        defer { try? FileStore.fm.removeItem(at: home) }
+        let paths = AppPaths(home: home)
+        let vdf = """
+        "InstallConfigStore" { "Software" { "Valve" { "Steam" { "depots" {
+            "481" { "DecryptionKey" "\(String(repeating: "cd", count: 32))" }
+            "482" { "DecryptionKey" "\(key.uppercased())" }
+            "999" { "DecryptionKey" "\(key)" }
+        } } } } }
+        """
+        try FileStore.write(Data(vdf.utf8), to: paths.steam.appendingPathComponent("config/config.vdf"))
+        var stages: [String] = []
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false,
+            appInfo: { _ in info(depots: [481, 482]) }, cachedKeys: { [481: key] },
+            steamCachedKeys: { missing in
+                #expect(missing == [482])
+                let local = try SteamLibrary.cachedDepotKeys(missing, paths: paths)
+                #expect(local == [482: key])
+                return local
+            },
+            refreshKeys: { Issue.record("Unexpected key refresh"); return [:] },
+            remote: { Issue.record("Unexpected ZIP request"); return [] },
+            remoteFallbacks: [
+                ("Internet Archive", { Issue.record("Unexpected archive request"); return [] }),
+                ("GitHub", { Issue.record("Unexpected GitHub request"); return [] })
+            ], progress: { stages.append($0) })
+        #expect(result.complete)
+        let depots = try document(result).depots
+        #expect(depots.map(\.id) == [481, 482])
+        #expect(depots.allSatisfy { $0.key == key })
+        #expect(stages.contains { $0.contains("Steam local depot cache") })
     }
     @Test func refreshOnceFillsGapsAndRetainsPreviouslyCachedKeys() async throws {
         var refreshes = 0, downloads = 0
@@ -125,6 +166,60 @@ import Testing
             try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false, appInfo: { _ in info() }, cachedKeys: { [:] }, refreshKeys: { throw CancellationError() }, remote: { downloads += 1; return package([481]) })
         }
         #expect(downloads == 0)
+    }
+    @Test func archiveSourcesSupplyKeysWithoutPinningOldVersions() async throws {
+        #expect(RemoteLuaPackage.libraryFallbacks(appID: 480).map(\.name) == [
+            "Internet Archive · branches", "Internet Archive · NEW-depot-keys",
+            "KeySteam · ManifestHubLua", "ManifestHub3", "ManifestHub · Steam-lua"
+        ])
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false,
+            appInfo: { _ in info(depots: [481, 482]) }, cachedKeys: { [481: key] }, refreshKeys: { [:] },
+            remote: { throw AppFailure("ZIP offline") }, remoteFallbacks: [
+                ("Archive fixture", {
+                    try await RemoteLuaPackage.fetchArchiveKeys(appID: 480, collection: .branches) { url in
+                        #expect(url.host == "archive.org")
+                        #expect(url.path == "/download/manifest-hub-repo/branches.zip/branches/480/480.lua")
+                        return package([482], extra: "setManifestid(482, \"42\", 0)\naddtoken(480, \"1234\")\n")[0].data
+                    }
+                })
+            ])
+        #expect(result.complete)
+        let doc = try document(result)
+        #expect(Set(doc.depots.map(\.id)) == [481, 482])
+        #expect(doc.pins.isEmpty)
+        #expect(doc.tokens.isEmpty)
+    }
+    @Test func archiveRejectsWrongAppAndKeylessResponse() async throws {
+        for text in ["addappid(490)", "addappid(480)"] {
+            await #expect(throws: (any Error).self) {
+                try await RemoteLuaPackage.fetchArchiveKeys(appID: 480, collection: .depotKeys) { url in
+                    #expect(url.path == "/download/manifest-hub-repo/NEW-depot-keys.zip/NEW-depot-keys/480/480.lua")
+                    return Data(text.utf8)
+                }
+            }
+        }
+    }
+    @Test func keySteamIndexResolvesOnlyMatchingLua() async throws {
+        var paths: [String] = []
+        let result = try await RemoteLuaPackage.fetchKeySteam(appID: 480) { url, _ in
+            paths.append(url.path)
+            if paths.count == 1 { return Data(#"{"f":["a1","b2"],"a":{"480":1}}"#.utf8) }
+            return package([481])[0].data
+        }
+        #expect(paths == ["/trionine/ManifestHub/main/data/lua-map.json", "/bsinwhg/ManifestHubLua/main/luas/b2/480.lua"])
+        #expect(result.first?.name == "480.lua")
+        await #expect(throws: (any Error).self) {
+            try await RemoteLuaPackage.fetchKeySteam(appID: 480) { url, _ in
+                if url.path.hasSuffix(".json") { return Data(#"{"f":["a1"],"a":{"480":0}}"#.utf8) }
+                return Data("addappid(490)".utf8)
+            }
+        }
+        await #expect(throws: (any Error).self) {
+            try await RemoteLuaPackage.fetchKeySteam(appID: 480) { url, _ in
+                #expect(url.path.hasSuffix(".json"))
+                return Data(#"{"f":["../other"],"a":{"480":0}}"#.utf8)
+            }
+        }
     }
     @Test func unsupportedRemoteStatementsRequireReview() async throws {
         let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: false, appInfo: { _ in info() }, cachedKeys: { [:] }, refreshKeys: { [:] }, remote: { package([481], extra: "unsupported(480)\n") })

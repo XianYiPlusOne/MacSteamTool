@@ -15,6 +15,7 @@ struct LibraryFallbackSettings: View {
                     TextField("HTTPS ZIP URL · {app}", text: Binding(get: { model.preferences.remotePackageURL ?? RemoteLuaPackage.defaultTemplate }, set: { model.preferences.remotePackageURL = $0 })).textFieldStyle(.roundedBorder)
                 }
                 Text(model.tr("入库时自动按需使用，通常无需修改。自定义地址必须使用 HTTPS，并以 {app} 代表 AppID。", "Used automatically when needed. Usually no changes are necessary. Custom URLs require HTTPS and {app} for the AppID.")).font(.caption).foregroundStyle(.secondary)
+                Text(model.tr("程序会先检查 Steam 本机的 Depot 缓存。远程仓库未补齐时，再尝试 Internet Archive、KeySteam、ManifestHub3 和 Steam-lua 镜像。", "Import checks Steam's local depot cache first. If the remote repository leaves gaps, it tries Internet Archive, KeySteam, ManifestHub3, and the Steam-lua mirror.")).font(.caption).foregroundStyle(.secondary)
             }
         }
     }

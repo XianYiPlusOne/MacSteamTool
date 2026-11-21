@@ -121,14 +121,85 @@ public enum RemoteLuaPackage {
         let data = try await HTTP.get(downloadURL, limit: 64 * 1024 * 1024, headers: useLinkService ? ["Referer": "https://short.walftech.com/"] : [:])
         return try await extract(data, appID: appID, engine: engine)
     }
-    public static func fetchGitHub(appID: Int) async throws -> [ImportFile] {
+    public static func libraryFallbacks(appID: Int) -> [AutomaticLibraryImport.RemoteSource] {
+        [
+            ("Internet Archive · branches", { try await fetchArchiveKeys(appID: appID, collection: .branches) }),
+            ("Internet Archive · NEW-depot-keys", { try await fetchArchiveKeys(appID: appID, collection: .depotKeys) }),
+            ("KeySteam · ManifestHubLua", { try await fetchKeySteam(appID: appID) }),
+            ("ManifestHub3", { try await fetchGitHub(appID: appID) }),
+            ("ManifestHub · Steam-lua", { try await fetchGitHub(appID: appID, repository: "Steam-lua/ManifestHub") })
+        ]
+    }
+    enum ArchiveCollection: String {
+        case branches
+        case depotKeys = "NEW-depot-keys"
+    }
+
+    static func fetchArchiveKeys(
+        appID: Int,
+        collection: ArchiveCollection,
+        download: (URL) async throws -> Data = { try await HTTP.get($0, limit: 1024 * 1024, timeout: 12) }
+    ) async throws -> [ImportFile] {
         guard TextUtil.validID(String(appID)) != nil else { throw AppFailure("Invalid AppID") }
-        let url = try HTTP.url("https://raw.githubusercontent.com/steamtools-games/ManifestHub3/\(appID)/\(appID).lua")
-        let data = try await HTTP.get(url, limit: 1024 * 1024)
-        guard let text = String(data: data, encoding: .utf8) else { throw AppFailure("GitHub Lua is not UTF-8") }
-        let document = try LuaDocument.parse(text, suggestedID: appID)
-        guard document.appID == appID else { throw AppFailure("GitHub 来源游戏不匹配 / GitHub game mismatch") }
+        let folder = collection.rawValue
+        let url = try HTTP.url("https://archive.org/download/manifest-hub-repo/\(folder).zip/\(folder)/\(appID)/\(appID).lua")
+        let document = try checkedLuaDocument(await download(url), appID: appID)
+        let depotLines = document.depots.compactMap { entry in
+            entry.key.map { "addappid(\(entry.id), 1, \"\($0)\")" }
+        }
+        guard !depotLines.isEmpty else { throw AppFailure("存档没有 Depot 密钥 / Archive has no depot keys") }
+        // The snapshot supplies keys. Current Steam metadata supplies the content scope and version.
+        let lua = (["addappid(\(appID))"] + depotLines).joined(separator: "\n") + "\n"
+        return [ImportFile(name: "\(appID).lua", data: Data(lua.utf8))]
+    }
+
+    public static func fetchGitHub(appID: Int) async throws -> [ImportFile] {
+        try await fetchGitHub(appID: appID, repository: "steamtools-games/ManifestHub3")
+    }
+    private static func fetchGitHub(appID: Int, repository: String) async throws -> [ImportFile] {
+        guard TextUtil.validID(String(appID)) != nil else { throw AppFailure("Invalid AppID") }
+        let url = try HTTP.url("https://raw.githubusercontent.com/\(repository)/\(appID)/\(appID).lua")
+        let data = try await HTTP.get(url, limit: 1024 * 1024, timeout: 8)
+        return try checkedLua(data, appID: appID)
+    }
+    private struct KeySteamIndex: Decodable {
+        let directories: [String]
+        let positionsByAppID: [String: Int]
+
+        private enum CodingKeys: String, CodingKey {
+            case directories = "f"
+            case positionsByAppID = "a"
+        }
+    }
+    static func fetchKeySteam(
+        appID: Int,
+        download: (URL, Int) async throws -> Data = { try await HTTP.get($0, limit: $1, timeout: 8) }
+    ) async throws -> [ImportFile] {
+        guard TextUtil.validID(String(appID)) != nil else { throw AppFailure("Invalid AppID") }
+        let indexURL = try HTTP.url("https://raw.githubusercontent.com/trionine/ManifestHub/main/data/lua-map.json")
+        let index = try JSONDecoder().decode(KeySteamIndex.self, from: await download(indexURL, 2 * 1024 * 1024))
+        guard let position = index.positionsByAppID[String(appID)] else {
+            throw AppFailure("未收录 AppID \(appID) / AppID \(appID) is not indexed")
+        }
+        guard index.directories.indices.contains(position) else { throw AppFailure("无效的索引 / Invalid index") }
+        let directory = index.directories[position]
+        guard (1...64).contains(directory.utf8.count),
+              directory.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw AppFailure("无效的索引目录 / Invalid index directory")
+        }
+        try Task.checkCancellation()
+        let url = try HTTP.url("https://raw.githubusercontent.com/bsinwhg/ManifestHubLua/main/luas/\(directory)/\(appID).lua")
+        return try checkedLua(await download(url, 1024 * 1024), appID: appID)
+    }
+    private static func checkedLua(_ data: Data, appID: Int) throws -> [ImportFile] {
+        _ = try checkedLuaDocument(data, appID: appID)
         return [ImportFile(name: "\(appID).lua", data: data)]
+    }
+    private static func checkedLuaDocument(_ data: Data, appID: Int) throws -> LuaDocument {
+        guard let text = String(data: data, encoding: .utf8) else { throw AppFailure("Lua 不是 UTF-8 / Lua is not UTF-8") }
+        let document = try LuaDocument.parse(text)
+        guard document.appID == appID else { throw AppFailure("来源游戏不匹配 / Source game mismatch") }
+        return document
     }
     public static func proxyURL(_ response: Data) throws -> URL {
         guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any], let code = json["short_code"] as? String,

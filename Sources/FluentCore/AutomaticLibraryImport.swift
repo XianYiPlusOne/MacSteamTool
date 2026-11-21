@@ -13,13 +13,17 @@ public struct AutomaticLibraryResult: Sendable {
 /// Resolves content before any library writes. A successful download alone is not
 /// evidence of completeness: every requested app and depot must be accounted for.
 public enum AutomaticLibraryImport {
+    public typealias RemoteSource = (name: String, fetch: () async throws -> [ImportFile])
+
     public static func resolve(
         appID: Int, includeDLC: Bool, excludingDLC: Set<Int> = [], skipUnavailableDLC: Bool = false, context: LibraryInstallContext = .init(),
         appInfo: (Int) async throws -> AppInfo,
         cachedKeys: () async throws -> [Int: String],
+        steamCachedKeys: ((Set<Int>) async throws -> [Int: String])? = nil,
         refreshKeys: () async throws -> [Int: String],
-        remote: () async throws -> [ImportFile],
+        remote: @escaping () async throws -> [ImportFile],
         remoteFallback: (() async throws -> [ImportFile])? = nil,
+        remoteFallbacks: [RemoteSource] = [],
         contentUpdate: ([LibraryContentReport]) async -> Void = { _ in },
         progress: (String) async -> Void = { _ in }
     ) async throws -> AutomaticLibraryResult {
@@ -48,6 +52,25 @@ public enum AutomaticLibraryImport {
             await report(candidate, stage: "本地缓存检查")
             if candidate.complete { return candidate }
 
+            let missing = requirements.depotIDs.subtracting(keys.filter { TextUtil.validKey($0.value) }.keys)
+            if let steamCachedKeys, !missing.isEmpty {
+                await progress("正在检查 Steam 本机 Depot 缓存… / Checking Steam's local depot cache…")
+                do {
+                    let local = try await steamCachedKeys(missing)
+                    try Task.checkCancellation()
+                    for (id, key) in local where missing.contains(id) && TextUtil.validKey(key) {
+                        keys[id] = key.lowercased()
+                    }
+                    candidate = requirements.result(keys: keys)
+                    await report(candidate, stage: "Steam 本机 Depot 缓存 / Steam local depot cache")
+                    if candidate.complete { return candidate }
+                } catch {
+                    try Task.checkCancellation()
+                    if error is CancellationError { throw error }
+                    await progress("Steam 本机缓存不可用 / Steam local cache unavailable: \(error.localizedDescription)")
+                }
+            }
+
             await progress("正在更新入库数据… / Updating library data…")
             do {
                 let refreshed = try await refreshKeys()
@@ -57,38 +80,17 @@ public enum AutomaticLibraryImport {
             candidate = requirements.result(keys: keys)
             await report(candidate, stage: "刷新密钥后检查")
             if candidate.complete { return candidate }
-            if skipUnavailableDLC, includeDLC, let main = requirements.apps.first {
-                let unavailable = candidate.content.filter {
-                    $0.isUnavailableOptionalDLC
-                }
-                let skipped = Set(unavailable.map(\.id)).intersection(main.dlc)
-                if !skipped.isEmpty {
-                    let known = Dictionary(requirements.apps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                    let scoped = try await LibraryRequirements.load(appID, includeDLC: true, context: context,
-                        excludingDLC: excludingDLC.union(skipped), appInfo: { id in
-                            if let info = known[id] { return info }
-                            return try await appInfo(id)
-                        }, progress: progress)
-                    var reduced = scoped.result(keys: keys)
-                    if reduced.complete {
-                        reduced.skippedDLC = skipped
-                        await report(reduced, stage: "跳过不可用的可选 DLC 后检查")
-                        return reduced
-                    }
-                }
-            }
         }
 
-        try Task.checkCancellation()
-        await progress("正在尝试备用来源补齐内容… / Trying another source to complete content…")
+        var sources: [RemoteSource] = [("远程 ZIP / Remote ZIP", remote)]
+        if let remoteFallback { sources.append(("GitHub", remoteFallback)) }
         var remoteResult: AutomaticLibraryResult?
-        for index in 0..<(remoteFallback == nil ? 1 : 2) {
-            if index > 0 { await progress("正在尝试 GitHub 后备来源… / Trying GitHub fallback…") }
+        var remoteDocument: LuaDocument?
+        for source in sources + remoteFallbacks {
+            try Task.checkCancellation()
+            await progress("正在尝试来源 / Trying source · \(source.name)")
             do {
-                let files: [ImportFile]
-                if index == 0 { files = try await remote() }
-                else if let remoteFallback { files = try await remoteFallback() }
-                else { continue }
+                let files = try await source.fetch()
                 try Task.checkCancellation()
                 guard files.count == 1, let file = files.first, file.name.lowercased().hasSuffix(".lua"),
                       let text = String(data: file.data, encoding: .utf8) else {
@@ -111,7 +113,7 @@ public enum AutomaticLibraryImport {
                 keys.merge(remoteKeys) { old, _ in old }
                 if let requirements {
                     var result = requirements.result(keys: keys, remote: document)
-                    await report(result, stage: index == 0 ? "备用源补齐后检查" : "GitHub 补齐后检查")
+                    await report(result, stage: source.name)
                     if result.complete { return result }
                     if result.warnings == [LuaDocument.versionPinNotice], !requirements.depotIDs.isEmpty {
                         result.verificationDepots = requirements.depotIDs
@@ -119,18 +121,41 @@ public enum AutomaticLibraryImport {
                     }
                     result.warnings += failures
                     remoteResult = result
+                    remoteDocument = document
                     continue
                 }
-                // Without metadata, preserve the remote candidate for explicit
-                // review, but never label it complete or import it automatically.
+                // Without metadata, keep the first valid package for explicit review.
                 let scoped = includeDLC ? text : mainOnly(document)
                 remoteResult = AutomaticLibraryResult(files: [ImportFile(name: "\(appID).lua", data: Data(scoped.utf8))], warnings: failures + document.warnings, complete: false)
+                break
             } catch {
                 try Task.checkCancellation()
                 if error is CancellationError { throw error }
-                let failure = "备用来源未能补齐 / Alternate source failed: \(error.localizedDescription)"
+                let failure = "\(source.name)：\(error.localizedDescription)"
                 failures.append(failure)
                 await progress(failure)
+            }
+        }
+        try Task.checkCancellation()
+        if skipUnavailableDLC, includeDLC, let requirements, let main = requirements.apps.first {
+            let reports = remoteResult?.content ?? requirements.report(keys: keys)
+            let skipped = Set(reports.filter(\.isUnavailableOptionalDLC).map(\.id)).intersection(main.dlc)
+            if !skipped.isEmpty {
+                let known = Dictionary(requirements.apps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let scoped = try await LibraryRequirements.load(appID, includeDLC: true, context: context,
+                    excludingDLC: excludingDLC.union(skipped), appInfo: { id in
+                        if let info = known[id] { return info }
+                        return try await appInfo(id)
+                    }, progress: progress)
+                var reduced = scoped.result(keys: keys, remote: remoteDocument)
+                if reduced.warnings == [LuaDocument.versionPinNotice], !scoped.depotIDs.isEmpty {
+                    reduced.verificationDepots = scoped.depotIDs
+                }
+                if reduced.complete || !reduced.verificationDepots.isEmpty {
+                    reduced.skippedDLC = skipped
+                    await report(reduced, stage: "跳过不可用的可选 DLC 后检查")
+                    return reduced
+                }
             }
         }
         if var result = remoteResult {

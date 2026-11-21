@@ -1,6 +1,25 @@
 import Foundation
 
 public enum SteamLibrary {
+    public static func cachedDepotKeys(_ ids: Set<Int>, paths: AppPaths) throws -> [Int: String] {
+        guard !ids.isEmpty else { return [:] }
+        let file = paths.steam.appendingPathComponent("config/config.vdf")
+        guard FileStore.fm.fileExists(atPath: file.path) else { return [:] }
+        let config = try VDF.parse(FileStore.text(file))
+        let depots = config.object("InstallConfigStore")?.object("Software")?
+            .object("Valve")?.object("Steam")?.object("depots")
+        var keys: [Int: String] = [:]
+        for entry in depots?.entries ?? [] {
+            guard let id = TextUtil.validID(entry.key), ids.contains(id),
+                  let key = entry.children?.string("DecryptionKey")?.lowercased(), TextUtil.validKey(key) else { continue }
+            if let previous = keys[id], previous != key {
+                throw AppFailure("Steam 本机缓存存在冲突：Depot \(id) / Conflicting Steam cache entries")
+            }
+            keys[id] = key
+        }
+        return keys
+    }
+
     public static func libraries(_ paths: AppPaths) -> [URL] {
         var roots = [paths.steam]
         for file in [paths.steam.appendingPathComponent("steamapps/libraryfolders.vdf"), paths.steam.appendingPathComponent("config/libraryfolders.vdf")] {

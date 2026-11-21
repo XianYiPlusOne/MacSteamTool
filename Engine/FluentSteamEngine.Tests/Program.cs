@@ -25,6 +25,15 @@ await Fails(()=>OwnedExtraction.Run(999,true,owned,Fetch,Key,default));
 using(var stop = new CancellationTokenSource()) { stop.Cancel(); await Fails(()=>OwnedExtraction.Run(100,true,owned,Fetch,Key,stop.Token)); }
 var kv = KeyValue.LoadFromString("\"appinfo\" { \"common\" { \"name\" \"Root\" } \"extended\" { \"listofdlc\" \"200,400,bad\" } \"depots\" { \"201\" { \"dlcappid\" \"200\" \"depotfromapp\" \"900\" \"manifests\" { \"public\" { \"gid\" \"18446744073709551615\" } } } } }")!;
 var parsed=OwnedExtraction.Parse(100,kv,ulong.MaxValue);
+using (var metadata = System.Text.Json.JsonDocument.Parse(Session.ProductMetadataJson(kv)))
+{
+    var root = metadata.RootElement;
+    var depot = root.GetProperty("depots").GetProperty("201");
+    Check(root.GetProperty("extended").GetProperty("listofdlc").GetString() == "200,400,bad"
+        && depot.GetProperty("depotfromapp").GetString() == "900"
+        && depot.GetProperty("manifests").GetProperty("public").GetProperty("gid").GetString() == ulong.MaxValue.ToString(),
+        "PICS fallback must preserve shared depot, DLC and full-width manifest fields");
+}
 Check(parsed.DLC.SequenceEqual(new uint[]{200,400}) && parsed.Depots[0].SourceApp==900 && parsed.Depots[0].Owner==200 && parsed.Depots[0].Manifest==ulong.MaxValue.ToString(),"metadata ownership and UInt64");
 var hash=new string('a',64); var html=$"<a href='/NotProtonNot/NotProton/releases/download/v1.2.4/NotProton.zip'>Download</a><clipboard-copy aria-label='Copy to clipboard digest for NotProton.zip' value='sha256:{hash}'></clipboard-copy>";
 var release=RuntimeReleases.Parse("notproton",new Uri("https://github.com/NotProtonNot/NotProton/releases/tag/v1.2.4"),html);

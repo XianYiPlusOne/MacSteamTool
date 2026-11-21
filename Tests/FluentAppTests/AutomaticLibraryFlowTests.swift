@@ -9,7 +9,7 @@ import Testing
         let root = FileStore.fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("FluentAutomatic-\(UUID().uuidString)")
         try FileStore.mkdir(root)
         let model = AppModel(fixtureHome: root); model.preferences.autoMetadata = false
-        model.githubPackageFetch = { _ in throw AppFailure("Fixture fallback unavailable") }
+        model.libraryPackageFallbacks = { _ in [] }
         model.libraryInfoFetch = { id in AppInfo(id: id, dictionary: ["common": ["name": "Fixture", "oslist": "windows"], "depots": ["481": ["manifests": ["public": ["gid": "123"]]], "482": ["manifests": ["public": ["gid": "124"]]]]]) }
         return (root, model)
     }
@@ -32,7 +32,7 @@ import Testing
             """
             return [ImportFile(name: "\(app).lua", data: Data(lua.utf8))]
         }
-        model.githubPackageFetch = { _ in Issue.record("Unexpected fallback"); return [] }
+        model.libraryPackageFallbacks = { _ in [("Fixture fallback", { Issue.record("Unexpected fallback"); return [] })] }
         model.addToLibrary(app, dlc: false)
         await model.operation?.value
         #expect(model.pendingImport?.verificationDepots == [depot])

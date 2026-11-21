@@ -57,6 +57,7 @@ public struct SteamEngineResponse: Decodable, Sendable {
     public var games: [OwnedGame]?
     public var depots: [OwnedDepot]?
     public var extractedApps: [ExtractedApp]?
+    public var generationApps: [SteamGenerationApp]?
     public var warnings: [String]?
     public var path: String?
     public var cloudTokens: [String: String]?
@@ -93,6 +94,8 @@ public struct SteamEngineRequest: Encodable, Sendable {
     public var appID = 0
     public var depotID = 0
     public var depotIDs: [Int] = []
+    public var appIDs: [Int]?
+    public var missingDepotAppIDs: [Int]?
     public var manifestID: UInt64 = 0
     public var depotKey = ""
     public var destination = ""

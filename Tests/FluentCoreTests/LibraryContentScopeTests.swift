@@ -29,11 +29,35 @@ import Testing
                 if child == missing.first { throw AppFailure("Metadata unavailable") }
                 return info(child, depots: [String(child): depot()])
             }, cachedKeys: { [2852191: key, available: key] }, refreshKeys: { [:] },
-            remote: { Issue.record("Optional content should be skipped"); return [] })
+            remote: { throw AppFailure("Remote package unavailable") },
+            remoteFallbacks: [("Last fallback", { throw AppFailure("Optional content unavailable") })])
         #expect(result.complete)
         #expect(result.skippedDLC == Set(missing))
         #expect(try ids(result) == [2852191, available])
         #expect(try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self)).dlcIDs == [available])
+    }
+
+    @Test func triesLastFallbackBeforeDroppingOptionalDLC() async throws {
+        let main = info(depots: ["481": depot()], dlc: [490])
+        let dlc = info(490, depots: ["491": depot(), "492": depot()])
+        var attempts: [String] = []
+        let result = try await AutomaticLibraryImport.resolve(appID: 480, includeDLC: true,
+            skipUnavailableDLC: true, appInfo: { $0 == 480 ? main : dlc },
+            cachedKeys: { [481: key] }, refreshKeys: { [:] },
+            remote: {
+                attempts.append("ZIP")
+                let lua = "addappid(480)\naddappid(491, 1, \"\(key)\")"
+                return [ImportFile(name: "480.lua", data: Data(lua.utf8))]
+            }, remoteFallbacks: [("Last fallback", {
+                attempts.append("Last fallback")
+                let lua = "addappid(480)\naddappid(492, 1, \"\(key)\")"
+                return [ImportFile(name: "480.lua", data: Data(lua.utf8))]
+            })])
+        #expect(attempts == ["ZIP", "Last fallback"])
+        #expect(result.complete)
+        #expect(result.skippedDLC.isEmpty)
+        #expect(try ids(result) == [481, 491, 492])
+        #expect(try LuaDocument.parse(String(decoding: result.files[0].data, as: UTF8.self)).dlcIDs == [490])
     }
 
     @Test func explicitlyExcludedOptionalDLCIsNotQueriedOrWritten() async throws {
