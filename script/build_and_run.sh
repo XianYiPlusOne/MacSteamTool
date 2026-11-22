@@ -17,7 +17,7 @@ configuration=debug
 if [[ "$MODE" == "--build" ]]; then configuration=release; fi
 swift build -c "$configuration"
 BIN_DIR="$(swift build -c "$configuration" --show-bin-path)"
-mkdir -p "$ROOT_DIR/work"
+mkdir -p "$ROOT_DIR/work" "$ROOT_DIR/outputs"
 # Independent staging prevents simultaneous builds from modifying each other.
 STAGING="$(mktemp -d "$ROOT_DIR/work/app-staging.XXXXXX")"
 trap 'rm -rf "$STAGING"' EXIT
@@ -54,6 +54,10 @@ cp "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" "$STAGING/Contents/Helpers/
 mkdir -p "$STAGING/Contents/Resources/Helpers/PatchProbe"
 cp "$ROOT_DIR/work/patch-probe-publish/PatchProbe.exe" "$STAGING/Contents/Resources/Helpers/PatchProbe/"
 ditto "$ROOT_DIR/work/macsteamtool-notproton-publish" "$STAGING/Contents/Helpers/NotProton"
+if [[ "$configuration" == release ]]; then
+  # The Apple linker records absolute object paths in Mach-O debug symbols.
+  strip -S "$STAGING"/Contents/MacOS/* "$STAGING/Contents/Helpers/NotProton/MacSteamToolNotProton"
+fi
 chmod +x "$STAGING/Contents/MacOS/$APP_NAME"
 for resource in "$BIN_DIR"/*.bundle; do
   if [[ -d "$resource" ]]; then cp -R "$resource" "$STAGING/Contents/Resources/"; fi
@@ -98,6 +102,9 @@ for file in root.rglob('*'):
 PY_SIGN
 codesign --force --deep --sign - "$STAGING"
 python3 "$ROOT_DIR/script/verify_bundled_cores.py" "$STAGING"
+if [[ "$configuration" == release ]]; then
+  python3 "$ROOT_DIR/script/verify_release_paths.py" "$STAGING"
+fi
 if [[ -d "$APP_BUNDLE" ]]; then
   # Remove only this script's generated bundle, after the new build has succeeded.
   /bin/rm -rf "$APP_BUNDLE"

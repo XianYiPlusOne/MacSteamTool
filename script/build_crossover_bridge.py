@@ -12,7 +12,8 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "Native/NotProtonCore"
-STAGE = ROOT / "work/crossover-bridge-source"
+# Older configured Wine trees and their objects contain absolute source paths.
+STAGE = ROOT / "work/crossover-bridge-release"
 OUTPUTS = [
     "wine-build-dual/programs/steam.exe/x86_64-windows/steam.exe",
     "wine-build-dual/dlls/lsteamclient/x86_64-windows/lsteamclient.dll",
@@ -48,7 +49,8 @@ def build():
     # outside the maintained sources and never copy an original app payload.
     subprocess.run(["rsync", "-a", "--exclude=upstream.json", str(SOURCE) + "/", str(STAGE) + "/"], check=True)
     env = dict(os.environ, PATH="/opt/homebrew/bin:/opt/homebrew/opt/bison/bin:" + os.environ["PATH"],
-               CX_ROOT=str(STAGE / "no-installed-crossover"), WINE_URL="https://github.com/wine-mirror/wine.git")
+               CROSSCFLAGS="-O2", CX_ROOT=str(STAGE / "no-installed-crossover"),
+               WINE_URL="https://github.com/wine-mirror/wine.git")
     subprocess.run(["make", "-C", str(STAGE), "bridge"], env=env, check=True)
     stamp.write_text(json.dumps(dict(inputs=key, outputs=artifacts()), indent=2) + "\n")
 

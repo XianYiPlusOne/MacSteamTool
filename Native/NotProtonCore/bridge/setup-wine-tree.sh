@@ -84,9 +84,12 @@ if [ -f "$WINE_BUILD/Makefile" ]; then
 else
     echo "==> configuring $WINE_BUILD"
     mkdir -p "$WINE_BUILD"
+    # Wine passes srcdir into compiler commands. Keep __FILE__ paths relative
+    # even in assertion strings that survive stripping a Windows executable.
+    configure=$(python3 -c 'import os, sys; print(os.path.relpath(os.path.join(sys.argv[1], "configure"), sys.argv[2]))' "$WINE_SRC" "$WINE_BUILD")
     # Unquoted on purpose so the options split. CC and CXX are each a command plus flag.
     # shellcheck disable=SC2086
-    ( cd "$WINE_BUILD" && "$WINE_SRC/configure" $CONFIGURE_OPTS \
+    ( cd "$WINE_BUILD" && "$configure" $CONFIGURE_OPTS \
         --host="$HOST" CC="$HOST_CC" CXX="$HOST_CXX" )
 fi
 

@@ -7,11 +7,12 @@ import plistlib
 import shutil
 import sys
 import subprocess
+from build_crossover_bridge import STAGE as BRIDGE_STAGE
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "work/native-integration"
 NP = ROOT / "Native/NotProtonCore"
-BRIDGE = ROOT / "work/crossover-bridge-source/scratch"
+BRIDGE = BRIDGE_STAGE / "scratch"
 
 def copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +66,13 @@ def package(resources):
         "aarch64-unix-lsteamclient.so": "wine-build-arm64/dlls/lsteamclient/lsteamclient.so",
     }
     for name, relative in bridge_outputs.items():
-        copy(BRIDGE / relative, backend_resources / "payload/bridge" / name)
+        target = backend_resources / "payload/bridge" / name
+        copy(BRIDGE / relative, target)
+        if target.suffix == ".so":
+            subprocess.run(["strip", "-S", target], check=True)
+        else:
+            strip = "i686-w64-mingw32-strip" if name.startswith("i386-") else "x86_64-w64-mingw32-strip"
+            subprocess.run([strip, "--strip-debug", target], check=True)
     # Original, unrenamed redistributable fonts, with family licenses. CrossOver
     # also supplies its own Wine fonts. No proprietary Windows font is copied.
     for family in (NP / "fonts").iterdir():
