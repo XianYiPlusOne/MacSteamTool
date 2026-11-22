@@ -44,7 +44,7 @@ try:
                         "-volname", app.stem, "-srcfolder", volume, app_dmg], check=True)
         subprocess.run(["hdiutil", "verify", "-quiet", app_dmg], check=True)
         source_zip = staging / f"MacSteamTool-{version}-source.zip"
-        allow = ["Package.swift", "Package.resolved", "Sources", "Tests", "Engine", "Native", "script", "Resources", "README.md", "LICENSE", "Licenses", "THIRD-PARTY-NOTICES.md", ".gitignore", ".codex/environments/environment.toml"]
+        allow = ["Package.swift", "Package.resolved", "Sources", "Tests", "Engine", "Native", "script", "Resources", "README.md", "README.zh-CN.md", "LICENSE", "Licenses", "THIRD-PARTY-NOTICES.md", ".gitignore", ".codex/environments/environment.toml"]
         with zipfile.ZipFile(source_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for entry in allow:
                 path = root / entry
