@@ -6,7 +6,7 @@ extension AppModel {
     var currentBuild: Int { Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1") ?? 1 }
     func checkForUpdates(silent: Bool = false) async {
         let text = preferences.updateFeed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let feed = URL(string: text), feed.scheme == "https" else {
+        guard let feed = AppUpdates.feedURL(text) else {
             if !silent { updateStatus = tr("请配置本移植版的 HTTPS 签名更新源，或导入本地更新包。", "Set this port's HTTPS signed feed, or import a local update.") }; return
         }
         do {
@@ -44,7 +44,7 @@ struct UpdatePanel: View {
     var body: some View {
         Panel {
             Text(model.tr("应用更新", "Application updates")).font(.headline)
-            TextField(model.tr("HTTPS 签名更新源（尚未配置公共发布地址）", "HTTPS signed feed (no public release URL configured)"), text: Binding(get: { model.preferences.updateFeed ?? "" }, set: { model.preferences.updateFeed = $0 })).textFieldStyle(.roundedBorder)
+            TextField(model.tr("HTTPS 签名更新源（可用 {arch} 代表当前架构）", "HTTPS signed feed ({arch} selects the current architecture)"), text: Binding(get: { model.preferences.updateFeed ?? "" }, set: { model.preferences.updateFeed = $0 })).textFieldStyle(.roundedBorder)
             Toggle(model.tr("启动时自动检查更新", "Check for updates on launch"), isOn: Binding(get: { model.preferences.automaticallyCheckUpdates == true }, set: { model.preferences.automaticallyCheckUpdates = $0 }))
             HStack {
                 Button(model.tr("检查更新", "Check now")) { model.run(model.tr("检查更新", "Check updates")) { await model.checkForUpdates() } }

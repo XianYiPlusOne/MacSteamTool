@@ -1,24 +1,35 @@
 #!/usr/bin/env python3
 """Exercise the real worker binary with a fake native library; never connect to Steam."""
+import argparse
 import json
 import pathlib
+import platform
 import subprocess
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-subprocess.run(["swift", "build", "--product", "MacSteamToolWorker"], cwd=ROOT, check=True)
-bin_dir = pathlib.Path(subprocess.check_output(["swift", "build", "--show-bin-path"], cwd=ROOT, text=True).strip())
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--worker", type=pathlib.Path, help="Test an already-built worker executable")
+parser.add_argument("--arch", choices=("arm64", "x86_64"), default=platform.machine())
+args = parser.parse_args()
+worker = args.worker
+if worker is None:
+    triple = args.arch + "-apple-macosx14.0"
+    build = ["swift", "build", "--triple", triple, "-Xswiftc", "-target", "-Xswiftc", triple]
+    subprocess.run([*build, "--product", "MacSteamToolWorker"], cwd=ROOT, check=True)
+    bin_dir = subprocess.check_output([*build, "--show-bin-path"], cwd=ROOT, text=True).strip()
+    worker = pathlib.Path(bin_dir) / "MacSteamToolWorker"
 (ROOT / "work").mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="worker-test-", dir=ROOT / "work") as temp:
     folder = pathlib.Path(temp)
     library = folder / "steamclient.dylib"
-    subprocess.run(["xcrun", "clang++", "-dynamiclib", "-std=c++17", str(ROOT / "Tests/Fixtures/FakeSteam.cpp"), "-o", str(library)], check=True)
+    subprocess.run(["xcrun", "clang++", "-arch", args.arch, "-dynamiclib", "-std=c++17", str(ROOT / "Tests/Fixtures/FakeSteam.cpp"), "-o", str(library)], check=True)
 
     def request(app=100, changes=None, operation=None, source_id=None):
         source, output = folder / "request.json", folder / "response.json"
         output.unlink(missing_ok=True)
         source.write_text(json.dumps({"appID": app, "library": str(library), "changes": changes or [], "operation": operation, "schemaSourceSteamID": source_id}))
-        completed = subprocess.run([str(bin_dir / "MacSteamToolWorker"), str(source), str(output)], capture_output=True, timeout=8)
+        completed = subprocess.run(["/usr/bin/arch", "-" + args.arch, str(worker.resolve()), str(source), str(output)], capture_output=True, timeout=8)
         response = json.loads(output.read_text())
         assert (completed.returncode == 0) == response["ok"]
         return response

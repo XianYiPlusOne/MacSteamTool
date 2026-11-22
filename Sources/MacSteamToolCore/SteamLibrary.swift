@@ -20,17 +20,7 @@ public enum SteamLibrary {
         return keys
     }
 
-    public static func libraries(_ paths: AppPaths) -> [URL] {
-        var roots = [paths.steam]
-        for file in [paths.steam.appendingPathComponent("steamapps/libraryfolders.vdf"), paths.steam.appendingPathComponent("config/libraryfolders.vdf")] {
-            guard let text = try? FileStore.text(file), let vdf = try? VDF.parse(text).object("libraryfolders") else { continue }
-            for entry in vdf.entries {
-                if let path = entry.children?.string("path"), path.hasPrefix("/") { roots.append(URL(fileURLWithPath: path)) }
-            }
-        }
-        var seen = Set<String>()
-        return roots.filter { seen.insert($0.standardizedFileURL.path).inserted }
-    }
+    public static func libraries(_ paths: AppPaths) -> [URL] { LocalInstallations.libraries(at: paths.steam) }
     private static func selectedPrefix(_ config: Data?, appID: Int, root: URL) -> URL? {
         switch SteamCompatibility.selectedTool(config, appID: appID) {
         case FreeRuntime.toolID: return FreeRuntime.prefix(in: root)
@@ -39,24 +29,12 @@ public enum SteamLibrary {
         }
     }
     public static func installed(_ paths: AppPaths) -> [InstalledGame] {
-        var result: [InstalledGame] = []
-        let compatibility = try? FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))
-        for library in libraries(paths) {
-            for manifest in FileStore.files(library.appendingPathComponent("steamapps")) where manifest.lastPathComponent.hasPrefix("appmanifest_") && manifest.pathExtension == "acf" {
-                guard let text = try? FileStore.text(manifest), let app = try? VDF.parse(text).object("AppState"),
-                      let id = app.string("appid").flatMap(TextUtil.validID), let dir = app.string("installdir"),
-                      !dir.contains("/"), !dir.contains("\\"), dir != "..", !dir.isEmpty else { continue }
-                var depots: [Int: String] = [:]
-                for e in app.object("InstalledDepots")?.entries ?? [] {
-                    if let id = TextUtil.validID(e.key), let gid = e.children?.string("manifest") { depots[id] = gid }
-                }
-                result.append(InstalledGame(id: id, name: app.string("name") ?? "App \(id)", library: library,
-                                            folder: library.appendingPathComponent("steamapps/common/\(dir)"),
-                                            buildID: app.string("buildid") ?? "", bytes: Int64(app.string("SizeOnDisk") ?? "0") ?? 0, depots: depots,
-                                            selectedPrefix: selectedPrefix(compatibility, appID: id, root: library.appendingPathComponent("steamapps/compatdata/\(id)"))))
-            }
+        let config = try? FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))
+        return LocalInstallations.installed(at: paths.steam).map { game in
+            var result = game
+            result.selectedPrefix = selectedPrefix(config, appID: game.id, root: game.library.appendingPathComponent("steamapps/compatdata/\(game.id)"))
+            return result
         }
-        return result
     }
     public static func prefixes(_ paths: AppPaths) -> [(id: Int, url: URL)] {
         let compatibility = try? FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))

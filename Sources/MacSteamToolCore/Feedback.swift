@@ -14,7 +14,7 @@ public enum FeedbackReport {
     public static func make(title: String, steps: String, expected: String, actual: String, includeDiagnostics: Bool, version: String, runtime: RuntimeStatus, recentEvents: [String]) -> String {
         var text = "# " + title + "\n\n## Steps / 重现步骤\n" + steps + "\n\n## Expected / 预期结果\n" + expected + "\n\n## Actual / 实际结果\n" + actual + "\n"
         if includeDiagnostics {
-            text += "\n## Environment / 环境\nMacSteamTool: \(version)\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nArchitecture: arm64\nmacSteam loaded: \(!runtime.macSteamLoaded.isEmpty)\nNotProton loaded: \(!runtime.notProtonLoaded.isEmpty)\n"
+            text += "\n## Environment / 环境\nMacSteamTool: \(version)\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nArchitecture: \(AppUpdates.architecture)\nmacSteam loaded: \(!runtime.macSteamLoaded.isEmpty)\nNotProton loaded: \(!runtime.notProtonLoaded.isEmpty)\n"
             text += "\n## Recent application events / 近期应用事件\n```text\n" + recentEvents.prefix(20).joined(separator: "\n") + "\n```\n"
         }
         return redact(text)

@@ -2,11 +2,8 @@ import Foundation
 public enum DownloadSources {
     public static let manifestTemplates = ["https://20770407.xyz/manifest/{depot}/{manifest}", "https://steamapi.993499094.xyz/manifest/{depot}/{manifest}", "https://manifest.manifestdex.com/{manifest}", "https://manifest.steam.run/api/manifest/{manifest}", "https://manifest.opensteamtool.com/{manifest}"]
     public static let imageHosts = ["shared.akamai.steamstatic.com", "shared.fastly.steamstatic.com", "cdn.akamai.steamstatic.com", "cdn.cloudflare.steamstatic.com"]
-    public static let mirrors = ["direct", "https://gh-proxy.com/", "https://ghfast.top/", "https://gh-proxy.org/"]
-    public static func candidates(_ url: URL, preferred: String?) -> [URL] {
-        guard url.scheme == "https", url.user == nil, url.password == nil, url.host == "github.com", url.query == nil, url.fragment == nil, mirrors.contains(preferred ?? "direct"), let preferred, preferred != "direct" else { return [url] }
-        return [URL(string: preferred + url.absoluteString)!, url]
-    }
+    public static let mirrors = DownloadMirrors.mirrors
+    public static func candidates(_ url: URL, preferred: String?) -> [URL] { DownloadMirrors.candidates(url, preferred: preferred) }
     public static func validCDN(_ host: String) -> Bool {
         guard !host.isEmpty, host.count <= 253, !host.hasPrefix("."), !host.hasSuffix("."), !host.contains("..") else { return false }
         return host.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }

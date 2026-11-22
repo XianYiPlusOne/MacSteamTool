@@ -3,17 +3,27 @@ import CryptoKit
 import ZIPFoundation
 import Darwin
 
+public enum UpdateEdition: String, Codable, Sendable {
+    case local, standard
+    fileprivate var bundles: [String: String] {
+        switch self {
+        case .local: return ["MacSteamTool Local.app": "MacSteamToolLocal"]
+        case .standard: return ["MacSteamTool.app": "MacSteamTool", "Fluent Steam Mac.app": "FluentSteam"]
+        }
+    }
+}
 public struct UpdateRelease: Codable, Sendable, Equatable {
     public var version: String
     public var build: Int
     public var minimumOS: Int
+    public var edition: UpdateEdition?
     public var architecture: String
     public var url: String
     public var sha256: String
     public var size: Int
     public var notes: String
-    public init(version: String, build: Int, minimumOS: Int = 14, architecture: String = "arm64", url: String, sha256: String, size: Int, notes: String = "") {
-        self.version = version; self.build = build; self.minimumOS = minimumOS; self.architecture = architecture
+    public init(version: String, build: Int, minimumOS: Int = 14, architecture: String = AppUpdates.architecture, edition: UpdateEdition? = nil, url: String, sha256: String, size: Int, notes: String = "") {
+        self.version = version; self.build = build; self.minimumOS = minimumOS; self.architecture = architecture; self.edition = edition
         self.url = url; self.sha256 = sha256; self.size = size; self.notes = notes
     }
 }
@@ -38,19 +48,37 @@ public struct UpdateInstallPlan: Codable, Sendable {
     public let target: URL
     public let expectedSource: String
     public let expectedTarget: String
+    public let edition: UpdateEdition?
     public let parentPID: Int32
     public let build: Int
-    public init(source: URL, target: URL, expectedSource: String, expectedTarget: String, parentPID: Int32, build: Int) {
-        self.source = source; self.target = target; self.expectedSource = expectedSource; self.expectedTarget = expectedTarget; self.parentPID = parentPID; self.build = build
+    public init(source: URL, target: URL, expectedSource: String, expectedTarget: String, parentPID: Int32, build: Int, edition: UpdateEdition? = nil) {
+        self.source = source; self.target = target; self.expectedSource = expectedSource; self.expectedTarget = expectedTarget; self.parentPID = parentPID; self.build = build; self.edition = edition
     }
 }
 public enum AppUpdates {
     public static let bundleID = "dev.macsteamtool.app"
-    private static let updateBundles = ["MacSteamTool.app": "MacSteamTool", "Fluent Steam Mac.app": "FluentSteam"]
+    #if arch(x86_64)
+    public static let architecture = "x86_64"
+    #elseif arch(arm64)
+    public static let architecture = "arm64"
+    #else
+    #error("Unsupported macOS architecture")
+    #endif
+    public static func feedURL(_ setting: String) -> URL? {
+        let text = setting.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "{arch}", with: architecture)
+        guard let url = URL(string: text), url.scheme == "https", url.host?.isEmpty == false,
+              url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+    private static func compatible(_ release: UpdateRelease, edition: UpdateEdition) -> Bool {
+        (release.edition ?? .standard) == edition && release.architecture == architecture
+            && release.minimumOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+    }
     public static func publicKey(bundle: Bundle = .main) throws -> Data {
         guard let path = bundle.url(forResource: "UpdatePublicKey", withExtension: "txt"), let key = Data(base64Encoded: try FileStore.text(path).trimmingCharacters(in: .whitespacesAndNewlines)), key.count == 32 else { throw AppFailure("缺少更新公钥 / Update public key missing") }; return key
     }
-    public static func check(feed: URL, publicKey: Data, currentBuild: Int, allowFile: Bool = false) async throws -> (SignedUpdate, UpdateRelease)? {
+    public static func check(feed: URL, publicKey: Data, currentBuild: Int, allowFile: Bool = false, edition: UpdateEdition = .standard) async throws -> (SignedUpdate, UpdateRelease)? {
         let data: Data
         if feed.isFileURL && allowFile { data = try FileStore.read(feed) } else {
             guard feed.scheme == "https", feed.user == nil, feed.password == nil else { throw AppFailure("更新源需要 HTTPS / Update feed requires HTTPS") }
@@ -58,16 +86,16 @@ public enum AppUpdates {
         }
         guard data.count <= 100 * 1024 else { throw AppFailure("更新元数据过大 / Update metadata too large") }
         let envelope = try JSONDecoder().decode(SignedUpdate.self, from: data), release = try envelope.verified(publicKey: publicKey)
-        guard release.architecture == "arm64", release.minimumOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion else { throw AppFailure("更新不兼容此 Mac / Update does not support this Mac") }
+        guard compatible(release, edition: edition) else { throw AppFailure("更新不兼容此 Mac / Update does not support this Mac") }
         return release.build > currentBuild ? (envelope, release) : nil
     }
-    public static func prepare(_ envelope: SignedUpdate, publicKey: Data, archive supplied: URL? = nil, staging: URL, currentBuild: Int, mirror: String? = nil) async throws -> PreparedUpdate {
+    public static func prepare(_ envelope: SignedUpdate, publicKey: Data, archive supplied: URL? = nil, staging: URL, currentBuild: Int, mirror: String? = nil, edition: UpdateEdition = .standard) async throws -> PreparedUpdate {
         let release = try envelope.verified(publicKey: publicKey)
-        guard release.build > currentBuild, release.architecture == "arm64", release.minimumOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion else { throw AppFailure("更新版本过旧或不兼容 / Update is older or incompatible") }
+        guard release.build > currentBuild, compatible(release, edition: edition) else { throw AppFailure("更新版本过旧或不兼容 / Update is older or incompatible") }
         let bytes: Data
         if let supplied { bytes = try FileStore.read(supplied) }
         else { guard let url = URL(string: release.url), url.scheme == "https" else { throw AppFailure("更新包需要 HTTPS / Update archive requires HTTPS") }; var downloaded: Data?, lastError: Error = AppFailure("下载失败 / Download failed")
-            for candidate in DownloadSources.candidates(url, preferred: mirror) {
+            for candidate in DownloadMirrors.candidates(url, preferred: mirror) {
                 do {
                     let data = try await HTTP.get(candidate, limit: 256 * 1024 * 1024, timeout: 120)
                     guard data.count == release.size, FileStore.hash(data) == release.sha256.lowercased() else { throw AppFailure("更新包摘要不符 / Update digest mismatch") }
@@ -89,33 +117,70 @@ public enum AppUpdates {
                 guard total <= 1024 * 1024 * 1024, entries.count <= 30000 else { throw AppFailure("更新解压超过限制 / Update extraction limit exceeded") }
                 let top = String(components.first ?? "")
                 if top == "__MACOSX" { continue }
-                guard updateBundles[top] != nil, bundleName == nil || bundleName == top else { throw AppFailure("更新包只能包含一个 MacSteamTool 应用 / Unexpected update archive root") }
+                guard edition.bundles[top] != nil, bundleName == nil || bundleName == top else { throw AppFailure("更新包只能包含一个 MacSteamTool 应用 / Unexpected update archive root") }
                 bundleName = top
             }
-            guard let bundleName, let executable = updateBundles[bundleName] else { throw AppFailure("更新包缺少应用 / Application missing from update archive") }
+            guard let bundleName, let executable = edition.bundles[bundleName] else { throw AppFailure("更新包缺少应用 / Application missing from update archive") }
             for e in entries where !e.path.hasPrefix("__MACOSX/") && !e.path.split(separator: "/").contains(where: { $0.hasPrefix("._") }) {
                 try Task.checkCancellation()
                 let crc = try archive.extract(e, to: folder.appendingPathComponent(e.path))
                 guard crc == e.checksum else { throw AppFailure("更新 CRC 不匹配 / Update CRC mismatch") }
             }
             let app = folder.appendingPathComponent(bundleName)
-            try await validate(app, build: release.build, version: release.version, expectedExecutable: executable)
+            try await validate(app, build: release.build, version: release.version, expectedExecutable: executable, edition: edition)
             try FileStore.json(envelope, to: folder.appendingPathComponent("release.json"))
             return PreparedUpdate(folder: folder, application: app, release: release)
         } catch { try? FileStore.fm.removeItem(at: folder); throw error }
     }
-    public static func validate(_ app: URL, build: Int? = nil, version: String? = nil, expectedExecutable: String? = nil) async throws {
+    public static func validate(_ app: URL, build: Int? = nil, version: String? = nil, expectedExecutable: String? = nil, edition: UpdateEdition = .standard) async throws {
         let info = try PropertyListSerialization.propertyList(from: FileStore.read(app.appendingPathComponent("Contents/Info.plist")), format: nil) as? [String: Any] ?? [:]
         let identifier = info["CFBundleIdentifier"] as? String
-        guard let executable = info["CFBundleExecutable"] as? String, updateBundles.values.contains(executable),
-              (identifier == bundleID && executable == "MacSteamTool") || identifier == "dev.fluentsteam.mac",
+        guard let executable = info["CFBundleExecutable"] as? String, edition.bundles.values.contains(executable),
+              (edition == .local ? identifier == "dev.macsteamtool.local" :
+                ((identifier == bundleID && executable == "MacSteamTool") || identifier == "dev.fluentsteam.mac")),
               expectedExecutable == nil || expectedExecutable == executable,
               let n = Int(info["CFBundleVersion"] as? String ?? ""), build == nil || n == build,
               version == nil || info["CFBundleShortVersionString"] as? String == version else { throw AppFailure("应用标识或版本不匹配 / Application identity or version mismatch") }
         let (code, diagnostic) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", "--verbose=4", app.path])
         guard code == 0 else { throw AppFailure("应用代码签名校验失败 / Application code signature verification failed: \(diagnostic.suffix(1500))") }
-        let (arch, result) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/lipo"), ["-archs", app.appendingPathComponent("Contents/MacOS").appendingPathComponent(executable).path])
-        guard arch == 0, result.split(whereSeparator: \.isWhitespace).contains("arm64") else { throw AppFailure("更新没有 ARM64 可执行文件 / Update has no ARM64 executable") }
+        let macOS = app.appendingPathComponent("Contents/MacOS")
+        var binaries = [executable]
+        for helper in ["MacSteamToolUpdater", "MacSteamToolWorker", "MacSteamToolRuntime"] {
+            if FileStore.fm.fileExists(atPath: macOS.appendingPathComponent(helper).path) || (edition == .local && helper == "MacSteamToolUpdater") {
+                binaries.append(helper)
+            }
+        }
+        for binary in binaries {
+            let file = macOS.appendingPathComponent(binary)
+            guard try containsNativeSlice(file) else {
+                throw AppFailure("更新组件缺少 \(architecture) 架构 / Missing \(architecture) slice: \(binary)")
+            }
+        }
+    }
+    // Read the Mach-O header directly so checking an update needs no developer tools.
+    private static func containsNativeSlice(_ file: URL) throws -> Bool {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        let bytes = Array(try handle.read(upToCount: 4096) ?? Data())
+        guard bytes.count >= 8 else { return false }
+        func word(_ offset: Int, littleEndian: Bool) -> UInt32 {
+            let slice = bytes[offset..<(offset + 4)]
+            return (littleEndian ? Array(slice.reversed()) : Array(slice)).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        }
+        let cpu = UInt32(architecture == "arm64" ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64)
+        let magic = word(0, littleEndian: false)
+        switch magic {
+        case MH_MAGIC_64, MH_CIGAM_64:
+            return word(4, littleEndian: magic == MH_CIGAM_64) == cpu
+        case FAT_MAGIC, FAT_CIGAM, FAT_MAGIC_64, FAT_CIGAM_64:
+            let little = magic == FAT_CIGAM || magic == FAT_CIGAM_64
+            let stride = (magic == FAT_MAGIC_64 || magic == FAT_CIGAM_64) ? 32 : 20
+            let count = Int(word(4, littleEndian: little))
+            guard count <= (bytes.count - 8) / stride else { return false }
+            return (0..<count).contains { word(8 + $0 * stride, littleEndian: little) == cpu }
+        default:
+            return false
+        }
     }
     public static func treeHash(_ folder: URL) throws -> String {
         let root = folder.standardizedFileURL
@@ -148,7 +213,8 @@ public enum AppUpdates {
         for _ in 0..<120 where plan.parentPID > 0 && kill(plan.parentPID, 0) == 0 { try await Task.sleep(for: .milliseconds(500)) }
         guard plan.parentPID == 0 || kill(plan.parentPID, 0) != 0 else { throw AppFailure("应用仍在运行，未替换 / Application is still running; replacement cancelled") }
         guard try treeHash(target) == plan.expectedTarget, try treeHash(plan.source) == plan.expectedSource else { throw AppFailure("更新文件已变更，未替换 / Update files changed; replacement cancelled") }
-        try await validate(target); try await validate(plan.source, build: plan.build)
+        let edition = plan.edition ?? .standard
+        try await validate(target, edition: edition); try await validate(plan.source, build: plan.build, edition: edition)
         let token = UUID().uuidString, candidate = parent.appendingPathComponent(".fluent-update-\(token).app"), backup = parent.appendingPathComponent("MacSteamTool.before-\(token).app")
         var keepCandidate = false
         defer { if !keepCandidate { try? FileStore.fm.removeItem(at: candidate) } }
@@ -156,7 +222,7 @@ public enum AppUpdates {
         guard try treeHash(candidate) == plan.expectedSource else { throw AppFailure("更新复制校验失败 / Update copy verification failed") }
         // Atomic exchange keeps the installed app present even if the helper crashes.
         guard renamex_np(candidate.path, target.path, UInt32(RENAME_SWAP)) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        do { try await validate(target, build: plan.build); try FileStore.fm.moveItem(at: candidate, to: backup) }
+        do { try await validate(target, build: plan.build, edition: edition); try FileStore.fm.moveItem(at: candidate, to: backup) }
         catch {
             guard renamex_np(candidate.path, target.path, UInt32(RENAME_SWAP)) == 0 else { keepCandidate = true; throw AppFailure("更新回滚失败，原应用保留在 \(candidate.path) / Rollback failed; original app retained") }
             throw error

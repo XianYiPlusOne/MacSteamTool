@@ -1,11 +1,5 @@
 import Foundation
 
-public struct AppFailure: LocalizedError, Equatable {
-    public let message: String
-    public init(_ message: String) { self.message = message }
-    public var errorDescription: String? { message }
-}
-
 public struct AppPaths: Sendable {
     public var steam: URL
     public var macSteam: URL
@@ -90,21 +84,6 @@ public struct Game: Identifiable, Hashable, Sendable {
     }
 }
 
-public struct InstalledGame: Hashable, Sendable {
-    public var id: Int
-    public var name: String
-    public var library: URL
-    public var folder: URL
-    public var buildID: String
-    public var bytes: Int64
-    public var depots: [Int: String]
-    public var prefix: URL? {
-        let p = selectedPrefix ?? library.appendingPathComponent("steamapps/compatdata/\(id)/pfx")
-        return FileManager.default.fileExists(atPath: p.path) ? p : nil
-    }
-    public var selectedPrefix: URL? = nil
-}
-
 public struct GameMetadata: Codable, Identifiable, Sendable {
     public var id: Int
     public var name: String
@@ -131,23 +110,4 @@ public struct BackupFile: Codable, Sendable {
     public var stored: String
     public var sha256: String
     public var existed: Bool
-}
-
-public enum TextUtil {
-    public static func matches(_ pattern: String, _ text: String) -> [[String]] {
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let ns = text as NSString
-        return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { m in
-            (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? "" : ns.substring(with: m.range(at: $0)) }
-        }
-    }
-    public static func cleanLine(_ text: String) -> String {
-        text.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "\0", with: "")
-    }
-    public static func validID(_ value: String) -> Int? {
-        guard let id = UInt32(value), id > 0 else { return nil }; return Int(id)
-    }
-    public static func validKey(_ value: String) -> Bool {
-        value.count == 64 && value.allSatisfy { $0.isHexDigit && $0.isASCII }
-    }
 }

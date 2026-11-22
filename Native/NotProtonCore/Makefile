@@ -610,31 +610,32 @@ overlay-shim-bench:
 		printf '  %-8s ' "$$a"; $(OUT_DIR)/passbench.$$a || exit 1; \
 	done
 
+# These standalone helpers run as Mac processes, independently of the Steam runtime.
+HELPER_SLICES := arm64 x86_64
+HELPER_MIN_VER := 14.0
 ICONMAKER := $(OUT_DIR)/iconmaker
-
-iconmaker: $(ICONMAKER)
-
-$(ICONMAKER): helpers/iconmaker.swift helpers/iconmaker.h dylib/util/peicon.c dylib/util/peicon.h dylib/util/pe.c dylib/util/pe.h helpers/shortcuts.h helpers/shortcuts.c
-	@mkdir -p $(OUT_DIR)
-	$(CC) -c -arch $(ARCH) -mmacosx-version-min=$(MIN_VER) $(AVAIL) -std=c17 -O2 \
-		-Wall -Wextra -o $(OUT_DIR)/peicon-host.o dylib/util/peicon.c
-	$(CC) -c -arch $(ARCH) -mmacosx-version-min=$(MIN_VER) $(AVAIL) -std=c17 -O2 \
-		-Wall -Wextra -o $(OUT_DIR)/pe-host.o dylib/util/pe.c
-	$(CC) -c -arch $(ARCH) -mmacosx-version-min=$(MIN_VER) $(AVAIL) -std=c17 -O2 \
-		-Wall -Wextra -o $(OUT_DIR)/shortcuts-host.o helpers/shortcuts.c
-	swiftc -O -target $(ARCH)-apple-macos$(MIN_VER) \
-		-framework AppKit -import-objc-header helpers/iconmaker.h \
-		-o $@ helpers/iconmaker.swift $(OUT_DIR)/peicon-host.o $(OUT_DIR)/pe-host.o $(OUT_DIR)/shortcuts-host.o
-	@echo "==> Built $@"
-
 APPINFO := $(OUT_DIR)/appinfo
 
+iconmaker: $(ICONMAKER)
 appinfo: $(APPINFO)
 
-$(APPINFO): helpers/appinfo.swift
-	@mkdir -p $(OUT_DIR)
-	swiftc -O -target $(ARCH)-apple-macos$(MIN_VER) -o $@ $<
-	@echo "==> Built $@"
+$(ICONMAKER): $(foreach cpu,$(HELPER_SLICES),$(OUT_DIR)/host-tools/$(cpu)/iconmaker)
+	lipo -create $^ -output $@
+
+$(APPINFO): $(foreach cpu,$(HELPER_SLICES),$(OUT_DIR)/host-tools/$(cpu)/appinfo)
+	lipo -create $^ -output $@
+
+$(OUT_DIR)/host-tools/%/iconmaker: helpers/iconmaker.swift helpers/iconmaker.h dylib/util/peicon.c dylib/util/peicon.h dylib/util/pe.c dylib/util/pe.h helpers/shortcuts.h helpers/shortcuts.c Makefile
+	@mkdir -p "$(@D)"
+	$(CC) -c -arch $* -mmacosx-version-min=$(HELPER_MIN_VER) $(AVAIL) -std=c17 -O2 -Wall -Wextra -o "$(@D)/peicon.o" dylib/util/peicon.c
+	$(CC) -c -arch $* -mmacosx-version-min=$(HELPER_MIN_VER) $(AVAIL) -std=c17 -O2 -Wall -Wextra -o "$(@D)/pe.o" dylib/util/pe.c
+	$(CC) -c -arch $* -mmacosx-version-min=$(HELPER_MIN_VER) $(AVAIL) -std=c17 -O2 -Wall -Wextra -o "$(@D)/shortcuts.o" helpers/shortcuts.c
+	swiftc -O -target $*-apple-macos$(HELPER_MIN_VER) -framework AppKit -import-objc-header helpers/iconmaker.h \
+		-o "$@" helpers/iconmaker.swift "$(@D)/peicon.o" "$(@D)/pe.o" "$(@D)/shortcuts.o"
+
+$(OUT_DIR)/host-tools/%/appinfo: helpers/appinfo.swift Makefile
+	@mkdir -p "$(@D)"
+	swiftc -O -target $*-apple-macos$(HELPER_MIN_VER) -o "$@" $<
 
 helpers-install: $(ICONMAKER) $(APPINFO)
 	$(call install_atomically,$(ICONMAKER),$(SUPPORT_DIR)/iconmaker)

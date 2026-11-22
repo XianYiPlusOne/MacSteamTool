@@ -5,9 +5,41 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="MacSteamTool"
 APP_BUNDLE="$ROOT_DIR/outputs/$APP_NAME.app"
 cd "$ROOT_DIR"
+if [[ "$MODE" == "--build-host-tools" ]]; then
+  mkdir -p "$ROOT_DIR/work" "$ROOT_DIR/outputs/host-tools"
+  stage="$(mktemp -d "$ROOT_DIR/outputs/.host-tools.XXXXXX")"
+  trap 'rm -rf "$stage"' EXIT
+  for cpu in arm64 x86_64; do
+    triple="$cpu-apple-macosx14.0"
+    flags=(--scratch-path "${MACSTEAMTOOL_SWIFT_SCRATCH:-$ROOT_DIR/.build}" -c release
+           --triple "$triple" -Xswiftc -target -Xswiftc "$triple")
+    bin="$(swift build "${flags[@]}" --show-bin-path)"
+    mkdir "$stage/$cpu"
+    for product in MacSteamToolUpdater MacSteamToolWorker; do
+      swift build "${flags[@]}" --product "$product"
+      cp "$bin/$product" "$stage/$cpu/$product"
+    done
+  done
+  for product in MacSteamToolUpdater MacSteamToolWorker; do
+    lipo -create "$stage/arm64/$product" "$stage/x86_64/$product" -output "$stage/$product"
+  done
+  native="$ROOT_DIR/work/original-host-tools"
+  make -C "$ROOT_DIR/Native/NotProtonCore" -j4 iconmaker appinfo OUT_DIR="$native"
+  cp "$native/iconmaker" "$native/appinfo" "$stage/"
+  products=(MacSteamToolUpdater MacSteamToolWorker iconmaker appinfo)
+  for product in "${products[@]}"; do
+    for cpu in arm64 x86_64; do lipo "$stage/$product" -verify_arch "$cpu"; done
+    strip -S "$stage/$product"
+    codesign --force --sign - "$stage/$product"
+    codesign --verify --strict --all-architectures "$stage/$product"
+  done
+  for product in "${products[@]}"; do mv -f "$stage/$product" "$ROOT_DIR/outputs/host-tools/$product"; done
+  echo "Built universal macOS helpers in $ROOT_DIR/outputs/host-tools"
+  exit 0
+fi
 case "$MODE" in
   run|--verify|--debug|--logs|--telemetry|--build) ;;
-  *) echo "Usage: $0 [--build|--verify|--debug|--logs|--telemetry]" >&2; exit 2 ;;
+  *) echo "Usage: $0 [--build|--build-host-tools|--verify|--debug|--logs|--telemetry]" >&2; exit 2 ;;
 esac
 if [[ "$MODE" != "--build" ]]; then
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true

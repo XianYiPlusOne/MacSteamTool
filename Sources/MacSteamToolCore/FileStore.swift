@@ -3,49 +3,6 @@ import CryptoKit
 import ZIPFoundation
 import Darwin
 
-public enum FileStore {
-    public static let fm = FileManager.default
-    public static func mkdir(_ url: URL) throws { try fm.createDirectory(at: url, withIntermediateDirectories: true) }
-    public static func read(_ url: URL) throws -> Data {
-        // fstat avoids Foundation's extended-attribute enumeration, which can block on
-        // File Provider / privacy-mediated locations. Read the same verified descriptor.
-        let fd = open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? handle.close() }
-        var info = stat()
-        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw AppFailure("只能读取普通文件 / Only regular files can be read：\(url.lastPathComponent)") }
-        let limit = 256 * 1024 * 1024
-        guard info.st_size <= limit else { throw AppFailure("文件过大 / File exceeds the size limit：\(url.lastPathComponent)") }
-        var data = Data()
-        while let part = try handle.read(upToCount: 1_048_576), !part.isEmpty {
-            guard data.count + part.count <= limit else { throw AppFailure("文件读取超过大小限制 / Read exceeded the file size limit") }; data.append(part)
-        }
-        return data
-    }
-    public static func fingerprint(_ url: URL) -> String {
-        var info = stat()
-        guard stat(url.path, &info) == 0 else { return "\(url.path):missing" }
-        return "\(url.path):\(info.st_ino):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec)"
-    }
-    public static func text(_ url: URL) throws -> String {
-        guard let text = String(data: try read(url), encoding: .utf8) else { throw AppFailure("文件不是 UTF-8 / File is not UTF-8：\(url.lastPathComponent)") }; return text
-    }
-    public static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-    public static func write(_ data: Data, to url: URL) throws {
-        try mkdir(url.deletingLastPathComponent())
-        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { throw AppFailure("拒绝覆盖符号链接 / Refusing to overwrite a symbolic link：\(url.lastPathComponent)") }
-        try data.write(to: url, options: .atomic)
-    }
-    public static func json<T: Encodable>(_ value: T, to url: URL) throws {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; try write(encoder.encode(value), to: url)
-    }
-    public static func decode<T: Decodable>(_ type: T.Type, at url: URL) throws -> T { try JSONDecoder().decode(type, from: read(url)) }
-    public static func files(_ dir: URL) -> [URL] {
-        (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
-    }
-}
-
 /// Journals every affected file before mutating it. Failure restores the whole batch.
 public final class FileTransaction {
     public let backupRoot: URL

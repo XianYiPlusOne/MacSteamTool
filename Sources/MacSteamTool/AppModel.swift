@@ -324,7 +324,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             guard cdn.isEmpty || DownloadSources.validCDN(cdn) else { throw AppFailure("CDN 必须是主机名 / CDN must be a hostname") }
             preferences.preferredCDN = cdn
             let feed = preferences.updateFeed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard feed.isEmpty || URL(string: feed)?.scheme == "https" else { throw AppFailure("更新源必须使用 HTTPS / Update feed requires HTTPS") }
+            guard feed.isEmpty || AppUpdates.feedURL(feed) != nil else { throw AppFailure("更新源必须是有效的 HTTPS 地址 / Enter a valid HTTPS update feed") }
             preferences.updateFeed = feed
             let saved = preferences, defaults = defaults
             run(tr("保存设置", "Save settings"), cancellable: false) {

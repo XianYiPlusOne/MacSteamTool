@@ -12,6 +12,12 @@ import Testing
         let payload = try JSONEncoder().encode(release)
         return SignedUpdate(payload: payload, signature: try key.signature(for: payload))
     }
+    @Test func updateFeedAcceptsFixedAndArchitectureSpecificURLs() {
+        let fixed = "https://example.com/releases/current.json"
+        #expect(AppUpdates.feedURL(fixed)?.absoluteString == fixed)
+        #expect(AppUpdates.feedURL("https://example.com/releases/{arch}.json")?.lastPathComponent == AppUpdates.architecture + ".json")
+        #expect(AppUpdates.feedURL("http://example.com/releases/{arch}.json") == nil)
+    }
     @Test func signaturesAndPrivacy() throws {
         let key = Curve25519.Signing.PrivateKey(), release = UpdateRelease(version: "0.2.0", build: 2, url: "https://example.com/app.zip", sha256: String(repeating: "a", count: 64), size: 123)
         let envelope = try signed(release, key: key)
@@ -51,12 +57,26 @@ import Testing
         try FileStore.mkdir(app.appendingPathComponent("Contents/MacOS"))
         let source = root.appendingPathComponent("main.c")
         try FileStore.write(Data("int main(void){return 0;}\n".utf8), to: source)
-        let (compile, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/clang"), ["-arch", "arm64", source.path, "-o", app.appendingPathComponent("Contents/MacOS").appendingPathComponent(executable).path])
+        let (compile, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/clang"), ["-arch", AppUpdates.architecture, source.path, "-o", app.appendingPathComponent("Contents/MacOS").appendingPathComponent(executable).path])
         #expect(compile == 0)
         let info = ["CFBundleIdentifier": legacy ? "dev.fluentsteam.mac" : AppUpdates.bundleID, "CFBundleExecutable": executable, "CFBundlePackageType": "APPL", "CFBundleVersion": String(build), "CFBundleShortVersionString": "0.\(build).0"]
         try FileStore.write(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0), to: app.appendingPathComponent("Contents/Info.plist"))
         let (sign, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--force", "--deep", "--sign", "-", app.path]); #expect(sign == 0)
         return app
+    }
+    @Test func updateRejectsIncompatibleEmbeddedUpdater() async throws {
+        let folder = try root()
+        defer { try? FileStore.fm.removeItem(at: folder) }
+        let bundle = try await app(folder, build: 1)
+        let helper = bundle.appendingPathComponent("Contents/MacOS/MacSteamToolUpdater")
+        let other = AppUpdates.architecture == "arm64" ? "x86_64" : "arm64"
+        let (compiled, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/clang"),
+            ["-arch", other, folder.appendingPathComponent("main.c").path, "-o", helper.path])
+        try #require(compiled == 0)
+        let (signed, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"),
+            ["--force", "--deep", "--sign", "-", bundle.path])
+        try #require(signed == 0)
+        await #expect(throws: AppFailure.self) { try await AppUpdates.validate(bundle) }
     }
     @Test(arguments: [false, true]) func signedArchiveInstallAndConflict(legacyArchive: Bool) async throws {
         let root = try root(); defer { try? FileStore.fm.removeItem(at: root) }

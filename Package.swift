@@ -16,9 +16,10 @@ let package = Package(
     targets: [
         .systemLibrary(name: "CArchive"),
         .systemLibrary(name: "CMultiplayer"),
-        .target(name: "MacSteamToolCore", dependencies: ["ZIPFoundation", "CArchive"]),
+        .target(name: "MacSteamToolShared", dependencies: ["ZIPFoundation"]),
+        .target(name: "MacSteamToolCore", dependencies: ["MacSteamToolShared", "ZIPFoundation", "CArchive"]),
         .executableTarget(name: "MacSteamTool", dependencies: ["MacSteamToolCore", "CMultiplayer"]),
-        .executableTarget(name: "MacSteamToolUpdater", dependencies: ["MacSteamToolCore"]),
+        .executableTarget(name: "MacSteamToolUpdater", dependencies: ["MacSteamToolShared"]),
         .executableTarget(name: "MacSteamToolRuntime", dependencies: ["MacSteamToolCore"]),
         .executableTarget(name: "MacSteamToolInspect", dependencies: ["MacSteamToolCore"]),
         .target(name: "NativeSteam", publicHeadersPath: "include"),

@@ -1,5 +1,5 @@
 import Foundation
-import MacSteamToolCore
+import MacSteamToolShared
 
 @main struct Updater {
     static func main() async {
