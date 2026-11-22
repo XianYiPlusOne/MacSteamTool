@@ -7,21 +7,32 @@
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md" hreflang="zh-CN">Simplified Chinese</a></p>
 
 <p align="center">
-  Manage your local Steam library, Windows game runtimes, and saves on macOS.<br>
+  Find games and add them to your Steam library on Mac, run compatible Windows games with Wine or CrossOver, and host multiplayer rooms for friends over Steam.<br>
   <sub>Apple Silicon · SwiftUI · AGPL-3.0</sub>
 </p>
 
 > [!IMPORTANT]
 > **MacSteamTool is a vibe coding project.** We develop it with AI assistance, and many features have yet to be tested in detail. Coverage is limited across games, Wine and CrossOver versions, and multiplayer sessions between two physical devices. Back up important saves before restoring files or resetting a game container.
 
-## Features
+## Discover games and manage manifests
 
-| Feature | What you can do |
-| --- | --- |
-| Local game library | See which games are installed on this Mac and where their files are stored. |
-| Wine and CrossOver | Use the setup guide to find an existing runtime and choose how to run Windows games. |
-| Saves and containers | Find, back up, and restore saves by game. Keep separate containers for games that need different settings. |
-| Multiplayer | Create or join a room, invite friends, and chat. The game itself needs to support LAN play or direct connections. |
+- **Discover** lets you search by title or Steam AppID and browse the XiaoHeiHe popular games chart. Results show macOS and Windows availability. **Add to library** checks the base game, optional DLC, and their content depots, and lists anything still missing. Once the checks pass, the app adds the entry to your library. Steam handles licensing, installation, and downloads.
+- **Library** shows installed Steam games alongside imported entries. Drag in Lua manifests or manifest archives, filter by name, AppID, or installation status, and enable or disable imported entries in bulk. Export the current list's manifests as a ZIP, or open a game's details to edit its Lua manifest and compare it with Steam's published DLC and depot data.
+- **Manifests** groups cached manifest files by game. Fetch a missing file by DepotID and ManifestID, or monitor new manifest requests for enabled games. Downloads pass format and CRC checks before they enter the cache.
+
+## Run Windows games on Mac
+
+- **Runners and containers.** Choose MacSteamTool Wine or an activated copy of CrossOver as the default, then override it for individual games. To try different configurations, create separate containers for the same game. Run EXE or MSI files inside a container, inspect its logs, or back up and restore the whole environment.
+- **Offline tools (experimental).** Generate an offline launch configuration for a selected Windows game. Preview which files will be added or replaced and back them up before deployment. Use the deployment record to check whether a patch loaded or to restore the files.
+
+## Multiplayer, achievements, and saves
+
+- **Multiplayer.** Host or join rooms over Steam, browse public lobbies, invite friends, and chat. TCP forwarding and TUN virtual LAN target compatibility with ConnectTool 1.6.0 on Windows. Players need compatible game versions and a game that supports LAN play or direct connections. Initial TUN setup requires administrator approval.
+- **Achievements and playtime.** Read achievement progress by game, filter the list, and unlock or relock achievements. Games using compatibility achievements store edits in their compatibility records. Enable achievement and statistics sync or track playtime for selected AppIDs.
+- **Local saves and backups.** Find save folders by game or add a custom folder. Backups are verified file by file. Restoring preserves a rollback copy of your current saves, and a reinstalled game can reuse an earlier backup. Steam handles the game's own Steam Cloud saves.
+- **Accounts and friend activity.** Switch between accounts remembered by Steam and launch the client. Choose whether friends see activity for selected games.
+
+In **Settings**, manage download sources and caches, check an HTTPS update feed, or import a signed local update. MacSteamTool verifies the update before installing it and keeps the previous app version.
 
 ## First launch
 
@@ -29,7 +40,7 @@ The **Getting started** guide checks whether Steam is installed. If needed, you 
 
 - **Already have Wine or CrossOver?** The guide shows the installation path so you can select your existing copy. CrossOver requires your own activated copy.
 - **Need Wine?** Select **Install Wine** to download the runtime and graphics components.
-- **Just here for your library?** Select **Manage local games only** to go straight to your games.
+- **Want to explore first?** Select **Manage local games only** to skip runner setup. You can still open **Discover**, **Manifests**, or **Runtime** from the sidebar later.
 
 The current build targets **Apple Silicon**. The app runs on **macOS 14 or later**. Automatic setup requires **macOS 15 or later**. Some Steam integration features modify the local client and affect ownership checks for games and DLC.
 
