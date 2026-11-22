@@ -23,3 +23,26 @@ The buffer cleanup helper at 0xfa6b0 is instruction-equivalent to the old 0xa0f0
 The client updated from 1794424036; its new UUID correctly caused the previous exact profiles to refuse activation. Added a separate macSteam profile and adapter profile after comparing the complete normalized functions in local old/new ARM64 images, checking instruction differences and unchanged object layouts. Duplicate ClearMap code was disambiguated through its following function. Engine global remains 0x18b3ca8, package cache +0x1680, app-info cache +0x15c8, and stats worker fields +0x190/+0x198. Existing UUID and exact-entry validation remains enabled.
 
 Read-only real-client probe resolved all 32 required sites and rejected altered UUID/entry guards. Native runtime, ownership, and live startup validation passed. Live Steam loaded the two configured Flotsam entries and installed 18/18 hooks. This update covers macSteam and the cloud/manifest adapters; it does not claim new NotProton runner compatibility or successful game launch.
+
+## Intel port investigation (1794536281, 2026-11-23)
+
+The local x86_64 client slice has UUID `543C930A-432C-36FB-9988-42214BD9D93C`.
+`script/inspect_intel_steam.py` records string-reference candidates after checking
+LC_FUNCTION_STARTS and x86 instruction boundaries. Its output is analysis-only,
+not a runtime profile. A read-only probe verified ten compatibility-manager and
+WebUI candidate entry addresses, including negative architecture, UUID and entry
+checks. This does not establish their complete ABI or game-launch compatibility.
+
+The investigation also reproduced an existing resolver regression: modified exact
+entry bytes could be rescued by an anchor/AOB fallback. Production resolution now
+requires the UUID and exact entry; anchors remain analysis evidence only. The
+existing ARM profile passed all 32 entries and negative checks after the fix.
+`script/test_steam_profiles.sh` now compiles and executes the architecture declared
+in its input rather than always compiling ARM64.
+
+Intel support still requires replacing ARM instruction probes and reviewing the
+instruction callbacks. In the observed client, compatibility enabled is at +0x810,
+tool AppID/install/from-OS/to-OS fields are +0x68/+0x60/+0x78/+0x80, and the tool
+stride is 0x138. The local redirect uses RAX and the OS-list gate uses RAX/R12.
+These are static observations, not permission to remove the x86 prehook guards.
+No production Intel profile has been added by this investigation.

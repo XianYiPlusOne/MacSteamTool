@@ -7,6 +7,21 @@ public struct SetupOptions: Sendable {
     public init() {}
 }
 
+public enum SteamProfileUnavailable: LocalizedError {
+    case client(build: String, architectures: [SteamClientArchitecture])
+    case installer(build: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .client(let build, let architectures):
+            let cpus = architectures.map(\.rawValue).joined(separator: " / ")
+            return "缺少 Steam \(build)（\(cpus)）的接入数据。仍可打开 Steam 和游戏库。 / No integration profile for Steam \(build) (\(cpus)). Steam and its library can still be opened."
+        case .installer(let build):
+            return "当前 \(AppUpdates.architecture) 版 MacSteamTool 缺少 Steam \(build) 的原生安装适配数据。仍可打开 Steam 和游戏库。 / The \(AppUpdates.architecture) MacSteamTool installer lacks a profile for Steam \(build). Steam and its library can still be opened."
+        }
+    }
+}
+
 public struct SetupJournal: Codable, Sendable {
     public var started = Date()
     public var state = "preparing"
@@ -29,7 +44,14 @@ public enum OneClickSetup {
         public var awaitingFirstSteamLaunch: Bool
     }
     public static func journalURL(_ paths: AppPaths) -> URL { paths.data.appendingPathComponent("Setup/latest.json") }
-    public static func requiresRosetta(_ prepared: Prepared) -> Bool { prepared.steam != nil }
+    public static func requiresRosetta(_ prepared: Prepared) -> Bool {
+        guard let steam = prepared.steam else { return false }
+        var supportsARM: Int32 = 0
+        var size = MemoryLayout.size(ofValue: supportsARM)
+        guard sysctlbyname("hw.optional.arm64", &supportsARM, &size, nil, 0) == 0, supportsARM == 1 else { return false }
+        let executable = steam.appendingPathComponent("Contents/MacOS/steam_osx")
+        return SteamClientArchitecture.slices(of: executable) == [.x86_64]
+    }
     public static func preserveNewer(installed: String, candidate: String) -> Bool {
         installed.range(of: #"^\d+(?:\.\d+){1,3}$"#, options: .regularExpression) != nil && installed.compare(candidate, options: .numeric) == .orderedDescending
     }
@@ -52,6 +74,19 @@ public enum OneClickSetup {
             if FileStore.fm.fileExists(atPath: userApp.path) || !FileStore.fm.isWritableFile(atPath: "/Applications") { p.steamApp = userApp }
         }
         return p
+    }
+    static func checkProfileAvailability(paths: AppPaths, resources: URL) throws {
+        let build = RuntimeStatus.steamBuild(in: paths)
+        guard !build.isEmpty else { return }
+        let client = SteamClientArchitecture.installed(in: paths, pids: SteamProcesses.pids())
+        let clientCPUs = client.running.map { [$0] } ?? client.slices
+        if !clientCPUs.isEmpty, !clientCPUs.contains(where: { $0.hasProfile(for: build, in: resources) }) {
+            throw SteamProfileUnavailable.client(build: build, architectures: clientCPUs)
+        }
+        let file = resources.appendingPathComponent("\(AppUpdates.nativeSignatureDirectory)/\(build).json")
+        guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+            throw SteamProfileUnavailable.installer(build: build)
+        }
     }
     public static func prepare(paths: AppPaths, options: SetupOptions, application: URL,
                                progress: @escaping @Sendable (String) async -> Void = { _ in }) async throws -> Prepared {
@@ -79,9 +114,7 @@ public enum OneClickSetup {
             await progress("准备内置 \(provider) / Preparing bundled \(provider)…")
             let component = try await ManagedRuntimeComponents.prepare(provider: provider, paths: p, localApplication: provider == "macsteam" ? options.macSteamSource : options.notProtonSource, application: application)
             if provider == "macsteam" {
-                if !status.build.isEmpty, !FileStore.fm.fileExists(atPath: component.resources.appendingPathComponent("\(AppUpdates.nativeSignatureDirectory)/\(status.build).json").path) {
-                    throw AppFailure("当前 \(AppUpdates.architecture) 安装轨道尚未支持 Steam build \(status.build)，未修改内核 / This \(AppUpdates.architecture) setup track does not support Steam build \(status.build); kernels unchanged")
-                }
+                try checkProfileAvailability(paths: p, resources: component.resources)
                 result.macSteam = component
             } else { result.notProton = component }
         }

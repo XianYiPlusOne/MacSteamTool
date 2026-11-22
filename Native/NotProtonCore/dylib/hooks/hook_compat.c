@@ -147,19 +147,21 @@ void np_hooks_compat_publish_originals(void) {
 // write path.
 static void instrument_oslist_override_gate(void *address, void *ctx_) {
     (void)address;
-#if defined(__x86_64__)
-    (void)ctx_;
-    return;
-#else
     np_dobby_ctx_t *ctx = (np_dobby_ctx_t *)ctx_;
+#if defined(__x86_64__)
+    // Reviewed site is before TEST RAX,RAX, so flags are recomputed by Steam.
+    if (ctx->general.regs.rax != 0) return;
+    ctx->general.regs.rax = 1;
+    uint64_t tool = ctx->general.regs.r12;
+#else
     if (ctx->general.x[0] != 0)
         return;
     ctx->general.x[0] = 1;
     uint64_t tool = ctx->general.x[21];
+#endif
     uint32_t appid = (tool && np_plausible_ptr(tool))
                      ? *(uint32_t *)(tool + np_compat_tool_off(COMPAT_TOOL_APPID_OFF)) : 0;
     NP_LOG("instrument_oslist_override_gate: appid=%u install platform forced to tool from_oslist", appid);
-#endif
 }
 
 //
@@ -172,13 +174,14 @@ static void instrument_oslist_override_gate(void *address, void *ctx_) {
 // directory.
 static void instrument_resolver_local_redirect(void *address, void *ctx_) {
     (void)address;
-#if defined(__x86_64__)
-    (void)ctx_;
-    return;
-#else
     np_dobby_ctx_t *ctx = (np_dobby_ctx_t *)ctx_;
-
+#if defined(__x86_64__)
+    // Reviewed site is before MOV ESI,[RAX+appid]; the original instruction
+    // reads the rewritten field and takes Steam's existing local-tool branch.
+    uint64_t tool = ctx->general.regs.rax;
+#else
     uint64_t tool = ctx->general.x[0];
+#endif
     if (!tool || !np_plausible_ptr(tool))
         return;
 
@@ -198,7 +201,6 @@ static void instrument_resolver_local_redirect(void *address, void *ctx_) {
 
     NP_LOG("instrument_resolver_local_redirect: tool %u routed to local CrossOver tool at %s",
            tool_appid, tool_dir);
-#endif
 }
 
 static void *orig_TerminateProcessByPid = NULL;

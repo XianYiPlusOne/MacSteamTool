@@ -170,8 +170,8 @@ enum DeploymentContent {
             File(source: payload.appinfo, destination: appinfo, name: "appinfo", executable: true),
         ]
         files += payload.signatures.map {
-            File(source: $0, destination: signatures.appending(path: $0.lastPathComponent),
-                 name: "signatures/\($0.lastPathComponent)")
+            File(source: $0, destination: signatures.appending(path: $0.deletingLastPathComponent().lastPathComponent).appending(path: $0.lastPathComponent),
+                 name: "signatures/\($0.deletingLastPathComponent().lastPathComponent)/\($0.lastPathComponent)")
         }
         files += payload.fonts.map {
             File(source: payload.fontsRoot.appending(path: $0), destination: fonts.appending(path: $0),

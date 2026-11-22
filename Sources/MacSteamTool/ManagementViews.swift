@@ -64,6 +64,11 @@ struct RuntimePage: View {
                         InfoLine(title: model.tr("应用路径", "Application"), value: model.paths.steamApp.path)
                         InfoLine(title: model.tr("数据目录", "Data directory"), value: model.paths.steam.path)
                         InfoLine(title: model.tr("客户端构建", "Client build"), value: model.runtime.build.isEmpty ? model.tr("未读取到", "Unknown") : model.runtime.build)
+                        InfoLine(title: model.tr("MacSteamTool 运行架构", "Running MacSteamTool architecture"), value: AppUpdates.architecture)
+                        InfoLine(title: model.tr("Steam 支持的架构", "Steam executable architectures"), value: model.runtime.steamArchitectures.isEmpty ? model.tr("未读取到", "Unknown") : model.runtime.steamArchitectures.map(\.rawValue).joined(separator: " / "))
+                        if let running = model.runtime.runningSteamArchitecture {
+                            InfoLine(title: model.tr("Steam 正在使用的架构", "Running Steam architecture"), value: running.rawValue)
+                        }
                         InfoLine(title: model.tr("游戏库目录", "Library folders"), value: SteamLibrary.libraries(model.paths).map(\.path).joined(separator: "\n"))
                         Divider().padding(.vertical, 8)
                         InfoLine(title: model.tr("接入文件", "Integration files"), value: model.runtime.bothInjected ? model.tr("完整", "Complete") : model.tr("等待自动准备", "Awaiting automatic preparation"))

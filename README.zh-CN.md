@@ -42,7 +42,9 @@
 - **需要 Wine**　选择「安装 Wine」后会联网下载运行器和图形组件。
 - **先看看游戏库**　选择「仅管理本机游戏」可跳过运行器配置。之后仍可从侧栏打开「搜索入库」「清单管理」或「运行环境」。
 
-应用和原生库现在均以 **通用 arm64/x86_64** 构建。Steam 接入按架构 fail-closed：只有存在经过审查的 `macos.x86_64` Steam profile 时才会修改 Intel 客户端；缺少 profile 时会保持客户端不变。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
+在 Apple 芯片 Mac 上，以 Intel 或 ARM 模式运行的 MacSteamTool 都可以打开已安装的 Intel、ARM 或通用版 Steam。macOS 按 Steam 自身的设置选择运行架构。可在「运行环境 → 诊断与恢复」查看 Steam 包含的架构和当前进程使用的架构。
+
+应用、原生库和安装恢复助手 `MacSteamToolNotProton` 均以 **通用 arm64/x86_64** 构建。助手可在 Intel 上执行安装、备份和恢复；CrossOver 接入仅注册可用的 x86_64 运行器，不注册 ARM FEX。仓库目前尚未提供 Intel Steam 的 `macos.x86_64` 版本适配数据，因此通用助手不代表所有 Intel Steam 接入功能已可用。原生接入另有版本和架构要求。例如，纯 Intel 客户端需要对应 Steam 构建的 `macos.x86_64` 适配数据，自动安装还会检查 MacSteamTool 当前架构的适配数据。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
 
 ## 开源鸣谢
 

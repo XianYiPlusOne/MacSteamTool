@@ -10,6 +10,8 @@ extension InstallerSelfTest {
         defer { try? fm.removeItem(at: root) }
         let support = root.appending(path: "Library/Application Support"), data = support.appending(path: "MacSteamTool")
         let app = root.appending(path: "Steam.app"), executable = app.appending(path: "Contents/MacOS/steam_osx")
+        // Match the production request, even when this test runs from a standalone helper.
+        let rebuildHelper = URL(filePath: application).appending(path: "Contents/Helpers/NotProton/MacSteamToolNotProton").path
         try fm.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.copyItem(at: URL(filePath: "/usr/bin/true"), to: executable)
         let plist: [String: Any] = ["CFBundleIdentifier": "com.valvesoftware.steam", "CFBundleExecutable": "steam_osx", "CFBundlePackageType": "APPL", "LSEnvironment": ["OTHER": "keep"]]
@@ -26,7 +28,7 @@ extension InstallerSelfTest {
         var r = InstallRequest(companion: "/nonexistent-manager.app", steamApp: app.path,
             steamData: support.appending(path: "Steam").path, notProton: support.appending(path: "notproton").path,
             data: data.path, kernel: "macsteam.dylib", macSteam: support.appending(path: "macsteam").path,
-            managedRoot: components["macsteam"]!.path, managedVersion: "0.8.2", rebuildExecutable: Bundle.main.executableURL!.path)
+            managedRoot: components["macsteam"]!.path, managedVersion: "0.8.2", rebuildExecutable: rebuildHelper)
         let macBackup = try InstallSession.kernel(r, requireIdle: {}, register: { _ in }, progress: { _ in })
         let macOnly = try InstallSnapshot.digest(app)
         r.kernel = "notproton.dylib"; r.managedRoot = components["notproton"]!.path; r.managedVersion = "1.2.3"
@@ -34,7 +36,7 @@ extension InstallerSelfTest {
         let inserts = SteamBundle.currentInsert(at: info) ?? ""
         guard inserts.contains("/macsteam.dylib"), inserts.contains("/notproton.dylib"),
               try String(contentsOf: SupportPaths.deployedVersion, encoding: .utf8) == "1.2.3\n",
-              try String(contentsOf: SupportPaths.support.appending(path: "app-executable"), encoding: .utf8) == Bundle.main.executableURL!.path,
+              try String(contentsOf: SupportPaths.support.appending(path: "app-executable"), encoding: .utf8) == rebuildHelper,
               try Shell.run("/usr/bin/codesign", ["--verify", "--strict", app.path]).succeeded else {
             throw StepFailure(step: "Test", detail: "Bundled core deployment did not verify")
         }

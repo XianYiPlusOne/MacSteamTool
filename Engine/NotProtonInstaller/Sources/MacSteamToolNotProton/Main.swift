@@ -21,6 +21,7 @@ import Darwin
             }
             if args.count == 2, args[0] == "--test-kernel" { try InstallerSelfTest.kernelIntegration(companion: args[1]); return }
             if args == ["--self-test"] { try InstallerSelfTest.run(); return }
+            if args == ["--test-architectures"] { try InstallerSelfTest.architectures(); return }
             if args.count == 2, args[0] == "--test-notproton-repair" { try InstallerSelfTest.notProtonRepair(source: args[1]); return }
             if args.count == 2, args[0] == "--inspect" {
                 try InstallSession.companion(args[1])

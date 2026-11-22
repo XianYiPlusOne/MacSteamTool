@@ -54,7 +54,12 @@ extension InstallSession {
                 guard let path = r.source, path.hasPrefix("/") else { throw StepFailure(step: "Install kernel", detail: "Missing bundled kernel") }
                 source = URL(filePath: path)
             }
-            guard let source, try Shell.run("/usr/bin/lipo", ["-archs", source.path]).stdout.contains("arm64") else { throw StepFailure(step: "Install kernel", detail: "Kernel must support ARM64") }
+            guard let source else { throw StepFailure(step: "Install kernel", detail: "Missing kernel") }
+            try InstallerArchitecture.validateLibrary(source, steamExecutable: SupportPaths.Steam.executable)
+            let client = SupportPaths.Steam.innerClient.appending(path: "steam_osx")
+            if fm.fileExists(atPath: client.path) {
+                try InstallerArchitecture.validateLibrary(source, steamExecutable: client)
+            }
             if kernel == "notproton.dylib", r.managedRoot == nil { try validateNotProtonRepair(source) }
         }
         guard r.cleanRunners != true || (kernel == "notproton.dylib" && r.remove == true) else { throw StepFailure(step: "Remove runners", detail: "Runner cleanup requires NotProton removal") }
@@ -74,7 +79,7 @@ extension InstallSession {
         let stagedLibrary = stage.appending(path: "Contents/MacOS/" + kernel)
         if fm.fileExists(atPath: stagedLibrary.path) { try fm.removeItem(at: stagedLibrary) }
         if let source {
-            try fm.copyItem(at: source, to: stagedLibrary); try SteamInstaller.adHocSign(stagedLibrary)
+            try fm.copyItem(at: source, to: stagedLibrary); try SteamInstaller.signLibraryIfNeeded(stagedLibrary)
             libraries.append(app.appending(path: "Contents/MacOS/" + kernel).path)
         }
         if libraries.isEmpty { env.removeValue(forKey: SteamBundle.insertKey) } else { env[SteamBundle.insertKey] = libraries.joined(separator: ":") }

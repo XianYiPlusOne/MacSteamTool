@@ -88,18 +88,7 @@ extension AppModel {
             try SteamCompatibility.chooseDefault(paths: paths, tool: selectedTool)
             self.log(self.tr("游戏兼容层已就绪", "Game translation backend is ready"))
         }
-        flow.completed = { [weak self] in
-            guard let self else { return }
-            if let url = self.pendingRuntimeURL {
-                self.pendingRuntimeURL = nil; NSWorkspace.shared.open(url)
-            }
-            guard let request = self.pendingRuntimeLaunch else { return }
-            self.pendingRuntimeLaunch = nil
-            self.run(self.tr("启动 Steam", "Launch Steam")) {
-                if request == 0 { try await self.launchPreparedSteam() }
-                else if let game = self.games.first(where: { $0.id == request }) { try await self.launchPreparedGame(game) }
-            }
-        }
+        flow.completed = { [weak self] in _ = self?.openPendingSteamRequest() }
         return flow
     }
     private func configureIsolatedWine(_ flow: RuntimePreparationController) {
@@ -160,8 +149,28 @@ extension AppModel {
         }
     }
     func setRuntimePaths(_ paths: AppPaths) { savedPaths = paths }
+    // Let Launch Services choose the client's architecture, including the user's
+    // Rosetta preference. Opening an installed client needs no integration profile.
+    private func openPendingSteamRequest() -> Bool {
+        guard !testing, !busy, let request = pendingSteamLaunch else { return false }
+        let selected = OneClickSetup.resolveSteamPath(paths)
+        guard NativeSteamBootstrap.isSteamApplication(selected.steamApp) else { return false }
+        pendingSteamLaunch = nil
+        run(tr("打开 Steam", "Open Steam")) {
+            guard !RuntimeInstaller.backups(selected).contains(where: \.interrupted) else {
+                throw AppFailure("请先在诊断与恢复中恢复中断的安装 / Recover the interrupted installation in Diagnostics and recovery first")
+            }
+            switch request {
+            case .url(let url): try await self.openSteamApplication(selected.steamApp, url)
+            case .client: try await self.launchPreparedSteam(at: selected.steamApp)
+            case .game(let id): try await self.launchPreparedGame(id, at: selected.steamApp)
+            }
+        }
+        return true
+    }
     func reconcileRuntimePreparation(retry: Bool = false) {
         guard !busy, !guideSteamInstallation.isRunning else { return }
+        if openPendingSteamRequest() { return }
         let key = [paths.data, paths.steamApp, paths.steam, paths.macSteam, paths.notProton, paths.config].map(\.path).joined(separator: "\n")
         if preparationPathKey != key { preparationPathKey = key; runtimePreparation.reset() }
         // The guide installs the Valve client first; backend preparation follows the user's choice.

@@ -247,16 +247,25 @@ final class CoreTests {
         let registry = try FileStore.text(p.steam.appendingPathComponent("registry.vdf"))
         assertTrue(registry.contains("second")); assertTrue(registry.contains("preserve"))
     }
-    @Test func testRuntimeReadsSignedSteamManifestAndBothLibraries() throws {
+    @Test(arguments: [SteamClientArchitecture.arm64, .x86_64])
+    func testRuntimeReadsSignedSteamManifestAndBothLibraries(architecture: SteamClientArchitecture) throws {
         var p = try fixture(); p.steamApp = temp.appendingPathComponent("Steam.app")
         let dylibs = ["macsteam", "notproton"].map { p.steamApp.appendingPathComponent("Contents/MacOS/\($0).dylib") }
         for dylib in dylibs { try FileStore.write(Data(), to: dylib) }
         let plist: [String: Any] = ["LSEnvironment": ["DYLD_INSERT_LIBRARIES": dylibs.map(\.path).joined(separator: ":")]]
         try FileStore.write(PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0), to: p.steamApp.appendingPathComponent("Contents/Info.plist"))
         try FileStore.write(Data("\"osx\" { \"version\" \"1792618285\" }".utf8), to: p.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/package/steam_client_signed-2_osx.manifest"))
-        for root in [p.macSteam, p.notProton] { try FileStore.write(Data("{}".utf8), to: root.appendingPathComponent("signatures/macos.arm64/1792618285.json")) }
+        let cpu = architecture == .arm64 ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64
+        let header: [UInt32] = [MH_MAGIC_64, UInt32(cpu), 0, UInt32(MH_EXECUTE), 0, 0, 0, 0]
+        let executable = p.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/steam_osx")
+        try FileStore.write(header.withUnsafeBytes { Data($0) }, to: executable)
+        for root in [p.macSteam, p.notProton] { try FileStore.write(Data("{}".utf8), to: root.appendingPathComponent("signatures/macos.\(architecture.rawValue)/1792618285.json")) }
         let status = RuntimeStatus.read(p)
+        #expect(status.steamArchitectures == [architecture])
+        #expect(status.runningSteamArchitecture == nil)
         assertTrue(status.bothInjected); assertEqual(status.build, "1792618285"); assertTrue(status.macSteamSignature); assertTrue(status.notProtonSignature)
+        try FileStore.write(Data("unknown".utf8), to: executable)
+        #expect(!RuntimeStatus.read(p).macSteamSignature)
     }
     @Test func testWineUsesMatchingRunnerAndRefusesMissingBuild() throws {
         let p = try fixture(); let prefix = p.steam.appendingPathComponent("steamapps/compatdata/480/pfx")

@@ -90,7 +90,7 @@ cp -RL "$ROOT_DIR/Resources/FreeRuntime" "$STAGING/Contents/Resources/"
 cp "$BIN_DIR/MacSteamToolWorker" "$STAGING/Contents/MacOS/MacSteamToolWorker"
 "$ROOT_DIR/script/build_patch_probe.sh"
 "$ROOT_DIR/script/build_cloud.sh"
-"$ROOT_DIR/script/build_notproton.sh"
+"$ROOT_DIR/script/build_notproton.sh" "$configuration"
 "$ROOT_DIR/script/build_pins.sh"
 # The official Steam bootstrap is Intel-only even on Apple silicon. Its launch
 # environment must accept both architectures before handing off to native Steam.

@@ -252,6 +252,9 @@ import MacSteamToolCore
         let report: [String: Any] = [
             "steamInstalled": runtime.steamInstalled,
             "steamBuild": runtime.build,
+            "toolArchitecture": AppUpdates.architecture,
+            "steamArchitectures": runtime.steamArchitectures.map(\.rawValue),
+            "runningSteamArchitecture": runtime.runningSteamArchitecture?.rawValue as Any,
             "macSteamVersion": runtime.macSteamVersion,
             "notProtonVersion": runtime.notProtonVersion,
             "bothInjected": runtime.bothInjected,

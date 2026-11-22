@@ -48,13 +48,24 @@ struct ImportSession: Identifiable {
     var installContext: LibraryInstallContext?
 }
 struct Message: Identifiable { let id = UUID(); var title: String; var detail: String }
+enum SteamLaunchRequest {
+    case client, game(Int), url(URL)
+}
 @MainActor final class AppModel: ObservableObject {
     private(set) lazy var multiplayer = MultiplayerController { [weak self] in
         guard let self, !testing else { return }
         guard let app = GuideEnvironment.locateSteam(preferred: paths.steamApp) else {
             throw AppFailure(tr("未找到 Steam。请先安装 Steam 并登录账号。", "Steam could not be found. Install Steam and sign in."))
         }
-        _ = try await NSWorkspace.shared.openApplication(at: app, configuration: .init())
+        try await openSteamApplication(app, nil)
+    }
+    var openSteamApplication: (URL, URL?) async throws -> Void = { app, url in
+        let configuration = NSWorkspace.OpenConfiguration()
+        if let url {
+            _ = try await NSWorkspace.shared.open([url], withApplicationAt: app, configuration: configuration)
+        } else {
+            _ = try await NSWorkspace.shared.openApplication(at: app, configuration: configuration)
+        }
     }
     @Published var availableUpdate: SignedUpdate?
     @Published var preparedUpdate: PreparedUpdate?
@@ -121,8 +132,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     lazy var runtimePreparation = makeRuntimePreparation()
     var preparationOwnsBusy = false
     var preparationPathKey = ""
-    var pendingRuntimeLaunch: Int?
-    var pendingRuntimeURL: URL?
+    var pendingSteamLaunch: SteamLaunchRequest?
     var paths: AppPaths { savedPaths ?? defaults }
     var service: LibraryService { LibraryService(paths: paths) }
     let charts: DiscoveryChartsFlow
@@ -473,10 +483,10 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     }
     func launchSteam() {
         guard !testing, !busy else { return }
-        pendingRuntimeURL = nil; pendingRuntimeLaunch = 0
+        pendingSteamLaunch = .client
         reconcileRuntimePreparation()
     }
-    func launchPreparedSteam() async throws {
+    func launchPreparedSteam(at application: URL? = nil) async throws {
         if let task = automaticAchievementsTask { await task.value }
         if preferences.automaticallyPrepareAchievements != false && !steamRunning {
             publishAutomaticAchievements(try await AutomaticAchievements.process(paths: paths) { _ in })
@@ -484,9 +494,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         if let task = automaticCompatibilityTask { await task.value }
         let report = try await AutomaticCompatibility.process(paths: paths) { id in try await self.api.compatibilityInfo(id) }
         publishAutomaticCompatibility(report)
-        NSWorkspace.shared.openApplication(at: paths.steamApp, configuration: .init()) { _, error in
-            if let error { Task { @MainActor in self.fail(error) } }
-        }
+        try await openSteamApplication(application ?? OneClickSetup.resolveSteamPath(paths).steamApp, nil)
     }
     func reconcileAutomaticCompatibility(force: Bool = false) {
         guard !testing, !busy, automaticCompatibilityTask == nil,
@@ -531,20 +539,20 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 try await Task.sleep(for: .milliseconds(500))
             }
             guard !self.steamRunning else { throw AppFailure("Steam 尚未退出。请先结束游戏或关闭 Steam 的退出确认窗口 / Steam is still running; finish the game or handle its quit confirmation") }
-            self.pendingRuntimeLaunch = 0; self.needsRestart = false
+            self.pendingSteamLaunch = .client; self.needsRestart = false
         }
     }
     func launchGame(_ game: Game) {
         guard !testing, !busy else { return }
-        pendingRuntimeURL = nil; pendingRuntimeLaunch = game.id
+        pendingSteamLaunch = .game(game.id)
         reconcileRuntimePreparation()
     }
-    func launchPreparedGame(_ game: Game) async throws {
+    func launchPreparedGame(_ appID: Int, at application: URL) async throws {
         if let task = automaticCompatibilityTask { await task.value }
         let report = try await AutomaticCompatibility.process(paths: paths) { id in try await self.api.compatibilityInfo(id) }
         publishAutomaticCompatibility(report)
-        guard !report.waitingForSteam.contains(game.id) else { throw AppFailure("请重启 Steam 应用此游戏的兼容层设置 / Restart Steam to apply the game's compatibility settings") }
-        openSteamClientURL("steam://rungameid/\(game.id)")
+        guard !report.waitingForSteam.contains(appID) else { throw AppFailure("请重启 Steam 应用此游戏的兼容层设置 / Restart Steam to apply the game's compatibility settings") }
+        try await openSteamApplication(application, URL(string: "steam://rungameid/\(appID)")!)
     }
     func wineTool(_ game: Game, command: String) {
         guard !testing else { log("测试环境不启动 Wine 工具"); return }
@@ -615,7 +623,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     func switchAccount(_ account: SteamAccount) {
         run(tr("切换本地账号", "Switch local account")) {
             guard !self.steamRunning else { throw AppFailure("请先退出 Steam，再切换本地账号 / Quit Steam before switching local accounts") }
-            try Accounts.select(account, paths: self.paths); self.refresh(); self.pendingRuntimeLaunch = 0
+            try Accounts.select(account, paths: self.paths); self.refresh(); self.pendingSteamLaunch = .client
         }
     }
     func fetchSelectedManifest(depot: Int, manifest: String, source: String? = nil, template: String? = nil, fallbacks: Bool? = nil) async throws -> Data {
@@ -772,11 +780,9 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         } catch { fail(error) }
     }
     func openSteamClientURL(_ string: String) {
-        guard let url = URL(string: string), url.scheme == "steam" else { return }
-        if !testing, !runtimePreparation.ready {
-            pendingRuntimeLaunch = nil; pendingRuntimeURL = url; reconcileRuntimePreparation(); return
-        }
-        NSWorkspace.shared.open(url)
+        guard !testing, let url = URL(string: string), url.scheme == "steam" else { return }
+        pendingSteamLaunch = .url(url)
+        reconcileRuntimePreparation()
     }
     func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     func openFolder(_ url: URL) {

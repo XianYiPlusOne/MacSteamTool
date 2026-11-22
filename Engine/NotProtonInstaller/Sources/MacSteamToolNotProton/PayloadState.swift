@@ -98,7 +98,7 @@ enum PayloadInspector {
         }
     }
 
-    static func newestSignatureDatabase(in directory: URL = SupportPaths.signatures) -> String? {
+    static func newestSignatureDatabase(in directory: URL = SupportPaths.signatures.appending(path: InstallerArchitecture.appleSilicon ? "macos.arm64" : "macos.x86_64")) -> String? {
         let entries = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil
         )) ?? []

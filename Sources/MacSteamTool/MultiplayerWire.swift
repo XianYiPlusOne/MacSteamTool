@@ -79,8 +79,9 @@ enum MultiplayerWire {
 
     static func encode(_ frame: Frame) -> Data? {
         let id = Array(frame.id.utf8)
-        guard validID(id), !frame.close || frame.payload.isEmpty else { return nil }
-        return Data(id + [0, frame.close ? 1 : 0, 0, 0, 0]) + frame.payload
+        guard validID(id) else { return nil }
+        let header = Data(id + [0, frame.close ? 1 : 0, 0, 0, 0])
+        return frame.close ? header : header + frame.payload
     }
 
     static func decodeTCP(_ bytes: Data) -> Frame? {

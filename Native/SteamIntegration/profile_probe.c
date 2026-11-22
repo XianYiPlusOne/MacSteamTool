@@ -1,5 +1,7 @@
 #include <dlfcn.h>
 #include <stdio.h>
+#include <string.h>
+#include "core/arch.h"
 #include "resolver/resolver.h"
 #include "core/macho.h"
 #include "util/log.h"
@@ -22,8 +24,13 @@ int main(int argc, char **argv) {
     if(sx_resolve_all_ex(mh,slide,argv[1],&db,&result)!=0) return 6;
     sx_resolve_result_free(&result); sx_sigdb_free(&db);
     if(sx_sigdb_load(argv[2],&db)) return 7;
+    if(!db.sig_count) return 9;
+    strcpy(db.arch, !strcmp(SX_ARCH_NAME,"arm64") ? "x86_64" : "arm64");
+    if(sx_resolve_all_ex(mh,slide,argv[1],&db,&result)!=0) return 10;
+    sx_resolve_result_free(&result);
+    strcpy(db.arch,SX_ARCH_NAME);
     db.signatures[0].entry_hex[0]=db.signatures[0].entry_hex[0]=='0'?'1':'0';
     if(sx_resolve_all_ex(mh,slide,argv[1],&db,&result)!=required-1) return 8;
-    puts("PASS: all exact sites validated; changed UUID and changed entry rejected without hooks");
+    puts("PASS: all exact sites validated; changed architecture, UUID and entry rejected without hooks");
     sx_resolve_result_free(&result); sx_sigdb_free(&db); return 0;
 }

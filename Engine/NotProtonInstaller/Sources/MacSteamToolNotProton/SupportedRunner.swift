@@ -66,7 +66,7 @@ struct CompatTool: Sendable, Hashable, Identifiable {
         var unixDir: String { self == .fex ? "aarch64-unix" : "x86_64-unix" }
 
         // CrossOver's FEX build needs Tahoe. Its Rosetta tool runs on Sequoia.
-        static let fexAvailable = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        static let fexAvailable = InstallerArchitecture.appleSilicon && ProcessInfo.processInfo.isOperatingSystemAtLeast(
             OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
         )
     }
@@ -110,7 +110,8 @@ enum SupportedRunners {
 
     static func tools(
         for builds: [RunnerBuild], legacy: LegacyHolder = .nobody,
-        fexAvailable: Bool = CompatTool.Flavor.fexAvailable, keeping kept: Set<String> = []
+        fexAvailable: Bool = CompatTool.Flavor.fexAvailable, keeping kept: Set<String> = [],
+        appleSilicon: Bool = InstallerArchitecture.appleSilicon
     ) -> [InstalledTool] {
         let installed = Set(builds.map(\.id))
         let holder: String? = switch legacy {
@@ -124,7 +125,7 @@ enum SupportedRunners {
                     tool: CompatTool(name: name, flavor: tool.flavor, display: tool.display), build: build.id
                 )
             }
-        }.filter { $0.tool.flavor != .fex || fexAvailable || kept.contains($0.name) }
+        }.filter { $0.tool.flavor != .fex || (appleSilicon && (fexAvailable || kept.contains($0.name))) }
         func rank(_ tool: InstalledTool) -> Int {
             toolPreference.firstIndex(of: tool.name) ?? toolPreference.count
         }

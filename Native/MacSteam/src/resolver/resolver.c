@@ -84,7 +84,6 @@ int sx_resolve_all_ex(const struct mach_header_64 *mh, intptr_t slide,
     for (int i = 0; i < sigdb->sig_count; i++) {
         sx_sig_entry_t *sig = &sigdb->signatures[i];
         uintptr_t addr = 0;
-        const char *method = "uuid+entry";
         if (sig->deprecated) { result_add(out, sig->name, 0); continue; }
         sx_pattern_t pat = {0};
         if (sig->reference_va && sig->entry_hex[0] &&
@@ -97,29 +96,13 @@ int sx_resolve_all_ex(const struct mach_header_64 *mh, intptr_t slide,
             if (valid) addr = candidate;
             sx_pattern_free(&pat);
         }
-        if (!addr && sig->anchor.kind != SX_ANCHOR_NONE) {
-            addr = sx_anchor_resolve(mh, slide, text_base, text_size, &sig->anchor);
-            if (addr) method = "anchor";
-        }
-        if (!addr && sig->aob_hex[0]) {
-            if (sx_pattern_from_hex(sig->aob_hex, &pat) == 0) {
-                uintptr_t hit = sx_aob_scan_unique(text_base, text_size, &pat);
-                sx_pattern_free(&pat);
-                if (hit) {
-                    intptr_t adjustment = (intptr_t)sig->match_offset;
-                    uintptr_t candidate = (uintptr_t)((intptr_t)hit - adjustment);
-                    if (candidate >= text_base && candidate < text_base + text_size &&
-                        sx_is_function_prologue(candidate)) {
-                        addr = candidate;
-                        method = "aob";
-                    }
-                }
-            }
-        }
+        // Anchors and wildcard patterns are analysis evidence only. Falling
+        // back after an exact entry fails defeats the UUID-scoped ABI review,
+        // particularly when porting profiles between instruction sets.
         if (!addr) SX_ERR("resolver: '%s' entry guard rejected", sig->name);
         if (addr) {
             resolved++;
-            SX_DBG("resolver: '%s' -> 0x%lx [%s]", sig->name, addr, method);
+            SX_DBG("resolver: '%s' -> 0x%lx [uuid+entry]", sig->name, addr);
         }
 
         result_add(out, sig->name, addr);

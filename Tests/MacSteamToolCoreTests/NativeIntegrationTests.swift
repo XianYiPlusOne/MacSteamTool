@@ -45,6 +45,18 @@ struct NativeIntegrationTests {
             try FileStore.write(Data(MacSteamConfig().serialized().utf8), to: paths.config)
         }
     }
+    @Test func unavailableBuildIsReportedDuringReadOnlyInspection() throws {
+        let f = try Fixture(); defer { try? FileStore.fm.removeItem(at: f.root) }
+        let package = f.paths.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/package")
+        try FileStore.write(Data(#""version" "999""#.utf8), to: package.appendingPathComponent("steam_client_signed_osx.manifest"))
+        #expect(try !NativeIntegration.needsPreparation(paths: f.paths, application: f.app))
+        try FileStore.fm.removeItem(at: f.paths.config)
+        #expect(throws: SteamProfileUnavailable.self) {
+            try NativeIntegration.needsPreparation(paths: f.paths, application: f.app)
+        }
+        #expect(!FileStore.fm.fileExists(atPath: f.paths.config.path))
+        #expect(!FileStore.fm.fileExists(atPath: f.paths.data.appendingPathComponent("Components").path))
+    }
     @Test func detectsLostHooksAndCorruptSupportButPreservesNewerCores() throws {
         let f = try Fixture(); defer { try? FileStore.fm.removeItem(at: f.root) }
         #expect(try !NativeIntegration.needsPreparation(paths: f.paths, application: f.app))

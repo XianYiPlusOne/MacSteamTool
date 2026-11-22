@@ -4,6 +4,69 @@ import Testing
 @testable import MacSteamTool
 
 @Suite @MainActor struct RuntimePreparationFlowTests {
+    @Test func missingProfileIsReportedWithoutAskingToQuitRunningSteam() async {
+        let flow = RuntimePreparationController()
+        let missing = SteamProfileUnavailable.client(build: "123", architectures: [.x86_64])
+        var inspections = 0
+        flow.inspect = { inspections += 1; throw missing }
+        flow.steamRunning = { true }
+        flow.prepare = { Issue.record("Unsupported setup reached preparation") }
+        flow.install = { Issue.record("Unsupported setup reached installation") }
+        await flow.reconcile()
+        #expect(flow.state == .failed(missing.localizedDescription))
+        await flow.reconcile()
+        #expect(inspections == 1)
+        await flow.reconcile(retry: true)
+        #expect(inspections == 2)
+    }
+
+    @Test(arguments: ["arm64", "x86_64", "universal"])
+    func installedSteamOpensWithoutRuntimePreparation(architecture: String) async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(fixtureHome: home)
+        var paths = model.defaults
+        paths.steamApp = home.appendingPathComponent("Selected Steam.app")
+        let contents = paths.steamApp.appendingPathComponent("Contents")
+        let info = ["CFBundleIdentifier": NativeSteamBootstrap.bundleIdentifier, "CFBundleExecutable": "steam_osx"]
+        try FileStore.write(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0),
+                            to: contents.appendingPathComponent("Info.plist"))
+        let executable = contents.appendingPathComponent("MacOS/steam_osx")
+        try FileStore.mkdir(executable.deletingLastPathComponent())
+        let source = home.appendingPathComponent("client.c")
+        try FileStore.write(Data("int main(void) { return 0; }".utf8), to: source)
+        let slices = architecture == "universal" ? ["arm64", "x86_64"] : [architecture]
+        let (code, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/clang"),
+            slices.flatMap { ["-arch", $0] } + [source.path, "-o", executable.path])
+        try #require(code == 0)
+        #expect(RuntimeStatus.read(paths).steamArchitectures.map(\.rawValue) == slices)
+        let prepared = OneClickSetup.Prepared(paths: paths, options: SetupOptions(), steam: paths.steamApp, awaitingFirstSteamLaunch: true)
+        let hardware = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/sbin/sysctl"), ["-n", "hw.optional.arm64"])
+        let appleSilicon = hardware.0 == 0 && hardware.1.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        #expect(OneClickSetup.requiresRosetta(prepared) == (architecture == "x86_64" && appleSilicon))
+        model.setRuntimePaths(paths)
+        model.preferences.automaticallyPrepareAchievements = false
+        var launches: [URL?] = []
+        model.openSteamApplication = { application, url in
+            #expect(application == paths.steamApp)
+            launches.append(url)
+        }
+        model.testing = false
+        model.runtimePreparation.steamRunning = { false }
+        model.runtimePreparation.inspect = { throw AppFailure("Unsupported integration profile") }
+        await model.runtimePreparation.reconcile()
+        #expect(model.runtimePreparation.state == .failed("Unsupported integration profile"))
+        model.launchSteam()
+        await model.operation?.value
+        let game = Game(id: 480, name: "Fixture", enabled: true)
+        model.games = [game]
+        model.launchGame(game)
+        await model.operation?.value
+        model.openSteamClientURL("steam://nav/games")
+        await model.operation?.value
+        #expect(launches.map { $0?.absoluteString } == [nil, "steam://rungameid/480", "steam://nav/games"])
+    }
+
     @Test func guideSteamInstallStagesLeadToBackendChoice() {
         let target = URL(fileURLWithPath: "/Applications/Steam.app")
         let found = GuideEnvironment(steam: target, wineInstalled: false, activeBackend: nil)

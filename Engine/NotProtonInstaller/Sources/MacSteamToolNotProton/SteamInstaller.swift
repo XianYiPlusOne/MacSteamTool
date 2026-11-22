@@ -89,6 +89,7 @@ enum SteamInstaller {
         let plist = app.appending(path: "Contents/Info.plist")
         let dylib = app.appending(path: "Contents/MacOS/\(SupportPaths.dylibName)")
         try assertBundleIsPresent(app)
+        try InstallerArchitecture.validateLibrary(payload.dylib, steamExecutable: app.appending(path: "Contents/MacOS/steam_osx"))
         try assertInsertIsDeployedOrAbsent(at: plist, dylib: dylib)
         let installationLock = holdingInstallationLock
             ? nil : try DeploymentContent.acquireInstallationLock(in: lockFolder, steamFolder: app.deletingLastPathComponent())
@@ -169,7 +170,7 @@ enum SteamInstaller {
                 try setInsert(at: plist, to: dylib)
 
                 report(.signing)
-                try adHocSign(dylib)
+                try signLibraryIfNeeded(dylib)
                 try adHocSign(app.appending(path: "Contents/MacOS/steam_osx"))
                 try adHocSign(app)
             } catch {
@@ -364,6 +365,14 @@ enum SteamInstaller {
         environment[SteamBundle.controllerBlockKey] = SteamBundle.controllerBlockValue
         dict[SteamBundle.environmentKey] = environment
         try SteamBundle.writeInfoPlist(dict, at: plist)
+    }
+
+    static func signLibraryIfNeeded(_ url: URL) throws {
+        // Re-signing a universal library can derive a different identifier from
+        // the executing CPU slice. Preserve valid payload signatures so the
+        // application's byte-for-byte health check remains stable on both CPUs.
+        if try Shell.run("/usr/bin/codesign", ["--verify", "--strict", "--all-architectures", url.path]).succeeded { return }
+        try adHocSign(url)
     }
 
     static func adHocSign(_ url: URL, step: String = step) throws {

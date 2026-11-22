@@ -43,7 +43,12 @@ struct RuntimeSetupPanel: View {
                     .disabled(!consent || model.busy)
             case .failed(let error):
                 Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                Button(model.tr("重试", "Retry")) { model.reconcileRuntimePreparation(retry: true) }.disabled(model.busy)
+                HStack {
+                    Button(model.tr("重试", "Retry")) { model.reconcileRuntimePreparation(retry: true) }
+                    if model.runtime.steamInstalled && !model.testing {
+                        Button(model.tr("打开 Steam", "Open Steam")) { model.launchSteam() }
+                    }
+                }.disabled(model.busy)
             case .ready where flow.ready && !model.testing:
                 Button(model.tr("打开 Steam", "Open Steam")) { model.launchSteam() }.disabled(model.busy)
             default: EmptyView()

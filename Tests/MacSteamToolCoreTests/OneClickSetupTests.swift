@@ -4,6 +4,32 @@ import Darwin
 @testable import MacSteamToolCore
 
 struct OneClickSetupTests {
+    @Test func prepareRejectsProfileForTheToolWhenItCannotMatchSteam() async throws {
+        guard #available(macOS 15, *) else { return }
+        let root = FileStore.fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileStore.fm.removeItem(at: root) }
+        var paths = AppPaths(home: root)
+        paths.steamApp = root.appendingPathComponent("Steam.app")
+        let info = ["CFBundleIdentifier": NativeSteamBootstrap.bundleIdentifier, "CFBundleExecutable": "steam_osx"]
+        try FileStore.write(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0), to: paths.steamApp.appendingPathComponent("Contents/Info.plist"))
+        let directory = paths.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS")
+        let cpu = AppUpdates.architecture == "arm64" ? CPU_TYPE_X86_64 : CPU_TYPE_ARM64
+        let header: [UInt32] = [MH_MAGIC_64, UInt32(cpu), 0, UInt32(MH_EXECUTE), 0, 0, 0, 0]
+        try FileStore.write(header.withUnsafeBytes { Data($0) }, to: directory.appendingPathComponent("steam_osx"))
+        try FileStore.write(Data(#""version" "123""#.utf8), to: directory.appendingPathComponent("package/steam_client_signed_osx.manifest"))
+        let application = root.appendingPathComponent("Tool.app")
+        let embedded = application.appendingPathComponent("Contents/Resources/RuntimeComponents/macsteam/0.8.2")
+        try FileStore.write(Data("{}".utf8), to: embedded.appendingPathComponent("Resources/\(AppUpdates.nativeSignatureDirectory)/123.json"))
+        let receipt = ManagedRuntimeComponent(provider: "macsteam", version: "0.8.2", source: "fixture",
+            files: try ManagedRuntimeComponents.inventory(embedded), root: embedded)
+        try FileStore.json(receipt, to: embedded.appendingPathComponent("component.json"))
+        do {
+            _ = try await OneClickSetup.prepare(paths: paths, options: SetupOptions(), application: application)
+            Issue.record("Accepted a profile for a different client architecture")
+        } catch {
+            #expect(error.localizedDescription.contains("No integration profile for Steam 123"))
+        }
+    }
     @Test func guideDetectsAnInstalledSteamClient() throws {
         let root = FileStore.fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileStore.fm.removeItem(at: root) }

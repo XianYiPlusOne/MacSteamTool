@@ -14,6 +14,8 @@ public struct RuntimeStatus: Sendable {
     public var build: String
     public var macSteamSignature: Bool
     public var notProtonSignature: Bool
+    public var steamArchitectures: [SteamClientArchitecture] = []
+    public var runningSteamArchitecture: SteamClientArchitecture?
     public var macSteamLoaded: String = ""
     public var notProtonLoaded: String = ""
     public var manifestPinsLoaded: String = ""
@@ -22,24 +24,33 @@ public struct RuntimeStatus: Sendable {
     public var bothInjected: Bool {
         injectedLibraries.contains { $0.hasSuffix("/macsteam.dylib") } && injectedLibraries.contains { $0.hasSuffix("/notproton.dylib") } && missingLibraries.isEmpty
     }
+    static func steamBuild(in paths: AppPaths) -> String {
+        let package = paths.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/package")
+        for name in ["steam_client_signed-2_osx.manifest", "steam_client_signed_osx.manifest", "steam_client_osx.manifest"] {
+            if let text = try? FileStore.text(package.appendingPathComponent(name)),
+               let match = TextUtil.matches(#"["']version["']\s+["'](\d+)["']"#, text).first {
+                return match[1]
+            }
+        }
+        return ""
+    }
     public static func read(_ p: AppPaths) -> Self {
         let info = (try? Data(contentsOf: p.steamApp.appendingPathComponent("Contents/Info.plist"))).flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] } ?? [:]
         let env = info["LSEnvironment"] as? [String: String] ?? [:]
         let libs = (env["DYLD_INSERT_LIBRARIES"] ?? "").split(separator: ":").map(String.init)
         let runners = FileStore.files(p.notProton.appendingPathComponent("runners")).map { $0.appendingPathComponent("CrossOver") }.filter { FileStore.fm.fileExists(atPath: $0.path) }
         let version = { (url: URL) in (try? FileStore.text(url).trimmingCharacters(in: .whitespacesAndNewlines)) ?? "—" }
-        let package = p.steam.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/package")
-        var build = ""
-        for name in ["steam_client_signed-2_osx.manifest", "steam_client_signed_osx.manifest", "steam_client_osx.manifest"] {
-            if let text = try? FileStore.text(package.appendingPathComponent(name)),
-               let match = TextUtil.matches(#"["']version["']\s+["'](\d+)["']"#, text).first {
-                build = match[1]; break
-            }
+        let build = steamBuild(in: p)
+        let pids = SteamProcesses.pids()
+        let architecture = SteamClientArchitecture.installed(in: p, pids: pids)
+        let candidates = architecture.running.map { [$0] } ?? architecture.slices
+        func hasProfiles(in root: URL) -> Bool {
+            !build.isEmpty && !candidates.isEmpty && candidates.allSatisfy { $0.hasProfile(for: build, in: root) }
         }
         var result = Self(steamInstalled: FileStore.fm.fileExists(atPath: p.steamApp.path), macSteamVersion: version(p.macSteam.appendingPathComponent("dylib.version")), notProtonVersion: version(p.notProton.appendingPathComponent("dylib.version")), injectedLibraries: libs, missingLibraries: libs.filter { !FileStore.fm.fileExists(atPath: $0) }, configExists: FileStore.fm.fileExists(atPath: p.config.path), runners: runners, prefixCount: SteamLibrary.prefixes(p).count, build: build,
-                    macSteamSignature: !build.isEmpty && FileStore.fm.fileExists(atPath: p.macSteam.appendingPathComponent("\(AppUpdates.nativeSignatureDirectory)/\(build).json").path),
-                    notProtonSignature: !build.isEmpty && FileStore.fm.fileExists(atPath: p.notProton.appendingPathComponent("\(AppUpdates.nativeSignatureDirectory)/\(build).json").path))
-        if let pid = SteamProcesses.pids().first {
+                    macSteamSignature: hasProfiles(in: p.macSteam), notProtonSignature: hasProfiles(in: p.notProton),
+                    steamArchitectures: architecture.slices, runningSteamArchitecture: architecture.running)
+        if let pid = pids.first {
             let mac = RuntimeEvidence.parse((try? FileStore.text(p.macSteam.appendingPathComponent("macsteam.log"))) ?? "", pid: pid)
             let np = RuntimeEvidence.parse((try? FileStore.text(p.notProton.appendingPathComponent("notproton.log"))) ?? "", pid: pid)
             result.macSteamLoaded = mac.summary; result.notProtonLoaded = np.summary

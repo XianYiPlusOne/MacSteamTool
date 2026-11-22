@@ -42,7 +42,9 @@ The **Getting started** guide checks whether Steam is installed. If needed, you 
 - **Need Wine?** Select **Install Wine** to download the runtime and graphics components.
 - **Want to explore first?** Select **Manage local games only** to skip runner setup. You can still open **Discover**, **Manifests**, or **Runtime** from the sidebar later.
 
-The application and native libraries are built as **universal arm64/x86_64** binaries. Steam integration is fail-closed per architecture: an Intel client is only modified when a reviewed `macos.x86_64` Steam profile is present; without one, the app leaves the client untouched. The app runs on **macOS 14 or later**. Automatic setup requires **macOS 15 or later**. Some Steam integration features modify the local client and affect ownership checks for games and DLC.
+On Apple silicon, MacSteamTool running as Intel or ARM can open an installed Intel, ARM, or universal Steam client. macOS selects the architecture using Steam’s own launch preferences. Runtime environment → Diagnostics and recovery shows the architectures in the Steam executable and the architecture of the running client.
+
+The application, native libraries, and `MacSteamToolNotProton` installation/recovery helper are built as **universal arm64/x86_64** binaries. The helper supports installation, backup, and restoration on Intel; CrossOver registration excludes ARM FEX runners on Intel. The repository does not yet ship `macos.x86_64` Steam profiles, so a universal helper does not mean all Intel Steam integration features are available. Native integration has additional version and architecture requirements. For example, an Intel-only client requires a `macos.x86_64` profile for its Steam build. Automatic installation also checks for a profile for the architecture running MacSteamTool. The app runs on **macOS 14 or later**. Automatic setup requires **macOS 15 or later**. Some Steam integration features modify the local client and affect ownership checks for games and DLC.
 
 ## Open-source acknowledgments
 

@@ -70,6 +70,8 @@ import MacSteamToolCore
                 pendingBackend = nil
             }
             state = .ready; completed()
+        } catch let error as SteamProfileUnavailable {
+            state = .failed(error.localizedDescription)
         } catch {
             if error is SteamPreparationRequiresExit || steamRunning() { state = .waitingForSteam }
             else { state = .failed(error.localizedDescription) }

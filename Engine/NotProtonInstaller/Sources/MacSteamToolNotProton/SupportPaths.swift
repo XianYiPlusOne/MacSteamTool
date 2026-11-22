@@ -27,7 +27,7 @@ enum SupportPaths {
     static var launchers: URL { support.appending(path: "launchers") }
 
     static var signatures: URL {
-        support.appending(path: "signatures/macos.arm64")
+        support.appending(path: "signatures")
     }
 
     static var fonts: URL { support.appending(path: "fonts") }

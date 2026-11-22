@@ -69,7 +69,7 @@ import Testing
         ]
         var ours = [String: Data]()
         for (name, kind, body) in packets { ours[name] = W.envelope(kind, body) }
-        for (name, close, bytes) in [("tcp", false, route), ("close", true, Data()), ("empty", false, Data())] {
+        for (name, close, bytes) in [("tcp", false, route), ("close", true, route), ("empty", false, Data())] {
             ours[name] = W.encode(.init(id: "aB12z9", close: close, payload: bytes))
         }
         let reference = try run(tool, [])

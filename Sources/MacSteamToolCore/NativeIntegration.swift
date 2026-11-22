@@ -16,6 +16,7 @@ public enum NativeIntegration {
             return (try? FileStore.read(destination)) == expected
         }
         var needsWork = !fm.fileExists(atPath: p.config.path)
+        var macSteamResources: URL?
         for provider in ["macsteam", "notproton"] {
             let version = ManagedRuntimeComponents.versions[provider]!
             let support = provider == "macsteam" ? p.macSteam : p.notProton
@@ -31,6 +32,7 @@ public enum NativeIntegration {
             component.root = root
             guard component.provider == provider, component.version == version else { throw AppFailure("应用组件版本不一致，请重新安装 MacSteamTool / Bundled component identity mismatch; reinstall MacSteamTool") }
             try ManagedRuntimeComponents.validate(component)
+            if provider == "macsteam" { macSteamResources = component.resources }
             let source = provider == "macsteam" ? component.resources.appendingPathComponent("macsteam.dylib") : application.appendingPathComponent("Contents/Resources/Helpers/NotProtonRepair/notproton.dylib")
             if try !present || installed != version || !matches(source, library) { needsWork = true }
             let resourcePrefix = provider == "macsteam" ? "Resources/" : "NotProtonRuntime.bundle/Contents/Resources/payload/"
@@ -55,6 +57,9 @@ public enum NativeIntegration {
                         "FLUENT_PINS_CONFIG": p.config.path, "FLUENT_PINS_CACHE": p.steam.appendingPathComponent("depotcache").path,
                         "FLUENT_PINS_STATUS": p.data.appendingPathComponent("manifest-pins.log").path]
         if expected.contains(where: { env[$0.key] != $0.value }) { needsWork = true }
+        if needsWork, let macSteamResources {
+            try OneClickSetup.checkProfileAvailability(paths: p, resources: macSteamResources)
+        }
         return needsWork
     }
 }

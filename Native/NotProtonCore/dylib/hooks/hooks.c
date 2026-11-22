@@ -37,12 +37,14 @@ typedef struct {
 
 // webpatch reaches the client through a dyld interpose table, not a resolved
 // address, so it has no row here.
+#if !defined(__x86_64__)
 static const np_hook_group_t np_groups[] = {
     { "compat", np_hooks_compat_count, np_hooks_compat_defs },
     { "webui",  np_hooks_webui_count,  np_hooks_webui_defs  },
     { "launch", np_hooks_launch_count, np_hooks_launch_defs },
     { "ceg",    np_hooks_ceg_count,    np_hooks_ceg_defs    },
 };
+#endif
 
 static const np_hook_group_t np_steamservice_groups[] = {
     { "ceg", np_hooks_ceg_service_count, np_hooks_ceg_service_defs },
@@ -76,11 +78,8 @@ static int np_apply_entry(np_resolve_result_t *resolved, const char *group,
     }
 
 #if defined(__x86_64__)
-    if (e->mode == NP_PATCH_PREHOOK) {
-        /* These callbacks rewrite architecture-specific registers at a
-         * reviewed ARM64 instruction.  Do not install them on Intel until an
-         * x86 profile supplies the equivalent register mapping. */
-        NP_WARN("[%s] %s: prehook has no reviewed x86 ABI, skipped", group, e->label);
+    if (e->mode == NP_PATCH_PREHOOK && !np_compat_intel_prehook_allowed(e->signature, addr)) {
+        NP_WARN("[%s] %s: prehook has no validated x86 ABI, skipped", group, e->label);
         return 0;
     }
 #endif
@@ -167,6 +166,13 @@ int np_hooks_install_steamservice(const struct mach_header_64 *mh, intptr_t slid
 
 int np_hooks_install_all(const struct mach_header_64 *mh, intptr_t slide,
                          np_resolve_result_t *resolved, int *total_out) {
+#if defined(__x86_64__)
+    if (!np_compat_bind_intel(mh, slide, resolved)) {
+        if (total_out) *total_out = np_hooks_compat_count();
+        NP_ERR("hooks: Intel compatibility layout was not verified; installing nothing");
+        return 0;
+    }
+#endif
     np_hooks_compat_set_helpers(
         np_lookup_address(resolved, "CCompatManager::YldRegisterTool"),
         np_lookup_address(resolved, "CCompatManager::GetValidPlatforms"),
@@ -175,6 +181,7 @@ int np_hooks_install_all(const struct mach_header_64 *mh, intptr_t slide,
         np_lookup_address(resolved, "CCompatManager::FindMapping"),
         np_lookup_address(resolved, "CCompatManager::GetWildcardMapping"));
 
+#if !defined(__x86_64__)
     np_compat_probe_tool_layout(
         np_lookup_address(resolved, "CCompatManager::ResolveCompatToolForApp.local_redirect"),
         np_lookup_address(resolved, "CCompatManager::GetOSListOverrideForApp.oslist_gate"));
@@ -183,6 +190,17 @@ int np_hooks_install_all(const struct mach_header_64 *mh, intptr_t slide,
     np_compat_probe_windows_only_off(
         np_lookup_address(resolved, "CCompatManager::GetWildcardMapping"),
         np_lookup_address(resolved, "CCompatManager::WindowsOnlyLookup"));
+#endif
+#if defined(__x86_64__)
+    // Only the compatibility group has an Intel layout contract. Other groups
+    // still decode ARM instructions and must not run on an Intel image.
+    const np_hook_group_t intel_groups[] = {
+        { "compat", np_hooks_compat_count, np_hooks_compat_defs },
+    };
+    int landed = install_groups(intel_groups, 1, resolved, total_out);
+    np_hooks_compat_publish_originals();
+    return landed;
+#else
     np_usershortcuts_bind(mh, slide,
         np_lookup_address(resolved, "CUserShortcuts::SetShortcutExe"));
     np_hooks_ceg_probe_job(
@@ -207,4 +225,5 @@ int np_hooks_install_all(const struct mach_header_64 *mh, intptr_t slide,
         *total_out = total;
     NP_LOG("hooks: %d/%d installed", landed, total);
     return landed;
+#endif
 }

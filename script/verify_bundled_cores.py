@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import struct
 import sys
+import subprocess
 from native_core_validation import validate_macsteam
 from bundle_connecttool import verify as verify_multiplayer
 
@@ -54,6 +55,9 @@ for provider, version in [('macsteam', '0.8.2'), ('notproton', '1.2.3')]:
     assert not any(Path(key).name in {'run', 'wine', 'wineserver', 'valve-packages.manifest'} for key in actual)
     print(f'PASS: {provider} {version}, {len(actual)} native resource files, complete inventory intact')
 assert (app / 'Contents/Helpers/NotProton/MacSteamToolNotProton').is_file()
+for arch in ('arm64', 'x86_64'):
+    subprocess.run(['lipo', str(app / 'Contents/Helpers/NotProton/MacSteamToolNotProton'),
+                    '-verify_arch', arch], check=True)
 print('PASS: bundled installer present; core resources contain no external manager or translation backend')
 backend = app / 'Contents/Resources/RuntimeBackends/crossover'
 receipt = json.loads((backend / 'component.json').read_text())

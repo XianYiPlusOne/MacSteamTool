@@ -60,12 +60,13 @@ enum InstallPayload {
         if !files.fileExists(atPath: run.path(percentEncoded: false)) { missing.append("run") }
         if (builtAt ?? 0) <= 0 { missing.append("build-time") }
 
-        let signatureDir = root.appending(path: "signatures/macos.arm64")
-        let signatures = ((try? files.contentsOfDirectory(
-            at: signatureDir, includingPropertiesForKeys: nil
-        )) ?? []).filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let signatures = InstallerArchitecture.supported.sorted().flatMap { arch in
+            ((try? files.contentsOfDirectory(
+                at: root.appending(path: "signatures/macos.\(arch)"), includingPropertiesForKeys: nil
+            )) ?? []).filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
 
-        if signatures.isEmpty { missing.append("signatures/macos.arm64/*.json") }
+        if signatures.isEmpty { missing.append("signatures/macos.{arm64,x86_64}/*.json") }
 
         let fontsRoot = root.appending(path: "fonts")
         let fonts = (files.subpaths(atPath: fontsRoot.path(percentEncoded: false)) ?? [])

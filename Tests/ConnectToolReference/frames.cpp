@@ -53,7 +53,7 @@ int main(int argc, char **) {
     add("ip", T::IpPacket, packet);
     auto id = *multiplex::ConnectionId::parse("aB12z9");
     expected["tcp"] = multiplex::encodeFrame(id, multiplex::PacketType::Data, route);
-    expected["close"] = multiplex::encodeFrame(id, multiplex::PacketType::Disconnect);
+    expected["close"] = multiplex::encodeFrame(id, multiplex::PacketType::Disconnect, route);
     expected["empty"] = multiplex::encodeFrame(id, multiplex::PacketType::Data);
     if (argc == 1) {
         for (auto &[key, value] : expected)

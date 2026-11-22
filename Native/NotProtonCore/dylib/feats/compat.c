@@ -14,6 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#if defined(__x86_64__)
+#include <sys/sysctl.h>
+#include <errno.h>
+#endif
 #include <unistd.h>
 
 // The client maps Cloud's Windows path roots into the compat prefix only when
@@ -302,6 +306,41 @@ bool np_compat_is_windows_only_table(const void *compat_mgr, const void *map) {
     return compat_mgr && g_windows_only_off &&
            map == (const uint8_t *)compat_mgr + g_windows_only_off;
 }
+
+#if defined(__x86_64__)
+static np_intel_compat_layout_t g_intel_layout;
+
+int np_compat_bind_intel(const struct mach_header_64 *mh, intptr_t slide,
+                         const np_resolve_result_t *resolved) {
+    // Clear permissions before attempting a fresh binding. A failed review must
+    // never leave a previously accepted instruction address enabled.
+    memset(&g_intel_layout, 0, sizeof(g_intel_layout));
+    g_tool_shift = 0;
+    g_enabled_off = 0;
+    g_windows_only_off = 0;
+    // The page-replacement backend has not been validated for Rosetta's
+    // cached translations. Do not install hooks that may execute stale code.
+    int translated = 0;
+    size_t translated_size = sizeof(translated);
+    int status = sysctlbyname("sysctl.proc_translated", &translated,
+                             &translated_size, NULL, 0);
+    if ((status == 0 && translated != 0) || (status != 0 && errno != ENOENT)) {
+        NP_WARN("Intel compatibility hooks require native Intel execution");
+        return 0;
+    }
+    np_intel_compat_layout_t layout;
+    if (!np_intel_compat_from_image(mh, slide, resolved, &layout)) return 0;
+    g_tool_shift = layout.tool_shift;
+    g_enabled_off = layout.enabled_offset;
+    g_windows_only_off = layout.windows_only_offset;
+    g_intel_layout = layout;
+    return 1;
+}
+
+int np_compat_intel_prehook_allowed(const char *signature, uintptr_t address) {
+    return np_intel_compat_allows(&g_intel_layout, signature, address);
+}
+#endif
 
 void *np_compat_user(const void *compat_mgr) {
     if (!compat_mgr) return NULL;

@@ -7,6 +7,12 @@
 #include <stdint.h>
 
 #include "../util/buildid.h"
+#if defined(__x86_64__)
+#include "intel_compat.h"
+int np_compat_bind_intel(const struct mach_header_64 *mh, intptr_t slide,
+                         const np_resolve_result_t *resolved);
+int np_compat_intel_prehook_allowed(const char *signature, uintptr_t address);
+#endif
 
 // Manager tool array: base pointer at TOOL_ARRAY_OFF, count at TOOL_COUNT_OFF,
 // fixed per-entry stride from np_compat_tool_stride.
