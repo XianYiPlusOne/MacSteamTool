@@ -3,6 +3,17 @@ import Testing
 @testable import FluentCore
 
 struct OfflineSchemaTests {
+    @Test func optionalLookupsSkipBlankKeysAndHonorExplicitInventoryImports() async throws {
+        let imported = try OfflineInventory.parse(Data(#"[{"itemdefid":1,"name":"Local fixture"}]"#.utf8))
+        for key in ["", "  \n\t"] {
+            let result = try await OfflineTools.definitions(appID: 0, language: "english", apiKey: key, achievements: true, images: true, inventory: true, importedInventory: imported)
+            #expect(result.schema == nil)
+            #expect(result.inventory?.items["1"]?["name"] == "Local fixture")
+        }
+        let disabled = try await OfflineTools.definitions(appID: 0, language: "english", apiKey: "unused", achievements: false, images: true, inventory: false, importedInventory: imported)
+        #expect(disabled.schema == nil && disabled.inventory == nil)
+    }
+
     @Test func numericDefinitionsKeepTypesDefaultsAndExcludeUserValues() throws {
         let data = Data(#"{"game":{"availableGameStats":{"stats":[{"name":"int","type":"int","defaultvalue":-3,"value":999},{"name":"float","type":"float","defaultvalue":3.5},{"name":"rate","type":"avgrate","defaultvalue":"0"}]}}}"#.utf8)
         let schema = try OfflineSchema.parse(data)

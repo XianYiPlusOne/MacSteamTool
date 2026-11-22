@@ -23,7 +23,16 @@ public enum OfflineTools {
         let machine = UInt16(bytes[offset+4]) | UInt16(bytes[offset+5]) << 8
         guard machine == 0x14c || machine == 0x8664 else { throw AppFailure("仅支持 Windows x86 / x64 游戏") }; return machine
     }
-    public static func goldberg(package: URL, gameRoot: URL, appID: Int, dlcs: [Int], accountName: String, language: String, achievements: [Achievement]?, inventory: OfflineInventory? = nil, schema: OfflineSchema? = nil, destination: URL) throws -> PatchPlan {
+    public static func definitions(appID: Int, language: String, apiKey: String, achievements: Bool, images: Bool, inventory: Bool, importedInventory: OfflineInventory?) async throws -> (schema: OfflineSchema?, inventory: OfflineInventory?) {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var items = inventory ? importedInventory : nil
+        guard !key.isEmpty else { return (nil, items) }
+        let schema = achievements ? try await OfflineSchema.fetch(appID: appID, apiKey: key, language: language, withImages: images) : nil
+        if inventory && items == nil { items = try await OfflineInventory.fetch(appID: appID, apiKey: key) }
+        return (schema, items)
+    }
+
+    public static func goldberg(package: URL, gameRoot: URL, appID: Int, dlcs: [Int], accountName: String, language: String, achievements: [Achievement]?, inventory: OfflineInventory? = nil, schema: OfflineSchema? = nil, overlay: Bool = true, destination: URL) throws -> PatchPlan {
         let tool = try ToolPackage.load(package, provider: "goldberg")
         guard !FileStore.fm.fileExists(atPath: destination.path), UInt32(exactly: appID) != nil, appID > 0,
               !accountName.isEmpty, accountName.count <= 80, !accountName.contains(where: { "\r\n\0".contains($0) }), ["english", "schinese"].contains(language) else { throw AppFailure("离线配置或缓存目录无效 / Invalid offline configuration or cache directory") }
@@ -40,7 +49,8 @@ public enum OfflineTools {
             let components = file.standardizedFileURL.pathComponents
             guard components.starts(with: root.pathComponents) else { throw AppFailure("Steam API 文件位于目标目录以外 / Steam API file is outside the target directory") }
             let relative = components.dropFirst(root.pathComponents.count).joined(separator: "/")
-            targets.append((relative, architecture == 0x8664 ? "regular/x64/steam_api64.dll" : "regular/x86/steam_api.dll"))
+            let build = overlay ? "experimental" : "regular"
+            targets.append((relative, build + (architecture == 0x8664 ? "/x64/steam_api64.dll" : "/x86/steam_api.dll")))
         }
         if let walkError { throw walkError }
         guard !targets.isEmpty, targets.count <= 64 else { throw AppFailure("游戏目录中未找到可替换的 steam_api.dll / steam_api64.dll，或数量异常") }
@@ -48,7 +58,10 @@ public enum OfflineTools {
         do {
             for (relative, asset) in targets {
                 let source = try tool.file(ending: asset, in: package)
-                let data = try FileStore.read(source); _ = try machine(data)
+                let data = try FileStore.read(source)
+                guard try machine(data) == (asset.hasSuffix("/steam_api64.dll") ? 0x8664 : 0x14c) else {
+                    throw AppFailure("模拟器 DLL 架构不匹配 / Emulator DLL architecture mismatch")
+                }
                 let output = try GamePatches.target(relative, root: destination); try FileStore.write(data, to: output)
                 let settings = output.deletingLastPathComponent().appendingPathComponent("steam_settings")
                 try FileStore.write(Data("\(appID)\n".utf8), to: settings.appendingPathComponent("steam_appid.txt"))
@@ -57,6 +70,10 @@ public enum OfflineTools {
                 let apps = "[app::dlcs]\nunlock_all=0\n" + dlcs.filter { $0 > 0 }.sorted().map { "\($0)=DLC \($0)\n" }.joined()
                 let main = "[main::connectivity]\ndisable_networking=1\noffline=1\n"
                 for (name, text) in [("configs.user.ini", user), ("configs.app.ini", apps), ("configs.main.ini", main)] { try FileStore.write(Data(text.utf8), to: settings.appendingPathComponent(name)) }
+                if overlay {
+                    let config = "[overlay::general]\nenable_experimental_overlay=1\ndisable_achievement_notification=0\n"
+                    try FileStore.write(Data(config.utf8), to: settings.appendingPathComponent("configs.overlay.ini"))
+                }
                 if let inventory {
                     try FileStore.json(inventory.items, to: settings.appendingPathComponent("items.json"))
                     try FileStore.json(inventory.quantities, to: settings.appendingPathComponent("default_items.json"))

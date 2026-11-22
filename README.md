@@ -181,8 +181,8 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 - 开发者可用 `./script/build_windows_test_runtime.sh` 准备仅供隔离测试的 Windows Python；该运行时不打入应用。`script/test_wine_adapter.py` 实际使用应用的 `WineLaunch.prepare` 启动已安装 NotProton 26.3.0.39832；隔离前缀内的 DLL 注册表配置通过。
 - `FluentNotProton --self-test` 验证共存加载配置、备份完整性、冲突拒绝、回滚和共享安装锁；`--test-kernel` 将真实 macSteam 资源部署到合成 Steam.app，再完整恢复。真实 Steam 运行时拒绝安装，现有 Steam 和游戏未被退出。
 - `script/test_steamless_bridge.py` 在 NotProton 下加载官方未修改的 7 个 Steamless 插件，解包自建 SteamStub 3.1 x64 PE：恢复原入口、删除 .bind、保留代码；没有执行这个合成 PE。未加壳 PE 正确拒绝。
-- `script/test_goldberg_windows.py` 加载真实 Goldberg x64 DLL，只在隔离前缀的临时 AppID 480 中验证初始化、AppID、成就定义及本地解锁/回锁，未写真实 Steam 成就。
-- 工具下载只使用官方发布文件，Steamless 固定 SHA-256，Goldberg 使用 GitHub 提供的 SHA-256。原始工具压缩包保留在用户缓存中，未加入本应用分发包。
+- `script/test_goldberg_windows.py` 在隔离前缀的 AppID 480 下用真实 Goldberg x64 DLL 验证成就读取、解锁和回锁，使用实验版时还检查覆盖层是否已配置。另用应用生成的无 Key 部署和已有成就定义，在 NotProton 的 Direct3D 9 测试窗口中捕获了实际解锁通知。本机 Direct3D 11 和 OpenGL 测试窗口中覆盖层未就绪，真实游戏的渲染兼容性仍待验收。
+- 离线工具包先尝试首选下载源，传输或 SHA-256 校验失败后按直连和其余镜像的顺序重试，每个源最多一次。Steamless 使用固定 SHA-256，Goldberg 从 GitHub 官方获取版本和校验值。版本查询不可用时，界面提示使用上次取得的版本；首次下载使用内置校验值对应的版本。原始工具压缩包保留在用户缓存中，未加入本应用分发包。
 
 ### Manifest 原生扩展
 
@@ -221,7 +221,7 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 ### 自选离线游戏目录与成就定义
 
-离线工具页可选择自有游戏文件夹，使用文件夹名查询 Steam 商店 AppID，或手动输入 AppID；搜索只列出候选，不自动部署。Steamless 仍需对应 NotProton 前缀。Goldberg 可使用正在运行的 Steam 读取成就，或用仅保留在本次界面的 Web API Key 获取定义和可选图标；只导出定义，不复制在线解锁状态。图标限 HTTPS Steam 资源，写入受管目录并纳入备份恢复。接口依据 [Valve GetSchemaForGame 文档](https://partner.steamgames.com/doc/webapi/ISteamUserStats?l=english#GetSchemaForGame)。未提供 API Key，真实在线架构与库存查询仍未验收。
+离线工具页可选择自有游戏文件夹，使用文件夹名查询 Steam 商店 AppID，或手动输入 AppID；搜索只列出候选，不自动部署。Steamless 仍需对应 NotProton 前缀。Goldberg 默认启用游戏内成就弹窗，按 x86 或 x64 部署带覆盖层的实验版 DLL。关闭弹窗后使用常规版。显示通知需要该游戏的成就定义。Web API Key 仅在当前界面使用；留空时跳过成就、统计和库存查询，继续基础部署。已有定义会保留，手动导入的库存 JSON 也可离线使用。填写 Key 后可按选项获取定义和成就图标。真实游戏的免 Steam 启动、实际游玩触发弹窗，以及有权限的 Key 能否取得该游戏的成就和库存定义，仍需实测。
 
 ### Lua 访问令牌
 

@@ -101,3 +101,5 @@ Console.WriteLine("PASS: macOS cached-token envelope, account/expiry/malformed r
 var notes=RuntimeReleases.ReleaseNotes("<div class='markdown-body'><h2>Fixes</h2><p>Updated <strong>runtime</strong>.</p><ul><li>Safe update</li></ul><a href='https://example.invalid/release'>Details</a></div>");
 Check(notes!=null && notes.Contains("## Fixes") && notes.Contains("**runtime**") && notes.Contains("- Safe update") && notes.Contains("[Details](https://example.invalid/release)"),"GitHub HTML release notes fallback to Markdown");
 Console.WriteLine("PASS: release notes Markdown fallback");
+
+await ToolPackageTests.Run();

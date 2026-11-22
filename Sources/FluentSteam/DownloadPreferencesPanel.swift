@@ -13,7 +13,7 @@ struct DownloadPreferencesPanel: View {
             Picker(model.tr("GitHub 公开资源", "Public GitHub assets"), selection: Binding(get: { model.preferences.downloadMirror ?? "direct" }, set: { model.preferences.downloadMirror = $0 })) {
                 ForEach(DownloadSources.mirrors, id: \.self) { source in Text(source == "direct" ? model.tr("直连", "Direct") : source).tag(source) }
             }
-            Text(model.tr("仅用于公开工具包和已签名更新包；失败或校验不符时回退直连。账号与令牌请求始终直连。", "Applies to public tools and signed updates. Falls back to direct on failure or digest mismatch. Account and token requests use direct connections.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("离线工具包优先使用所选来源，下载或校验失败会尝试直连和其他镜像。此偏好也用于已签名更新包。账号与令牌请求始终直连。", "Offline tools try the preferred source first, then direct and other mirrors on download or verification failure. Signed updates also use this preference. Account and token requests use direct connections.")).font(.caption).foregroundStyle(.secondary)
             HStack {
                 TextField(model.tr("首选 Steam CDN 主机，留空自动选择", "Preferred Steam CDN host; blank for automatic"), text: Binding(get: { model.preferences.preferredCDN ?? "" }, set: { model.preferences.preferredCDN = $0 })).textFieldStyle(.roundedBorder)
                 Button(model.tr("测试 GitHub 源", "Test GitHub sources")) { model.run(model.tr("测试下载源", "Test download sources")) { results = await DownloadSources.measureMirrors() } }.disabled(model.busy)

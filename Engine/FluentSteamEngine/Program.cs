@@ -45,7 +45,7 @@ internal static class Program
     }
 }
 
-internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null, uint[]? DepotIDs = null, uint[]? AppIDs = null, uint[]? MissingDepotAppIDs = null);
+internal sealed record Request(string Operation, string Account = "", string Token = "", uint AppID = 0, uint DepotID = 0, ulong ManifestID = 0, string DepotKey = "", string Destination = "", string Provider = "", string Query = "", string URL = "", string Referer = "", string Archive = "", string Password = "", string Mirror = "direct", bool IncludeDLC = true, string SteamPath = "", string SteamID = "", RuntimeRelease? RuntimeRelease = null, uint[]? DepotIDs = null, uint[]? AppIDs = null, uint[]? MissingDepotAppIDs = null, ToolRelease? CachedGoldberg = null);
 
 internal sealed class Session : IDisposable
 {

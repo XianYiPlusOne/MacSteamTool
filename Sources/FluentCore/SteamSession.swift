@@ -88,6 +88,12 @@ public struct SteamEngineResponse: Decodable, Sendable {
     }
 }
 public struct SteamEngineRequest: Encodable, Sendable {
+    public struct CachedToolRelease: Encodable, Sendable {
+        public let version: String
+        public let sha256: String
+        public init(_ package: ToolPackage) { version = package.version; sha256 = package.archiveSHA256 }
+    }
+    public var cachedGoldberg: CachedToolRelease?
     public var operation: String
     public var account = ""
     public var token = ""

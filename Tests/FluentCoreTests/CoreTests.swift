@@ -453,11 +453,16 @@ struct OfflineToolTests {
         bytes[64] = 0x50; bytes[65] = 0x45; bytes[68] = UInt8(machine & 255); bytes[69] = UInt8(machine >> 8); bytes[100] = marker
         return bytes
     }
-    @Test func goldbergPreviewsBothArchitecturesAndRestoresWithoutTouchingSaves() throws {
+    @Test func goldbergPreviewsBothArchitecturesAndRestoresWithoutTouchingSaves() async throws {
         let root = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentGoldbergTest-\(UUID().uuidString)")
         defer { try? FileStore.fm.removeItem(at: root) }
         let paths = AppPaths(home: root), package = root.appendingPathComponent("tool"), game = root.appendingPathComponent("game")
-        let assets = ["release/regular/x86/steam_api.dll": pe(0x14c, marker: 1), "release/regular/x64/steam_api64.dll": pe(0x8664, marker: 2)]
+        let assets = [
+            "release/experimental/x86/steam_api.dll": pe(0x14c, marker: 1),
+            "release/experimental/x64/steam_api64.dll": pe(0x8664, marker: 2),
+            "release/regular/x86/steam_api.dll": pe(0x14c, marker: 5),
+            "release/regular/x64/steam_api64.dll": pe(0x8664, marker: 6)
+        ]
         for (path, data) in assets { try FileStore.write(data, to: package.appendingPathComponent("payload/" + path)) }
         try FileStore.json(ToolPackage(provider: "goldberg", version: "fixture", source: "fixture", archiveSHA256: "fixture", files: assets.mapValues(FileStore.hash)), to: package.appendingPathComponent("tool.json"))
         let original32 = pe(0x14c, marker: 3), original64 = pe(0x8664, marker: 4)
@@ -467,13 +472,20 @@ struct OfflineToolTests {
         try FileStore.write(saved, to: save)
         let config = game.appendingPathComponent("steam_settings/configs.user.ini"), oldConfig = Data("[user::general]\naccount_name=Existing\n".utf8)
         try FileStore.write(oldConfig, to: config)
+        let overlayConfig = game.appendingPathComponent("steam_settings/configs.overlay.ini")
+        let existingOverlay = Data("[overlay::general]\nenable_experimental_overlay=0\n".utf8)
+        try FileStore.write(existingOverlay, to: overlayConfig)
         var schema = try OfflineSchema.parse(Data(#"{"game":{"availableGameStats":{"achievements":[{"name":"TEST","hidden":1,"icon":"https://cdn.akamai.steamstatic.com/480/test.png"}]}}}"#.utf8))
         let imagePath = try #require(OfflineSchema.imagePath(schema.definitions[0].icon))
         schema.images[imagePath] = Data([137,80,78,71])
         let plan = try OfflineTools.goldberg(package: package, gameRoot: game, appID: 480, dlcs: [481], accountName: "Fixture", language: "english", achievements: [Achievement(id: "TEST", name: "Test", detail: "Fixture", achieved: true, unlockedAt: 1)], schema: schema, destination: root.appendingPathComponent("stage"))
-        #expect(plan.entries.filter(\.replacing).count == 3)
+        #expect(plan.entries.filter(\.replacing).count == 4)
         let receipt = try GamePatches.install(plan, paths: paths)
-        #expect(try FileStore.read(game.appendingPathComponent("steam_api64.dll")) == assets["release/regular/x64/steam_api64.dll"])
+        #expect(try FileStore.read(game.appendingPathComponent("steam_api64.dll")) == assets["release/experimental/x64/steam_api64.dll"])
+        #expect(try FileStore.read(game.appendingPathComponent("legacy/steam_api.dll")) == assets["release/experimental/x86/steam_api.dll"])
+        let enabledOverlay = "[overlay::general]\nenable_experimental_overlay=1\ndisable_achievement_notification=0\n"
+        #expect(try FileStore.text(overlayConfig) == enabledOverlay)
+        #expect(try FileStore.text(game.appendingPathComponent("legacy/steam_settings/configs.overlay.ini")) == enabledOverlay)
         #expect(try FileStore.text(game.appendingPathComponent("steam_settings/configs.app.ini")).contains("481=DLC 481"))
         #expect(try FileStore.text(game.appendingPathComponent("steam_settings/configs.main.ini")).contains("disable_networking=1"))
         #expect(try !FileStore.text(game.appendingPathComponent("steam_settings/achievements.json")).contains("achieved"))
@@ -485,6 +497,14 @@ struct OfflineToolTests {
         #expect(try FileStore.read(config) == oldConfig)
         #expect(!FileStore.fm.fileExists(atPath: game.appendingPathComponent("steam_settings/" + imagePath).path))
         #expect(try FileStore.read(save) == saved)
+        #expect(try FileStore.read(overlayConfig) == existingOverlay)
+        #expect(!FileStore.fm.fileExists(atPath: game.appendingPathComponent("legacy/steam_settings/configs.overlay.ini").path))
+        let definitions = try await OfflineTools.definitions(appID: 480, language: "english", apiKey: "  \n ", achievements: true, images: true, inventory: true, importedInventory: nil)
+        let plain = try OfflineTools.goldberg(package: package, gameRoot: game, appID: 480, dlcs: [], accountName: "Fixture", language: "english", achievements: nil, inventory: definitions.inventory, schema: definitions.schema, overlay: false, destination: root.appendingPathComponent("plain"))
+        #expect(plain.entries.allSatisfy { !$0.relative.hasSuffix(".json") && !$0.relative.hasSuffix("configs.overlay.ini") })
+        let plainReceipt = try GamePatches.install(plain, paths: paths)
+        #expect(try FileStore.read(game.appendingPathComponent("steam_api64.dll")) == assets["release/regular/x64/steam_api64.dll"])
+        try GamePatches.restore(plainReceipt, paths: paths)
     }
     @Test func toolFilesAndPEHeadersAreValidated() throws {
         #expect(try OfflineTools.machine(pe(0x8664, marker: 0)) == 0x8664)
