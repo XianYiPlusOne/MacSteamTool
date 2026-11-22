@@ -30,8 +30,6 @@ add_library(cloud_redirect SHARED
     common/miniz_tdef.c
     common/miniz_tinfl.c
     common/miniz_zip.c
-    providers/google_drive.cpp
-    providers/onedrive.cpp
     providers/local_disk_provider.cpp
     providers/s3_provider.cpp
     providers/r2_provider.cpp

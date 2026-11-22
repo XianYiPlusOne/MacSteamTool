@@ -18,6 +18,7 @@
 #include "sha256_hmac.h"
 
 #include <cstring>
+#include <strings.h>
 #include <climits>
 #include <fstream>
 #include <atomic>
@@ -174,6 +175,12 @@ static void EnsureInitialized() {
             configFile.close();
             auto cfg = Json::Parse(configStr);
             std::string providerName = cfg["provider"].str();
+            // Legacy Drive configurations keep local statistics without opening a token file.
+            if (strcasecmp(providerName.c_str(), "gdrive") == 0 ||
+                strcasecmp(providerName.c_str(), "onedrive") == 0) {
+                LOG("[macOS] Drive statistics sync was retired; using local statistics");
+                providerName = "local";
+            }
             {
                 std::lock_guard<std::mutex> lock(g_cloudStatusMutex);
                 g_loadedConfigDigest=crypto::Sha256Hex(configStr);

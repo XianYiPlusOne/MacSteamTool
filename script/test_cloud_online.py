@@ -295,6 +295,10 @@ def scenario(base, provider, auth='basic', tls=False):
 
 with tempfile.TemporaryDirectory(prefix='cloud-online-', dir=ROOT / 'work') as directory:
     root = Path(directory)
+    if args.case in (None, 'retired'):
+        (root / '.fluent-cloud-online-fixture').touch()
+        for provider in ('GDrive', 'OneDrive'):
+            subprocess.run([PROBE, provider, root / 'missing-credentials', root / provider, 'stats-a'], check=True)
     for provider, auth, tls in [('webdav', 'basic', False), ('webdav', 'bearer', False), ('webdav', 'digest', False), ('webdav', 'auto', False), ('webdav', 'basic', True), ('s3', 'basic', False), ('r2', 'basic', False)]:
         if args.case and args.case != f'{provider}/{auth}':
             continue

@@ -60,7 +60,8 @@ static void statistics(const std::string& mode, const std::string& root) {
 int main(int argc, char** argv) {
     require(argc == 5, "usage: online-probe provider fixture-credentials new-client-root statistics-mode");
     const std::string provider = argv[1], credentials = argv[2], root = argv[3], mode = argv[4];
-    require(provider == "webdav" || provider == "s3" || provider == "r2" || provider == "folder", "isolated supported providers only");
+    const bool retiredDrive = provider == "GDrive" || provider == "OneDrive";
+    require(retiredDrive || provider == "webdav" || provider == "s3" || provider == "r2" || provider == "folder", "isolated fixture provider");
     const bool stats = mode == "stats-a" || mode == "stats-b" || mode == "stats-concurrent-a" || mode == "stats-concurrent-b" || mode == "stats-offline" || mode == "stats-reset" || mode == "stats-retry" || mode == "stats-verify" || mode == "stats-verify-retry" || mode == "stats-verify-reset" || mode == "stats-verify-concurrent";
     require(stats || mode == "legacy-saves", "known mode");
     const bool retry = mode == "stats-retry";
@@ -86,7 +87,15 @@ int main(int argc, char** argv) {
         CloudHooks::ShutdownStorage();
         return 0;
     }
-    require(CloudStorage::IsCloudActive() && CloudIntercept::GetAccountId() == account, "fixture provider active and account scoped");
+    require(CloudIntercept::GetAccountId() == account, "statistics scoped to fixture account");
+    if (retiredDrive) {
+        require(!CreateCloudProvider(provider), "retired provider not registered");
+        require(!CloudStorage::IsCloudActive(), "retired provider stays offline");
+        auto status = Json::Parse("{\"fixture\":true" + CloudHooks::StatusJSONFields() + "}");
+        require(status["cloudReady"].boolean(), "local statistics ready for legacy configuration");
+    } else {
+        require(CloudStorage::IsCloudActive(), "fixture provider active");
+    }
     statistics(mode, root);
     return 0;
 }

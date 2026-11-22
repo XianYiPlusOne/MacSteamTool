@@ -7,6 +7,8 @@ License: MIT (included). Common/provider sources copied unchanged initially. mac
 
 The current macOS product uses this library for runtime integration and statistics. Steam handles game saves. The bundled library has no game-save RPC implementation, save HTTP server or migration CLI.
 
+The macOS port omits the upstream Google Drive and OneDrive providers and their OAuth credentials. Older configurations selecting either provider use local statistics. Folder, WebDAV, S3 and R2 remain supported.
+
 Native runtime additions (2026-11-05)
 - ARM64 Steam builds 1792618285 and 1794424036. Reviewed UUIDs, exact entry guards and layouts are shared in `../SteamIntegration/profiles.json`; see `../SteamIntegration/PROFILE-NOTES.md`. Each detour requires the selected image identity and exact code bytes.
 - CCMInterface send 0x693cf8; CProtoBufMsg EMsg +40, header +48, body +56. Typed MessageLite factories and serializers remain Steam's own.

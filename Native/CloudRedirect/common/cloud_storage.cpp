@@ -2,8 +2,6 @@
 #include "cloud_storage.h"
 #include "stats_journal.h"
 #include "local_disk_provider.h"
-#include "google_drive_provider.h"
-#include "onedrive_provider.h"
 #include "s3_provider.h"
 #include "r2_provider.h"
 #include "webdav_provider.h"
@@ -221,12 +219,6 @@ std::unique_ptr<ICloudProvider> CreateCloudProvider(const std::string& name) {
     if (lower == "webdav" || lower == "dav") {
         return std::make_unique<WebDavProvider>();
     }
-    if (lower == "gdrive") {
-        return std::make_unique<GoogleDriveProvider>();
-    }
-    if (lower == "onedrive") {
-        return std::make_unique<OneDriveProvider>();
-    }
     LOG("[CloudStorage] CreateCloudProvider: unknown provider '%s'", name.c_str());
     return nullptr;
 }
@@ -272,9 +264,5 @@ std::string ResolveProviderTokenPath(const std::string& configDir,
     if (p == "s3")       return configDir + "s3_credentials.json";
     if (p == "webdav" || p == "dav")
         return configDir + "webdav_credentials.json";
-#ifdef _WIN32
-    if (p == "gdrive")   return configDir + "google_tokens.json";
-    if (p == "onedrive") return configDir + "onedrive_tokens.json";
-#endif
     return configDir + "tokens_" + p + ".json";
 }
