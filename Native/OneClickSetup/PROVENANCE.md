@@ -34,10 +34,9 @@ are retained. Native deployment does not install a backend automatically.
 
 ## Steam bootstrap architectures
 
-Valve's initial Steam bootstrap is x86_64. CloudRedirect and MacSteamTool Manifest now
-include `../BootstrapSupport/noop.c` as a no-hook Intel slice, alongside their
-unchanged ARM64 implementation. `script/add_bootstrap_slice.sh` creates and signs
-the universal libraries; `script/test_bootstrap_extensions.py` tests actual DYLD
-startup loading and exported symbols for both architectures without launching
-Steam. This corrects the first-launch architecture failure found during the
-aborted fresh-machine trial; it is not a complete first-login acceptance test.
+Valve's initial Steam bootstrap is x86_64. CloudRedirect and MacSteamTool Manifest
+are compiled from their maintained sources for both arm64 and x86_64, then merged
+into universal libraries. `script/test_bootstrap_extensions.py` tests actual DYLD
+startup loading and production exports for both architectures without launching
+Steam. Steam-specific hooks remain fail-closed until a reviewed profile exists for
+the selected client architecture; the current checked-in profiles are arm64-only.

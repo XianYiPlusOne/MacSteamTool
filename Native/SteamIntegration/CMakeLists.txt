@@ -1,9 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 project(MacSteamToolIntegration LANGUAGES C CXX)
-set(CMAKE_OSX_ARCHITECTURES arm64)
+if(NOT CMAKE_OSX_ARCHITECTURES)
+  set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Target macOS architecture")
+endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0)
 set(CMAKE_C_STANDARD 17)
 if(NOT DOBBY_LIBRARY)
+  message(FATAL_ERROR "Build with script/build_native_integration.py")
+endif()
+if(NOT DOBBY_SOURCE)
   message(FATAL_ERROR "Build with script/build_native_integration.py")
 endif()
 set(MAC_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../MacSteam")
@@ -18,12 +23,14 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/compat_run.h"
     "${NP_SOURCE}/dylib/feats/compat_run.sh" "${CMAKE_CURRENT_BINARY_DIR}/generated/compat_run.h" RUN_SCRIPT
   DEPENDS "${NP_SOURCE}/dylib/feats/compat_run.sh" "${NP_SOURCE}/dylib/feats/compat-defaults.sh"
     "${NP_SOURCE}/dylib/feats/compat-prefix.sh" "${NP_SOURCE}/dylib/embed_script.py")
-# The Intel bootstrap uses a stub; the ARM64 client needs the complete runtime.
+# Both macOS architectures compile the maintained runtime.  The architecture is
+# selected by the build script; never silently replace one slice with a loader
+# stub, because a fat binary with an inert slice is not Intel support.
 add_library(macsteam SHARED ${MAC_SOURCES} "${MAC_SOURCE}/vendor/cJSON.c")
 add_library(notproton SHARED ${NP_SOURCES} "${NP_SOURCE}/vendor/cJSON.c"
   "${CMAKE_CURRENT_BINARY_DIR}/generated/compat_run.h")
-target_include_directories(macsteam PRIVATE "${MAC_SOURCE}/src" "${MAC_SOURCE}/vendor")
-target_include_directories(notproton PRIVATE "${NP_SOURCE}/dylib" "${NP_SOURCE}/vendor" "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(macsteam PRIVATE "${MAC_SOURCE}/src" "${MAC_SOURCE}/vendor" "${DOBBY_SOURCE}/include")
+target_include_directories(notproton PRIVATE "${NP_SOURCE}/dylib" "${NP_SOURCE}/vendor" "${CMAKE_CURRENT_BINARY_DIR}/generated" "${DOBBY_SOURCE}/include")
 foreach(target macsteam notproton)
   set_target_properties(${target} PROPERTIES PREFIX "" INSTALL_NAME_DIR "@rpath")
   target_compile_options(${target} PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)

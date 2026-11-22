@@ -7,6 +7,7 @@ import plistlib
 import shutil
 import sys
 import subprocess
+from urllib.parse import quote
 from build_crossover_bridge import STAGE as BRIDGE_STAGE
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,31 @@ def copy(source, target):
         shutil.copytree(source, target)
     else:
         shutil.copy2(source, target)
+
+def scrub_build_paths(path):
+    """Remove developer-machine paths embedded by Wine/MinGW diagnostics.
+
+    Wine's PE build can retain absolute ``__FILE__``/diagnostic strings in
+    read-only data even after ``strip --strip-debug``.  Keep the bytes at the
+    same offsets (so PE layout and checksums remain valid) while replacing the
+    machine-specific prefixes with a neutral marker.  This is only applied to
+    generated bridge payloads, never to maintained source or native hooks.
+    """
+    markers = [str(Path.home()), str(ROOT)]
+    raw = path.read_bytes()
+    cleaned = raw
+    for marker in markers:
+        for encoded in (marker, marker.replace("/", "\\"), quote(marker)):
+            replacement = "<build>" + "_" * max(0, len(encoded) - len("<build>"))
+            for source, target in (
+                (encoded.encode("utf-8"), replacement.encode("utf-8")),
+                (encoded.encode("utf-16le"), replacement.encode("utf-16le")),
+                (encoded.encode("utf-16be"), replacement.encode("utf-16be")),
+            ):
+                if len(source) == len(target):
+                    cleaned = cleaned.replace(source, target)
+    if cleaned != raw:
+        path.write_bytes(cleaned)
 
 def seal(folder, provider, version):
     files = {str(p.relative_to(folder)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -73,6 +99,7 @@ def package(resources):
         else:
             strip = "i686-w64-mingw32-strip" if name.startswith("i386-") else "x86_64-w64-mingw32-strip"
             subprocess.run([strip, "--strip-debug", target], check=True)
+        scrub_build_paths(target)
     # Original, unrenamed redistributable fonts, with family licenses. CrossOver
     # also supplies its own Wine fonts. No proprietary Windows font is copied.
     for family in (NP / "fonts").iterdir():

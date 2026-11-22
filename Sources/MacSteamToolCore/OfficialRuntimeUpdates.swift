@@ -151,7 +151,7 @@ public enum OfficialRuntimeUpdates {
         let payload = app.appendingPathComponent(provider == "macsteam" ? "Contents/Resources" : "Contents/Resources/NotProtonApp_NotProtonApp.bundle/Contents/Resources/payload")
         let required = provider == "macsteam" ? ["macsteam.dylib", "macsteam.dylib.version"] : ["notproton.dylib", "overlay-shim.dylib", "iconmaker", "appinfo", "run", "build-time"]
         guard required.allSatisfy({ FileStore.fm.fileExists(atPath: payload.appendingPathComponent($0).path) }) else { throw AppFailure("运行器缺少内核资源 / Runtime payload incomplete") }
-        let builds = FileStore.files(payload.appendingPathComponent("signatures/macos.arm64")).filter { $0.pathExtension == "json" }.map { $0.deletingPathExtension().lastPathComponent }.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }.sorted()
+        let builds = FileStore.files(payload.appendingPathComponent(AppUpdates.nativeSignatureDirectory)).filter { $0.pathExtension == "json" }.map { $0.deletingPathExtension().lastPathComponent }.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }.sorted()
         guard !builds.isEmpty else { throw AppFailure("运行器缺少 Steam 兼容数据 / Runtime Steam profiles missing") }; return builds
     }
 }

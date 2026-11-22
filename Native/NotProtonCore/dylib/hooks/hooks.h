@@ -5,14 +5,15 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../resolver/resolver.h"
+#include <dobby.h>
 
 typedef enum {
     NP_PATCH_REPLACE = 0,   // swap in a replacement, keep the original callable
     NP_PATCH_PREHOOK = 1,   // run before the target, may rewrite registers
 } np_patch_mode_t;
 
-// Register state a prehook is handed, in Dobby's layout.
-typedef struct { uint64_t _d0, sp, _d1; struct { uint64_t x[29]; } general; } np_arm64_ctx_t;
+// Register state a prehook is handed, in Dobby's architecture-specific layout.
+typedef DobbyRegisterContext np_dobby_ctx_t;
 
 typedef struct {
     const char      *label;

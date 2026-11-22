@@ -1,4 +1,5 @@
 #include "gamesplayed_hook.h"
+#include "../../Common/native_arch.h"
 #include "multiplayer_presence.h"
 #include "runtime_profile.h"
 #include "runtime_settings.h"
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <ctime>
 #include <unordered_set>
+#include <string>
 extern "C" int DobbyHook(void*,void*,void**);
 extern "C" int DobbyDestroy(void*);
 namespace GamesPlayedHook {
@@ -189,7 +191,7 @@ static bool send(void* cm,void* wrapper){
 bool Install(uintptr_t b,size_t size){
     if(installed)return true;if(size<RuntimeProfile::send(b)+32||!RuntimeProfile::Check_send(b)||!RuntimeProfile::Check_parse(b))return false;base=b;
     installed=DobbyHook((void*)(base+RuntimeProfile::send(base)),(void*)&send,(void**)&original)==0;
-    if(installed)LOG("[macOS] ARM64 GamesPlayed/presence/stat observer installed");return installed;
+    if(installed){const std::string msg=std::string("[macOS ")+FLUENT_ARCH_NAME+"] GamesPlayed/presence/stat observer installed";LOG("%s",msg.c_str());}return installed;
 }
 bool Installed(){return installed.load();}
 void Remove(){if(installed)DobbyDestroy((void*)(base+RuntimeProfile::send(base)));installed=false;}

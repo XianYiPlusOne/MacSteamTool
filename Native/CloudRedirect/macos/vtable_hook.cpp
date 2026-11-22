@@ -1,6 +1,7 @@
 #include "runtime_profile.h"
 #include "vtable_hook.h"
 #include "log.h"
+#include "../../Common/native_arch.h"
 
 #include <cstdio>
 #include <cstring>
@@ -55,7 +56,7 @@ uintptr_t VtableHook::FindSteamclient(size_t& outSize) {
     for (uint32_t i = 0; i < _dyld_image_count(); i++) {
         if (!strstr(_dyld_get_image_name(i), "/steamclient.dylib")) continue;
         auto header = reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(i));
-        if (header->magic != MH_MAGIC_64 || header->cputype != CPU_TYPE_ARM64) return 0;
+        if (header->magic != MH_MAGIC_64 || header->cputype != FLUENT_CPU_TYPE) return 0;
         auto slide = _dyld_get_image_vmaddr_slide(i);
         auto command = reinterpret_cast<const load_command*>(header + 1);
         uintptr_t end = reinterpret_cast<uintptr_t>(header);

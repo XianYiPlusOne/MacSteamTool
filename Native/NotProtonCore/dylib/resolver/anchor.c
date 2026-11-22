@@ -31,6 +31,7 @@ static uintptr_t adrp_target(uintptr_t pc, uint32_t w, int *reg) {
 
 // Decode ADD (immediate) with shift=0 whose Rn matches `expected_rn`.
 // Returns the full target address (page + offset) or 0.
+#if !defined(__x86_64__)
 static uintptr_t add_imm_target(uint32_t w, int expected_rn, uintptr_t page) {
     if ((w & 0x7F800000u) != 0x11000000u) return 0;
     if ((int)((w >> 5) & 0x1Fu) != expected_rn) return 0;
@@ -38,6 +39,7 @@ static uintptr_t add_imm_target(uint32_t w, int expected_rn, uintptr_t page) {
     if ((w >> 22) & 1u) imm <<= 12;
     return page + imm;
 }
+#endif
 
 // Decode LDR (unsigned offset, 64-bit) whose Rn matches `expected_rn`.
 // Returns the address of the loaded slot.
@@ -116,6 +118,39 @@ static uintptr_t cstring_va(const struct mach_header_64 *mh, intptr_t slide,
 // ascending address order, or requires a unique one when 0.
 static uintptr_t xref_to_va(uintptr_t text, size_t text_sz, uintptr_t target,
                             int nth, int indirect) {
+#if defined(__x86_64__)
+    (void)indirect; // RIP-relative references use the same displacement target.
+    int seen = 0;
+    uintptr_t first = 0;
+    for (size_t off = 0; off + 7 <= text_sz; ++off) {
+        const uint8_t *p = (const uint8_t *)(text + off);
+        size_t disp_off = 0;
+        if ((p[0] & 0xf0) == 0x40 &&
+            (p[1] == 0x8b || p[1] == 0x8d || p[1] == 0x89 ||
+             p[1] == 0x8a || p[1] == 0x3b || p[1] == 0x39) &&
+            (p[2] & 0xc7) == 0x05) {
+            disp_off = 3;
+        } else if ((p[0] == 0x8b || p[0] == 0x8d || p[0] == 0x89 ||
+                    p[0] == 0x8a || p[0] == 0x3b || p[0] == 0x39) &&
+                   (p[1] & 0xc7) == 0x05) {
+            disp_off = 2;
+        } else {
+            continue;
+        }
+        int32_t disp;
+        memcpy(&disp, p + disp_off, sizeof(disp));
+        uintptr_t ref = text + off;
+        uintptr_t actual = ref + disp_off + sizeof(disp) + (intptr_t)disp;
+        if (actual != target) continue;
+        if (nth > 0) {
+            if (++seen == nth) return ref;
+            continue;
+        }
+        if (first) return 0; // ambiguous, as on ARM
+        first = ref;
+    }
+    return first;
+#else
     size_t words = text_sz / 4;
     if (words < 2) return 0;
 
@@ -141,6 +176,7 @@ static uintptr_t xref_to_va(uintptr_t text, size_t text_sz, uintptr_t target,
         first = text + i * 4;
     }
     return nth > 0 ? 0 : first;
+#endif
 }
 
 // The pointer-sized slot in `seg` holding `a` or, if non-zero, `b`.
@@ -227,6 +263,24 @@ static uintptr_t hop_to_caller(const struct mach_header_64 *mh, intptr_t slide,
 static uintptr_t scan_for_insn(uintptr_t text, size_t text_sz,
                                uintptr_t start,
                                uint32_t opcode, uint32_t opmask, int nth) {
+#if defined(__x86_64__)
+    uintptr_t bound = text + text_sz;
+    int count = 0;
+    /* A missing opcode/mask is the ARM profile's BLR default.  On Intel the
+     * equivalent post-string marker is a direct or indirect CALL. */
+    if (opcode == DEFAULT_INSN && opmask == DEFAULT_INSN_MASK) {
+        for (uintptr_t pc = start; pc < bound; ++pc) {
+            const uint8_t *p = (const uint8_t *)pc;
+            if (p[0] == 0xe8 || (pc + 1 < bound && p[0] == 0xff &&
+                                 (p[1] & 0x38) == 0x10)) {
+                if (++count == nth) return pc;
+            }
+        }
+        return 0;
+    }
+    (void)opcode; (void)opmask; (void)nth;
+    return 0;
+#else
     uintptr_t bound = text + text_sz;
     int count = 0;
     for (uintptr_t pc = start; pc + 4 <= bound; pc += 4) {
@@ -236,6 +290,7 @@ static uintptr_t scan_for_insn(uintptr_t text, size_t text_sz,
         }
     }
     return 0;
+#endif
 }
 
 // The sole matching instruction pair inside one function body
@@ -259,6 +314,22 @@ static uintptr_t body_end(const struct mach_header_64 *mh, intptr_t slide,
 static uintptr_t nth_call_target(const struct mach_header_64 *mh, intptr_t slide,
                                  uintptr_t fn, uintptr_t text, size_t text_sz,
                                  int nth) {
+#if defined(__x86_64__)
+    (void)slide;
+    uintptr_t end = body_end(mh, slide, fn, text, text_sz);
+    int seen = 0;
+    for (uintptr_t pc = fn; pc < end; ++pc) {
+        const uint8_t *p = (const uint8_t *)pc;
+        if (p[0] != 0xe8) continue;
+        int32_t disp;
+        memcpy(&disp, p + 1, sizeof(disp));
+        uintptr_t target = pc + 5 + (intptr_t)disp;
+        if (++seen != nth) continue;
+        if (target < text || target >= text + text_sz) return 0;
+        return target;
+    }
+    return 0;
+#else
     uintptr_t end   = body_end(mh, slide, fn, text, text_sz);
     uintptr_t limit = text + text_sz - 4;
     int seen = 0;
@@ -274,6 +345,7 @@ static uintptr_t nth_call_target(const struct mach_header_64 *mh, intptr_t slide
         return t;
     }
     return 0;
+#endif
 }
 
 static uintptr_t walk_call_path(const struct mach_header_64 *mh, intptr_t slide,
@@ -294,6 +366,13 @@ static uintptr_t walk_call_path(const struct mach_header_64 *mh, intptr_t slide,
 static uintptr_t sole_insn_pair(const struct mach_header_64 *mh, intptr_t slide,
                                 uintptr_t fn, uintptr_t text, size_t text_sz,
                                 const np_insn_pair_t *p) {
+#if defined(__x86_64__)
+    (void)mh; (void)slide; (void)fn; (void)text; (void)text_sz; (void)p;
+    /* The pair masks in the shipped database are AArch64 encodings.  Never
+     * reinterpret them as x86 bytes; an Intel profile must provide a native
+     * AOB or direct entry instead. */
+    return 0;
+#else
     uintptr_t end = body_end(mh, slide, fn, text, text_sz);
     uintptr_t found = 0;
 
@@ -307,6 +386,7 @@ static uintptr_t sole_insn_pair(const struct mach_header_64 *mh, intptr_t slide,
         found = p->land_on_second ? pc + 4 : pc;
     }
     return found;
+#endif
 }
 
 

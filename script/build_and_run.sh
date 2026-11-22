@@ -47,12 +47,39 @@ if [[ "$MODE" != "--build" ]]; then
 fi
 configuration=debug
 if [[ "$MODE" == "--build" ]]; then configuration=release; fi
-swift build -c "$configuration"
-BIN_DIR="$(swift build -c "$configuration" --show-bin-path)"
 mkdir -p "$ROOT_DIR/work" "$ROOT_DIR/outputs"
+SWIFT_STAGE=""
+if [[ "$MODE" == "--build" || "${MACSTEAMTOOL_UNIVERSAL:-0}" == "1" ]]; then
+  SWIFT_STAGE="$(mktemp -d "$ROOT_DIR/work/swift-universal.XXXXXX")"
+  trap 'rm -rf "$SWIFT_STAGE"' EXIT
+  for cpu in arm64 x86_64; do
+    triple="$cpu-apple-macosx14.0"
+    scratch="$ROOT_DIR/work/swift-build-$cpu"
+    flags=(--scratch-path "$scratch" -c "$configuration" --triple "$triple" \
+           -Xswiftc -target -Xswiftc "$triple")
+    arch_bin="$(swift build "${flags[@]}" --show-bin-path)"
+    if [[ "$cpu" == arm64 ]]; then RESOURCE_BIN_DIR="$arch_bin"; fi
+    mkdir -p "$SWIFT_STAGE/$cpu"
+    for product in MacSteamTool MacSteamToolUpdater MacSteamToolRuntime MacSteamToolWorker; do
+      swift build "${flags[@]}" --product "$product"
+      cp "$arch_bin/$product" "$SWIFT_STAGE/$cpu/$product"
+    done
+  done
+  for product in MacSteamTool MacSteamToolUpdater MacSteamToolRuntime MacSteamToolWorker; do
+    lipo -create "$SWIFT_STAGE/arm64/$product" "$SWIFT_STAGE/x86_64/$product" \
+      -output "$SWIFT_STAGE/$product"
+    for cpu in arm64 x86_64; do lipo "$SWIFT_STAGE/$product" -verify_arch "$cpu"; done
+    codesign --force --sign - "$SWIFT_STAGE/$product"
+  done
+  BIN_DIR="$SWIFT_STAGE"
+else
+  swift build -c "$configuration"
+  BIN_DIR="$(swift build -c "$configuration" --show-bin-path)"
+  RESOURCE_BIN_DIR="$BIN_DIR"
+fi
 # Independent staging prevents simultaneous builds from modifying each other.
 STAGING="$(mktemp -d "$ROOT_DIR/work/app-staging.XXXXXX")"
-trap 'rm -rf "$STAGING"' EXIT
+trap 'rm -rf "$STAGING" "$SWIFT_STAGE"' EXIT
 mkdir -p "$STAGING/Contents/MacOS" "$STAGING/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$STAGING/Contents/MacOS/$APP_NAME"
 cp "$BIN_DIR/MacSteamToolUpdater" "$STAGING/Contents/MacOS/MacSteamToolUpdater"
@@ -91,7 +118,7 @@ if [[ "$configuration" == release ]]; then
   strip -S "$STAGING"/Contents/MacOS/* "$STAGING/Contents/Helpers/NotProton/MacSteamToolNotProton"
 fi
 chmod +x "$STAGING/Contents/MacOS/$APP_NAME"
-for resource in "$BIN_DIR"/*.bundle; do
+for resource in "$RESOURCE_BIN_DIR"/*.bundle; do
   if [[ -d "$resource" ]]; then cp -R "$resource" "$STAGING/Contents/Resources/"; fi
 done
 if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then cp "$ROOT_DIR/Resources/AppIcon.icns" "$STAGING/Contents/Resources/AppIcon.icns"; fi

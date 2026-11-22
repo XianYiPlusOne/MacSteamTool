@@ -3,6 +3,7 @@
 #include <mach-o/loader.h>
 #include <cstdint>
 #include <cstring>
+#include "../Common/native_arch.h"
 namespace RuntimeProfile {
 struct Site { uintptr_t offset; unsigned char bytes[32]; unsigned size; };
 struct Profile { unsigned char uuid[16]; uint64_t build;
@@ -156,7 +157,7 @@ inline const Profile profiles[] = {
 inline const Profile& Get(uintptr_t base) {
     static const Profile unsupported{};
     auto h=reinterpret_cast<const mach_header_64*>(base);
-    if (!h || h->magic!=MH_MAGIC_64 || h->cputype!=CPU_TYPE_ARM64 || h->sizeofcmds>1024*1024) return unsupported;
+    if (!h || h->magic!=MH_MAGIC_64 || h->cputype!=FLUENT_CPU_TYPE || h->sizeofcmds>1024*1024) return unsupported;
     auto p=reinterpret_cast<const unsigned char*>(h+1),end=p+h->sizeofcmds;
     for (unsigned i=0;i<h->ncmds && p+sizeof(load_command)<=end;++i) {
         auto c=reinterpret_cast<const load_command*>(p);

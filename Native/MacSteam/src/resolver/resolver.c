@@ -1,5 +1,6 @@
 // Signature resolver
 #include "resolver.h"
+#include "../core/arch.h"
 #include "aob.h"
 #include "anchor.h"
 #include "../core/macho.h"
@@ -21,6 +22,27 @@ int sx_is_arm64_prologue(uintptr_t addr) {
     if ((insn & 0xFFC003E0) == 0xA90003E0) return 1; // STP Xt, Xt2, [SP, #off]
 
     return 0;
+}
+
+#if defined(__x86_64__)
+static int sx_is_x86_64_prologue(uintptr_t addr) {
+    if (!addr) return 0;
+    const uint8_t *p = (const uint8_t *)addr;
+    /* Clang often omits rbp in Steam's optimised builds. */
+    if (p[0] == 0x55 && p[1] == 0x48 && p[2] == 0x89 && p[3] == 0xE5) return 1;
+    if (p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xEC) return 1;
+    if (p[0] == 0x48 && p[1] == 0x81 && p[2] == 0xEC) return 1;
+    if (p[0] == 0x41 && (p[1] & 0xF8) == 0x50) return 1;
+    return p[0] == 0x53 || p[0] == 0x56 || p[0] == 0x57;
+}
+#endif
+
+int sx_is_function_prologue(uintptr_t addr) {
+#if defined(__x86_64__)
+    return sx_is_x86_64_prologue(addr);
+#else
+    return sx_is_arm64_prologue(addr);
+#endif
 }
 
 static void result_add(sx_resolve_result_t *r, const char *name, uintptr_t addr) {
@@ -74,6 +96,25 @@ int sx_resolve_all_ex(const struct mach_header_64 *mh, intptr_t slide,
                 valid = pat.mask[n] == 0xff && ((const uint8_t *)candidate)[n] == pat.bytes[n];
             if (valid) addr = candidate;
             sx_pattern_free(&pat);
+        }
+        if (!addr && sig->anchor.kind != SX_ANCHOR_NONE) {
+            addr = sx_anchor_resolve(mh, slide, text_base, text_size, &sig->anchor);
+            if (addr) method = "anchor";
+        }
+        if (!addr && sig->aob_hex[0]) {
+            if (sx_pattern_from_hex(sig->aob_hex, &pat) == 0) {
+                uintptr_t hit = sx_aob_scan_unique(text_base, text_size, &pat);
+                sx_pattern_free(&pat);
+                if (hit) {
+                    intptr_t adjustment = (intptr_t)sig->match_offset;
+                    uintptr_t candidate = (uintptr_t)((intptr_t)hit - adjustment);
+                    if (candidate >= text_base && candidate < text_base + text_size &&
+                        sx_is_function_prologue(candidate)) {
+                        addr = candidate;
+                        method = "aob";
+                    }
+                }
+            }
         }
         if (!addr) SX_ERR("resolver: '%s' entry guard rejected", sig->name);
         if (addr) {

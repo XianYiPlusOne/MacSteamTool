@@ -1,5 +1,6 @@
 // AOB pattern scanner
 #include "aob.h"
+#include "../core/arch.h"
 #include "../util/log.h"
 #include "../util/hex.h"
 #include <stdlib.h>
@@ -98,7 +99,7 @@ uintptr_t sx_aob_scan_unique(uintptr_t base, size_t size, const sx_pattern_t *pa
     size_t scan_end = size - (size_t)pat->length;
     const uint8_t *mem = (const uint8_t *)base;
 
-    for (size_t i = 0; i <= scan_end; i += 4) {
+    for (size_t i = 0; i <= scan_end; i += SX_SCAN_ALIGNMENT) {
         if (mem[i + anchor_off] != anchor_byte) continue;
         if (pattern_match(mem + i, pat)) {
             matches++;
@@ -183,7 +184,8 @@ uintptr_t sx_aob_scan_file(const char *file_path, intptr_t slide,
         for (uint32_t i = 0; i < narch; i++) {
             cpu_type_t cputype = (cpu_type_t)OSSwapBigToHostInt32(archs[i].cputype);
             cpu_subtype_t cpusubtype = (cpu_subtype_t)OSSwapBigToHostInt32(archs[i].cpusubtype);
-            if (cputype == CPU_TYPE_ARM64 && (cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64_ALL) {
+            if (cputype == SX_CPU_TYPE &&
+                (SX_CPU_TYPE != CPU_TYPE_ARM64 || (cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64_ALL)) {
                 uint64_t offset = OSSwapBigToHostInt64(archs[i].offset);
                 if (offset <= file_size && offset + sizeof(struct mach_header_64) <= file_size)
                     mh_ptr = file_base + offset;
@@ -199,7 +201,8 @@ uintptr_t sx_aob_scan_file(const char *file_path, intptr_t slide,
         for (uint32_t i = 0; i < narch; i++) {
             cpu_type_t cputype = (cpu_type_t)OSSwapBigToHostInt32(archs[i].cputype);
             cpu_subtype_t cpusubtype = (cpu_subtype_t)OSSwapBigToHostInt32(archs[i].cpusubtype);
-            if (cputype == CPU_TYPE_ARM64 && (cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64_ALL) {
+            if (cputype == SX_CPU_TYPE &&
+                (SX_CPU_TYPE != CPU_TYPE_ARM64 || (cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64_ALL)) {
                 uint32_t offset = OSSwapBigToHostInt32(archs[i].offset);
                 if ((uint64_t)offset + sizeof(struct mach_header_64) <= file_size)
                     mh_ptr = file_base + offset;
@@ -208,19 +211,19 @@ uintptr_t sx_aob_scan_file(const char *file_path, intptr_t slide,
         }
     } else if (magic == MH_MAGIC_64) {
         const struct mach_header_64 *mh = (const struct mach_header_64 *)file_base;
-        if (mh->cputype == CPU_TYPE_ARM64)
+        if (mh->cputype == SX_CPU_TYPE)
             mh_ptr = file_base;
     }
 
     if (!mh_ptr) {
-        SX_WARN("aob_file: no arm64 slice found in '%s'", file_path);
+        SX_WARN("aob_file: no %s slice found in '%s'", SX_ARCH_NAME, file_path);
         munmap(map, file_size);
         return 0;
     }
 
     uint64_t text_fileoff = 0, text_vmaddr = 0, text_filesize = 0;
     if (find_text_segment(mh_ptr, map_end, &text_fileoff, &text_vmaddr, &text_filesize) != 0) {
-        SX_WARN("aob_file: __TEXT segment not found in arm64 slice");
+        SX_WARN("aob_file: __TEXT segment not found in %s slice", SX_ARCH_NAME);
         munmap(map, file_size);
         return 0;
     }

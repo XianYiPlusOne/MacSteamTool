@@ -1,4 +1,4 @@
-// Native ARM64 adapter. No 32-bit pointers, signal handlers, or executable byte stubs.
+// Native macOS adapter. No 32-bit pointers, signal handlers, or executable byte stubs.
 #include "live_playtime.h"
 #include "runtime_profile.h"
 #include "vtable_hook.h"
@@ -59,7 +59,7 @@ void Apply(const std::vector<uint8_t>& body) {
     if(!scoped.Size())return;
     auto msg=((void*(*)(void*))responseVT[3])(nullptr);
     if(parse(msg,scoped.Data().data(),(int)scoped.Size())){
-        // RepeatedPtrField: count +24, rep +32, rep elements +8 (ARM64).
+        // RepeatedPtrField: count +24, rep +32, rep elements +8 in the selected profile.
         int count=0;void* rep=nullptr;memcpy(&count,(char*)msg+24,4);memcpy(&rep,(char*)msg+32,8);
         if(count>0&&count<=4096&&rep)original(u,(void**)((char*)rep+8),count);
     }

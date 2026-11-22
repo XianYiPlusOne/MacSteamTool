@@ -2,6 +2,12 @@ import Foundation
 import CryptoKit
 import ZIPFoundation
 import Darwin
+#if arch(x86_64)
+import SwiftCompatibilityShim
+private let _swiftCompatibilityShimAnchor: Void = {
+    swiftCompatibilityShimAnchor()
+}()
+#endif
 
 public enum UpdateEdition: String, Codable, Sendable {
     case local, standard
@@ -64,6 +70,7 @@ public enum AppUpdates {
     #else
     #error("Unsupported macOS architecture")
     #endif
+    public static let nativeSignatureDirectory = architecture == "x86_64" ? "signatures/macos.x86_64" : "signatures/macos.arm64"
     public static func feedURL(_ setting: String) -> URL? {
         let text = setting.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "{arch}", with: architecture)
@@ -72,7 +79,8 @@ public enum AppUpdates {
         return url
     }
     private static func compatible(_ release: UpdateRelease, edition: UpdateEdition) -> Bool {
-        (release.edition ?? .standard) == edition && release.architecture == architecture
+        (release.edition ?? .standard) == edition &&
+            (release.architecture == architecture || release.architecture == "universal")
             && release.minimumOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion
     }
     public static func publicKey(bundle: Bundle = .main) throws -> Data {

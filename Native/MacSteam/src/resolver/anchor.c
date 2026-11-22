@@ -9,6 +9,7 @@
 #define BLR_MATCH 0xD63F0000u
 #define BLR_MASK  0xFFFFFC1Fu
 
+#if !defined(__x86_64__)
 static uintptr_t decode_adrp(uintptr_t pc, uint32_t insn, int *rd) {
     if ((insn & 0x9F000000u) != 0x90000000u) return 0; // ADRP: op=1, 10000
     uint32_t immlo = (insn >> 29) & 0x3u;
@@ -27,6 +28,7 @@ static uintptr_t decode_add_imm(uint32_t insn, int adrp_rd, uintptr_t page) {
     if ((insn >> 22) & 0x1u) imm12 <<= 12; // LSL #12
     return page + imm12;
 }
+#endif
 
 static int find_all_cstring_vas(const struct mach_header_64 *mh, intptr_t slide,
                                 const char *s, uintptr_t *out, int max) {
@@ -61,6 +63,39 @@ static uintptr_t find_cstring_va(const struct mach_header_64 *mh, intptr_t slide
 
 static uintptr_t find_string_ref(uintptr_t text_base, size_t text_size,
                                  uintptr_t str_va) {
+#if defined(__x86_64__)
+    /*
+     * Intel Steam uses RIP-relative data references instead of ADRP+ADD.
+     * Restrict the scan to the common ModRM form (mod=00, r/m=101) so an
+     * arbitrary four-byte value in the instruction stream cannot become a
+     * string reference.  The returned instruction is then walked back to a
+     * validated x86 function prologue below.
+     */
+    uintptr_t hit = 0;
+    for (size_t off = 0; off + 7 <= text_size; ++off) {
+        const uint8_t *p = (const uint8_t *)(text_base + off);
+        size_t disp_off = 0;
+        if ((p[0] & 0xf0) == 0x40 &&
+            (p[1] == 0x8b || p[1] == 0x8d || p[1] == 0x89 ||
+             p[1] == 0x8a || p[1] == 0x3b || p[1] == 0x39) &&
+            (p[2] & 0xc7) == 0x05) {
+            disp_off = 3;
+        } else if ((p[0] == 0x8b || p[0] == 0x8d || p[0] == 0x89 ||
+                    p[0] == 0x8a || p[0] == 0x3b || p[0] == 0x39) &&
+                   (p[1] & 0xc7) == 0x05) {
+            disp_off = 2;
+        } else {
+            continue;
+        }
+        int32_t disp;
+        memcpy(&disp, p + disp_off, sizeof(disp));
+        uintptr_t target = text_base + off + disp_off + sizeof(disp) + (intptr_t)disp;
+        if (target != str_va) continue;
+        if (hit) return 0; // preserve the ARM resolver's ambiguity rule
+        hit = text_base + off;
+    }
+    return hit;
+#else
     uintptr_t hit = 0;
     for (size_t off = 0; off + 8 <= text_size; off += 4) {
         uintptr_t pc = text_base + off;
@@ -75,10 +110,38 @@ static uintptr_t find_string_ref(uintptr_t text_base, size_t text_size,
         hit = pc;
     }
     return hit;
+#endif
 }
 
 static uintptr_t find_nth_string_ref(uintptr_t text_base, size_t text_size,
                                      const uintptr_t *str_vas, int nvas, int nth) {
+#if defined(__x86_64__)
+    int seen = 0;
+    for (size_t off = 0; off + 7 <= text_size; ++off) {
+        const uint8_t *p = (const uint8_t *)(text_base + off);
+        size_t disp_off = 0;
+        if ((p[0] & 0xf0) == 0x40 &&
+            (p[1] == 0x8b || p[1] == 0x8d || p[1] == 0x89 ||
+             p[1] == 0x8a || p[1] == 0x3b || p[1] == 0x39) &&
+            (p[2] & 0xc7) == 0x05) {
+            disp_off = 3;
+        } else if ((p[0] == 0x8b || p[0] == 0x8d || p[0] == 0x89 ||
+                    p[0] == 0x8a || p[0] == 0x3b || p[0] == 0x39) &&
+                   (p[1] & 0xc7) == 0x05) {
+            disp_off = 2;
+        } else {
+            continue;
+        }
+        int32_t disp;
+        memcpy(&disp, p + disp_off, sizeof(disp));
+        uintptr_t target = text_base + off + disp_off + sizeof(disp) + (intptr_t)disp;
+        for (int i = 0; i < nvas; ++i) {
+            if (target == str_vas[i] && ++seen == nth)
+                return text_base + off;
+        }
+    }
+    return 0;
+#else
     int seen = 0;
     for (size_t off = 0; off + 8 <= text_size; off += 4) {
         uintptr_t pc = text_base + off;
@@ -97,24 +160,58 @@ static uintptr_t find_nth_string_ref(uintptr_t text_base, size_t text_size,
         }
     }
     return 0;
+#endif
 }
 
 static uintptr_t walk_back_to_prologue(uintptr_t text_base, uintptr_t ref) {
     uintptr_t hit = 0;
-    for (uintptr_t pc = ref; pc >= text_base; pc -= 4) {
-        if (sx_is_arm64_prologue(pc)) {
+#if defined(__x86_64__)
+    /* Intel instructions are variable length; stepping by four bytes can skip
+     * the actual entry when a string reference lands in the middle of an
+     * instruction.  The ARM resolver can use fixed-width words, but the Intel
+     * path must inspect every byte while remaining inside __TEXT. */
+    for (uintptr_t pc = ref; pc >= text_base; --pc) {
+        if (sx_is_function_prologue(pc)) {
             hit = pc;
         } else if (hit) {
             return hit;
         }
         if (pc == text_base) break;
     }
+#else
+    for (uintptr_t pc = ref; pc >= text_base; pc -= 4) {
+        if (sx_is_function_prologue(pc)) {
+            hit = pc;
+        } else if (hit) {
+            return hit;
+        }
+        if (pc == text_base) break;
+    }
+#endif
     return hit;
 }
 
 static uintptr_t nth_insn_after(uintptr_t text_base, size_t text_size,
                                 uintptr_t ref, uint32_t match, uint32_t mask,
                                 int nth) {
+#if defined(__x86_64__)
+    /* The x86 profile uses a call opcode as the default post-string marker.
+     * Explicit masks remain unsupported until a profile needs them. */
+    uintptr_t end = text_base + text_size;
+    int seen = 0;
+    if ((!match && !mask) || (match == BLR_MATCH && mask == BLR_MASK)) {
+        for (uintptr_t pc = ref; pc < end; ++pc) {
+            const uint8_t *p = (const uint8_t *)pc;
+            if (p[0] == 0xe8 || (pc + 1 < end && p[0] == 0xff &&
+                                 (p[1] & 0x38) == 0x10)) {
+                if (++seen == nth) return pc;
+            }
+        }
+        return 0;
+    }
+    (void)match; (void)mask; (void)nth;
+    return 0;
+#else
     uintptr_t end = text_base + text_size;
     int seen = 0;
     for (uintptr_t pc = ref; pc + 4 <= end; pc += 4) {
@@ -124,6 +221,7 @@ static uintptr_t nth_insn_after(uintptr_t text_base, size_t text_size,
         }
     }
     return 0;
+#endif
 }
 
 uintptr_t sx_anchor_resolve(const struct mach_header_64 *mh, intptr_t slide,
@@ -153,7 +251,7 @@ uintptr_t sx_anchor_resolve(const struct mach_header_64 *mh, intptr_t slide,
         uintptr_t at = anchor->va + (uintptr_t)slide;
         uintptr_t ptr = *(const uintptr_t *)at;
         if (ptr < text_base || ptr >= text_base + text_size) return 0;
-        return sx_is_arm64_prologue(ptr) ? ptr : 0;
+        return sx_is_function_prologue(ptr) ? ptr : 0;
     }
     case SX_ANCHOR_NTH_REF: {
         uintptr_t vas[16];

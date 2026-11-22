@@ -65,9 +65,8 @@ GENERATED_DIR := $(OUT_DIR)/generated
 RUN_SCRIPT_H  := $(GENERATED_DIR)/compat_run.h
 CFLAGS += -I$(GENERATED_DIR)
 
-ARM64_DYLIB := $(OUT_DIR)/notproton.arm64.dylib
-X86_STUB    := $(OUT_DIR)/notproton.x86_64.dylib
 TARGET      := $(OUT_DIR)/notproton.dylib
+ROOT_DIR    := $(abspath ../..)
 
 OBJS := $(patsubst %.c,$(OUT_DIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
@@ -82,9 +81,20 @@ DEPS := $(OBJS:.o=.d)
 
 APP_PAYLOAD := app/Sources/NotProtonApp/Resources/payload
 
-all: $(TARGET) $(APP_PAYLOAD)
+all: native-dylib $(APP_PAYLOAD)
 
-dylib: $(TARGET)
+dylib: native-dylib
+
+# The maintained integration build is the single source of truth for the
+# universal dylib.  It compiles the complete resolver/hooks once per
+# architecture and lipo-merges the two real slices.  Keep this Makefile entry
+# as a delegating compatibility target so an old `make dylib` invocation cannot
+# silently recreate the retired Intel no-op slice.
+.PHONY: native-dylib
+native-dylib:
+	python3 "$(ROOT_DIR)/script/build_native_integration.py"
+	@mkdir -p "$(OUT_DIR)"
+	cp -f "$(ROOT_DIR)/work/native-integration/notproton.dylib" "$(TARGET)"
 
 # SwiftPM's `.copy("Resources/payload")` in Package.swift needs this directory
 # to exist
@@ -518,21 +528,6 @@ ntdll-resolve:
 		echo "==> ntdll-resolve: $(CX_ROOT) not present, skipped (set CX_ROOT)"; exit 0; fi; \
 	python3 ntdll-patch/resolve.py "$(CX_ROOT)"
 
-$(ARM64_DYLIB): $(OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(LDFLAGS) -o $@ $^ $(DOBBY_LIBS) $(FRAMEWORKS) -lc++
-
-$(X86_STUB): dylib/stub_x86_64.c
-	@mkdir -p $(dir $@)
-	$(CC) -arch x86_64 -mmacosx-version-min=$(MIN_VER) $(AVAIL) \
-		-dynamiclib -install_name @rpath/notproton.dylib \
-		-o $@ $<
-
-$(TARGET): $(ARM64_DYLIB) $(X86_STUB)
-	lipo -create $^ -output $@
-	codesign -fs - $@
-	@echo "==> Built: $@"
-
 $(OUT_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -656,14 +651,18 @@ STEAM_APP    ?= $$(p=$$(defaults read com.notproton.NotProton steamAppPath 2>/de
 DEPLOY_DST    = $(STEAM_APP)/Contents/MacOS/notproton.dylib
 INSTALL_DST  := $(SUPPORT_DIR)/notproton.dylib
 
-dylib-install: $(TARGET)
+dylib-install: native-dylib
 	$(call install_atomically,$(TARGET),$(INSTALL_DST))
 	@echo "==> Installed: $(INSTALL_DST)"
 
 sigdb-install:
-	@mkdir -p "$(SUPPORT_DIR)/signatures/macos.arm64"
-	cp -f signatures/macos.arm64/*.json "$(SUPPORT_DIR)/signatures/macos.arm64/"
-	@echo "==> Installed: $(SUPPORT_DIR)/signatures/macos.arm64"
+	@for arch in arm64 x86_64; do \
+		if [ -d "signatures/macos.$$arch" ]; then \
+			mkdir -p "$(SUPPORT_DIR)/signatures/macos.$$arch"; \
+			cp -f signatures/macos.$$arch/*.json "$(SUPPORT_DIR)/signatures/macos.$$arch/"; \
+			echo "==> Installed: $(SUPPORT_DIR)/signatures/macos.$$arch"; \
+		fi; \
+	done
 
 LAUNCHABLE_BUNDLES := $(HOME)/Desktop/NotProton.app /Applications/NotProton.app
 

@@ -1,6 +1,7 @@
 #include "pins.h"
 #include "../AppSupportDirectory.h"
 #include "../SteamIntegration/steam_profiles.h"
+#include "../Common/native_arch.h"
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <dlfcn.h>
@@ -36,7 +37,7 @@ void status(const std::string& value){
     }catch(...){}
 }
 bool hook(void* state,void* root,const char* branch){
-    // Verified ARM64 depot selection: depot at +0, manifest gid at +8, disk size at +16.
+    // Profile-verified depot selection: depot at +0, manifest gid at +8, disk size at +16.
     // Public branch only: encrypted/private beta selections keep Steam's original behavior.
     bool result=runtime().original(state,root,branch);
     if(!state || !branch || std::strcmp(branch,"public"))return result;
@@ -53,7 +54,7 @@ uintptr_t FluentPins::FindClient(){
     for(uint32_t i=0;i<_dyld_image_count();++i){
         const char* name=_dyld_get_image_name(i);if(!name || !std::string_view(name).ends_with("/steamclient.dylib"))continue;
         auto h=reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(i));
-        if(h->magic!=MH_MAGIC_64 || h->cputype!=CPU_TYPE_ARM64)return 0;
+        if(h->magic!=MH_MAGIC_64 || h->cputype!=FLUENT_CPU_TYPE)return 0;
         return reinterpret_cast<uintptr_t>(h);
     }return 0;
 }

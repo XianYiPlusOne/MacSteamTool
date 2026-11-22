@@ -5,7 +5,7 @@
 
 # Managed one-click setup
 
-Implemented and tested on Apple Silicon, 2026-11-11–12.
+Implemented and tested with universal arm64/x86_64 native payloads, 2026-11-11–23.
 
 ## Product flow
 
@@ -28,7 +28,7 @@ a graceful quit; games/Steam may delay it. Errors are latched instead of generat
 repeated installs/prompts. Diagnostics and backup recovery are under an advanced
 disclosure. Source and binary provenance remain in `PROVENANCE.md`.
 
-Requires Apple Silicon and macOS 15+. Rosetta installation requires an explicit
+Requires macOS 15+ for automatic setup. Rosetta installation requires an explicit
 license checkbox and, when requested by macOS, administrator authentication.
 Steam must be closed during deployment. On first launch Steam updates itself
 and the user signs in. An unknown/uninitialized Steam build is recorded as
@@ -77,8 +77,11 @@ corrupt embedded payload and absence of a default compatibility mapping.
 Evidence: `work/internal-core-tests.log` (208 core tests + 26 app tests passed).
 `script/verify_bundled_cores.py` checks the final signed package: macSteam has
 5 native resource files and NotProton has 10, with complete matching inventories.
-Both x86_64 bootstrap and ARM64 extension loading probes passed; see
-`work/internal-bootstrap-extensions.log`.
+Both x86_64 and arm64 production extension loading probes passed; see
+`work/internal-bootstrap-extensions.log`. The Intel slices are compiled from
+the maintained implementations, not bootstrap no-op stubs. Steam-specific
+profile resolution remains fail-closed until reviewed Intel profile data is
+added.
 
 The live fresh-machine trial was stopped when the user clarified the architecture.
 It had downloaded native Steam and components but had not reached Steam login or

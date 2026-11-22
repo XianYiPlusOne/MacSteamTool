@@ -1,4 +1,4 @@
-CloudRedirect macOS ARM64 port
+CloudRedirect macOS native port
 
 Upstream: https://github.com/huanyuejue/CloudRedirect
 Revision: f5d122ddf18fbf5d0bacb8e914c665e965b15940
@@ -10,13 +10,13 @@ The current macOS product uses this library for runtime integration and statisti
 The macOS port omits the upstream Google Drive and OneDrive providers and their OAuth credentials. Older configurations selecting either provider use local statistics. Folder, WebDAV, S3 and R2 remain supported.
 
 Native runtime additions (2026-11-05)
-- ARM64 Steam builds 1792618285 and 1794424036. Reviewed UUIDs, exact entry guards and layouts are shared in `../SteamIntegration/profiles.json`; see `../SteamIntegration/PROFILE-NOTES.md`. Each detour requires the selected image identity and exact code bytes.
+- Reviewed arm64 Steam builds 1792618285 and 1794424036. The library is built for both arm64 and x86_64, but each detour still requires a reviewed profile for the selected image identity and exact code bytes; no Intel profile is shipped yet.
 - CCMInterface send 0x693cf8; CProtoBufMsg EMsg +40, header +48, body +56. Typed MessageLite factories and serializers remain Steam's own.
 - CUser playtime writer 0xa7d1b0; repeated protobuf games count +24, rep +32, element array rep+8. Calls only from the Steam callback/send thread; shutdown drops pending UI work.
 - CUser encrypted ticket getter 0xa762c4; job run 0xa84d20; original job completion 0x603068. Does not fabricate API call IDs or change ticket contents.
 - macSteam 0.8.2's exported sx_ticket_serve_extended is wrapped, leaving its existing IPC detour intact. The interface's GetSteamID slot 10 is used for ownership-ticket account checks. Internal CUser identity +0x242 is checked for encrypted tickets/jobs. Imported tickets for other accounts pass through.
 - The maintained Dobby source is pinned at 5dfc8546954ce3b3198132ab13fddb89ee92cdd7 (Apache-2.0); its public symbols are hidden from this dylib to avoid competing with macSteam's copy.
-- Packet field references: https://github.com/OpenSteam001/OpenSteamTool/tree/main/src/proto and https://github.com/SteamRE/SteamKit/blob/master/SteamKit2/SteamKit2/Base/Generated/SteamLanguage.cs . Newly written ARM64 adapters are independent code; no Windows hook code is copied.
+- Packet field references: https://github.com/OpenSteam001/OpenSteamTool/tree/main/src/proto and https://github.com/SteamRE/SteamKit/blob/master/SteamKit2/SteamKit2/Base/Generated/SteamLanguage.cs . Newly written adapters are independent code; no Windows hook code is copied.
 
 Verification: script/test_runtime_native.py uses installed native Steam/macSteam libraries in a separate process, a disconnected synthetic CM, copied Spacewar statistics, and an isolated folder provider. The optional --tickets path reads a locally extracted Spacewar ticket response without printing it. Ticket buffers are compared byte-for-byte. The real playtime writer is exercised with collectors at CUser service boundaries. This is an ABI/logic integration test, not a claim that a live Steam process or friend's client has been verified.
 
@@ -24,7 +24,7 @@ Live verification on the same build: the extension was deployed with complete St
 
 Reset handling: explicit StoreUserStats masks carry a persistent reset revision, merge independently of playtime, and reject older native/client-cloud unlock snapshots. Process IDs in GamesPlayed identify the Wine runner for Windows time; a native helper's earlier registration does not restart the timer. Protocol field definitions also checked against https://github.com/SteamDatabase/Protobufs/blob/master/steam/steammessages_clientserver.proto and steammessages_clientserver_userstats.proto.
 
-Compatibility presence (0.2.6): independently implements shortcut-first / Spacewar fallback and most-recent-game selection after reviewing huanyuejue/OpenSteamTool revision de8189572db4495ec9d0d4d14ece1d2fc4703445, Hooks_NetPacket.cpp1095–1117. The bounded binary-KV reader and ARM64 typed-message adapter are newly written. No Windows hook implementation, blanket family owner mask or manufactured self-PersonaState packet is included. Current-account registered shortcuts only; local language requirement retained. Native isolated tests cover both branches without network sends; live friend visibility is recorded separately.
+Compatibility presence (0.2.6): independently implements shortcut-first / Spacewar fallback and most-recent-game selection after reviewing huanyuejue/OpenSteamTool revision de8189572db4495ec9d0d4d14ece1d2fc4703445, Hooks_NetPacket.cpp1095–1117. The bounded binary-KV reader and typed-message adapter are newly written. No Windows hook implementation, blanket family owner mask or manufactured self-PersonaState packet is included. Current-account registered shortcuts only; local language requirement retained. Native isolated tests cover both branches without network sends; live friend visibility is recorded separately.
 
 
 Multiplayer migration (2026-11-11): removed the optional onlinefix launch/identity hooks and profile. Multiplayer now uses the native embedded ConnectTool page and a source-built windowless networking service; ordinary game presence remains unchanged.

@@ -14,19 +14,24 @@ def run(*args, **kwargs):
     subprocess.run([str(a) for a in args], check=True, **kwargs)
 
 def build():
-    dobby = ROOT / "work/pins-build/dobby/libdobby.a"
-    if not dobby.is_file():
+    dobby_arm = ROOT / "work/pins-build/arm64/dobby/libdobby.a"
+    dobby_x86 = ROOT / "work/pins-build/x86_64/dobby/libdobby.a"
+    if not dobby_arm.is_file() or not dobby_x86.is_file():
         run("bash", ROOT / "script/build_pins.sh")
-    run("cmake", "-S", ROOT / "Native/SteamIntegration", "-B", OUT / "arm64",
-        "-DCMAKE_BUILD_TYPE=Release", f"-DDOBBY_LIBRARY={dobby}")
-    run("cmake", "--build", OUT / "arm64", "-j", "6")
-    for name, source in [("macsteam", ROOT / "Native/MacSteam/src"), ("notproton", NP / "dylib")]:
-        stub = OUT / f"{name}.x86_64.dylib"
-        run("clang", "-arch", "x86_64", "-mmacosx-version-min=15.0", "-dynamiclib",
-            "-install_name", f"@rpath/{name}.dylib", source / "stub_x86_64.c", "-o", stub)
-        run("lipo", "-create", OUT / "arm64" / f"{name}.dylib", stub, "-output", OUT / f"{name}.dylib")
+    for arch, dobby in [("arm64", dobby_arm), ("x86_64", dobby_x86)]:
+        run("cmake", "-S", ROOT / "Native/SteamIntegration", "-B", OUT / arch,
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DCMAKE_OSX_ARCHITECTURES={arch}",
+            f"-DDOBBY_LIBRARY={dobby}",
+            f"-DDOBBY_SOURCE={ROOT / 'work/dobby'}")
+        run("cmake", "--build", OUT / arch, "-j", "6")
+
+    for name in ["macsteam", "notproton"]:
+        run("lipo", "-create", OUT / "arm64" / f"{name}.dylib",
+            OUT / "x86_64" / f"{name}.dylib", "-output", OUT / f"{name}.dylib")
         run("codesign", "--force", "--sign", "-", OUT / f"{name}.dylib")
-    validate_macsteam(OUT / "macsteam.dylib")
+    validate_macsteam(OUT / "macsteam.dylib", "arm64")
+    validate_macsteam(OUT / "macsteam.dylib", "x86_64")
     run("make", "-C", NP, "-j6", "overlay-shim", "iconmaker", "appinfo", f"OUT_DIR={OUT}/helpers")
     for name in ["iconmaker", "appinfo"]:
         run("codesign", "--force", "--sign", "-", OUT / "helpers" / name)

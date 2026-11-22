@@ -5,8 +5,6 @@
 #include <stdlib.h>
 
 extern int DobbyHook(void *address, void *replace_call, void **origin_call);
-typedef void (*sx_instrument_cb_t)(void *address, void *ctx);
-extern int DobbyInstrument(void *address, sx_instrument_cb_t pre_handler);
 
 static int name_in_env_list(const char *env, const char *name) {
     const char *dis = getenv(env);
@@ -93,9 +91,21 @@ int sx_hooks_install_all(sx_resolve_result_t *resolved, int *total_out) {
                 continue;
             }
 
+#if defined(__x86_64__)
+            if (hk->kind == SX_HOOK_INSTRUMENT) {
+                /* The callback is tied to an ARM64 instruction-level register
+                 * layout.  A normal x86 hook is safe, but installing this
+                 * callback without an x86 profile would corrupt Steam's
+                 * registers, so leave the feature off until its x86 site is
+                 * reviewed. */
+                SX_WARN("[%s] %s: instrument hook has no reviewed x86 ABI, skipped", mod->module_name, hk->name);
+                continue;
+            }
+#endif
+
             int ret;
             if (hk->kind == SX_HOOK_INSTRUMENT)
-                ret = DobbyInstrument((void *)addr, (sx_instrument_cb_t)hk->hook_fn);
+                ret = DobbyInstrument((void *)addr, (dobby_instrument_callback_t)hk->hook_fn);
             else
                 ret = DobbyHook((void *)addr, hk->hook_fn, hk->orig_fn);
 

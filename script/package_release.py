@@ -27,9 +27,9 @@ try:
     fcntl.flock(lock, fcntl.LOCK_EX)
     with tempfile.TemporaryDirectory(prefix=".release-", dir=out) as directory:
         staging = Path(directory)
-        app_zip = staging / f"MacSteamTool-{version}-arm64.zip"
+        app_zip = staging / f"MacSteamTool-{version}-universal.zip"
         subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(app_zip)], check=True)
-        app_dmg = staging / f"MacSteamTool-{version}-arm64.dmg"
+        app_dmg = staging / f"MacSteamTool-{version}-universal.dmg"
         volume = staging / "volume"
         volume.mkdir()
         staged_app = volume / app.name
@@ -57,7 +57,7 @@ try:
         if key.is_file():
             parser = argparse.ArgumentParser(); parser.add_argument("--download-url", default=""); args = parser.parse_args()
             payload = root / "work/update-signing/release-payload.json"
-            payload.write_text(json.dumps({"version": version, "build": build, "minimumOS": 14, "architecture": "arm64", "url": args.download_url, "sha256": hashlib.sha256(app_zip.read_bytes()).hexdigest(), "size": app_zip.stat().st_size, "notes": "The guide installs the official Valve client and automatically advances to the Wine or CrossOver choice. Local build; not notarized."}, separators=(",", ":")))
+            payload.write_text(json.dumps({"version": version, "build": build, "minimumOS": 14, "architecture": "universal", "url": args.download_url, "sha256": hashlib.sha256(app_zip.read_bytes()).hexdigest(), "size": app_zip.stat().st_size, "notes": "Universal arm64/x86_64 build; local build; not notarized."}, separators=(",", ":")))
             subprocess.run(["swift", str(root / "script/sign_update.swift"), "sign", str(key), str(payload), str(staging / "release.json")], check=True)
             publish.append(staging / "release.json")
             print("release.json: signed; empty URL means local import only")

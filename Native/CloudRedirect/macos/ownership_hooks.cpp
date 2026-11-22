@@ -1,6 +1,7 @@
 #include "ownership_hooks.h"
 #include "runtime_profile.h"
 #include "log.h"
+#include "../../Common/native_arch.h"
 #include <atomic>
 #include <array>
 #include <cstring>
@@ -67,7 +68,7 @@ int normalize(uint32_t app, int nativeResult, void* info, uint32_t helperOwner) 
 
 bool matchingMacSteam(uintptr_t base) {
     auto h = reinterpret_cast<const mach_header_64*>(base);
-    if (!h || h->magic != MH_MAGIC_64 || h->cputype != CPU_TYPE_ARM64 || h->sizeofcmds > 1024*1024) return false;
+    if (!h || h->magic != MH_MAGIC_64 || h->cputype != FLUENT_CPU_TYPE || h->sizeofcmds > 1024*1024) return false;
     const unsigned char expected[] = {0x35,0x77,0x42,0x6a,0x84,0x37,0x35,0x1b,0x92,0x70,0x0b,0x29,0x32,0x69,0x74,0xdc};
     auto p = reinterpret_cast<const unsigned char*>(h+1), end = p+h->sizeofcmds;
     for (unsigned i=0;i<h->ncmds && p+sizeof(load_command)<=end;i++) {

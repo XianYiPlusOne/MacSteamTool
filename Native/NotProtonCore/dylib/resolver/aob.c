@@ -2,6 +2,7 @@
 // the anchors resolved to.
 
 #include "aob.h"
+#include "../core/arch.h"
 #include "../util/log.h"
 #include "../util/hex.h"
 
@@ -96,8 +97,7 @@ uintptr_t np_scan_sole_match(uintptr_t base, size_t size,
     uintptr_t found = 0;
     int hits = 0;
 
-    // Step by 4 (ARM64).
-    for (size_t pos = 0; pos <= limit; pos += 4) {
+    for (size_t pos = 0; pos <= limit; pos += NP_SCAN_ALIGNMENT) {
         if (region[pos + anchor_off] != anchor) continue;
         if (!matches_at(region + pos, pat)) continue;
         if (++hits > 1) return 0;

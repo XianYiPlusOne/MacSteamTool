@@ -149,11 +149,13 @@ static int hook_worker(void *job) {
     return ret;
 }
 
-typedef struct { uint64_t _d0, sp, _d1; struct { uint64_t x[29]; } general; } sx_arm64_ctx_t;
-
 static void instrument_worker_resp(void *address, void *ctx_) {
     (void)address;
-    sx_arm64_ctx_t *ctx = (sx_arm64_ctx_t *)ctx_;
+#if defined(__x86_64__)
+    (void)ctx_;
+    return;
+#else
+    DobbyRegisterContext *ctx = (DobbyRegisterContext *)ctx_;
     uintptr_t job = (uintptr_t)ctx->general.x[19];
     if (!job) return;
 
@@ -165,6 +167,7 @@ static void instrument_worker_resp(void *address, void *ctx_) {
     uint32_t *count = (uint32_t *)(ctx->sp + WORKER_RESP_COUNT_SP_OFF);
     SX_LOG("[stats] app %d: cleared %u owner stat(s) from reply", appId, *count);
     *count = 0;
+#endif
 }
 
 static sx_hook_def_t g_hooks[] = {

@@ -56,9 +56,6 @@ public enum OneClickSetup {
     public static func prepare(paths: AppPaths, options: SetupOptions, application: URL,
                                progress: @escaping @Sendable (String) async -> Void = { _ in }) async throws -> Prepared {
         guard #available(macOS 15, *) else { throw AppFailure("自动准备需要 macOS 15 或更新版本 / Setup requires macOS 15 or newer") }
-        #if !arch(arm64)
-        throw AppFailure("当前安装轨道仅支持 Apple 芯片 / This setup track requires Apple silicon")
-        #endif
         guard !application.pathComponents.contains("AppTranslocation"),
               (try? application.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) != true else {
             throw AppFailure("请先将 MacSteamTool 移到本机应用程序目录，以完成自动准备 / Move MacSteamTool to Applications to finish preparation")
@@ -82,8 +79,8 @@ public enum OneClickSetup {
             await progress("准备内置 \(provider) / Preparing bundled \(provider)…")
             let component = try await ManagedRuntimeComponents.prepare(provider: provider, paths: p, localApplication: provider == "macsteam" ? options.macSteamSource : options.notProtonSource, application: application)
             if provider == "macsteam" {
-                if !status.build.isEmpty, !FileStore.fm.fileExists(atPath: component.resources.appendingPathComponent("signatures/macos.arm64/\(status.build).json").path) {
-                    throw AppFailure("当前安装轨道尚未支持 Steam build \(status.build)，未修改内核 / This setup track does not support this Steam build; kernels unchanged")
+                if !status.build.isEmpty, !FileStore.fm.fileExists(atPath: component.resources.appendingPathComponent("\(AppUpdates.nativeSignatureDirectory)/\(status.build).json").path) {
+                    throw AppFailure("当前 \(AppUpdates.architecture) 安装轨道尚未支持 Steam build \(status.build)，未修改内核 / This \(AppUpdates.architecture) setup track does not support Steam build \(status.build); kernels unchanged")
                 }
                 result.macSteam = component
             } else { result.notProton = component }

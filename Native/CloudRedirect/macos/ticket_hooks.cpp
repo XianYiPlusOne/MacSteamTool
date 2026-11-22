@@ -1,4 +1,5 @@
 #include "ticket_hooks.h"
+#include "../../Common/native_arch.h"
 #include "runtime_settings.h"
 #include "runtime_profile.h"
 #include "cloud_intercept.h"
@@ -71,7 +72,7 @@ bool Install(uintptr_t b,size_t size){
     if(DobbyHook(target,(void*)&extended,(void**)&extendedOriginal))return false;
     if(DobbyHook((void*)(b+RuntimeProfile::getETicket(b)),(void*)&encrypted,(void**)&encryptedOriginal)){DobbyDestroy(target);return false;}
     if(DobbyHook((void*)(b+RuntimeProfile::ticketJob(b)),(void*)&job,(void**)&jobOriginal)){DobbyDestroy((void*)(b+RuntimeProfile::getETicket(b)));DobbyDestroy(target);return false;}
-    ownershipTarget=target;installed=true;LOG("[Tickets] ARM64 ownership, encrypted ticket, and async completion installed");return true;
+    ownershipTarget=target;installed=true;const std::string msg=std::string("[Tickets] ")+FLUENT_ARCH_NAME+" ownership, encrypted ticket, and async completion installed";LOG("%s",msg.c_str());return true;
 }
 bool Installed(){return installed.load();}
 void Remove(){if(!installed)return;DobbyDestroy((void*)(base+RuntimeProfile::ticketJob(base)));DobbyDestroy((void*)(base+RuntimeProfile::getETicket(base)));DobbyDestroy(ownershipTarget);installed=false;}

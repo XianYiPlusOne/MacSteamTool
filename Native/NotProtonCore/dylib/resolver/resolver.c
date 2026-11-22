@@ -3,6 +3,7 @@
 #include "resolver.h"
 #include "anchor.h"
 #include "aob.h"
+#include "../core/arch.h"
 #include "../core/macho.h"
 #include "../util/log.h"
 
@@ -10,6 +11,7 @@
 #include <string.h>
 
 // Prologue detection
+#if !defined(__x86_64__)
 static const struct { uint32_t mask, val; } prologue_forms[] = {
     { 0xFF0003FF, 0xD10003FF },  // SUB  SP, SP, #imm
     { 0xFFC07FFF, 0xA9007BFD },  // STP  x29, x30, [SP, #off]
@@ -19,15 +21,25 @@ static const struct { uint32_t mask, val; } prologue_forms[] = {
     { 0xFFC003E0, 0xA98003E0 },  // STP  Xt, Xt2, [SP, #off]!
     { 0xFFC003E0, 0xA90003E0 },  // STP  Xt, Xt2, [SP, #off]
 };
+#endif
 
 int np_looks_like_prologue(uintptr_t addr) {
     if (!addr) return 0;
+#if defined(__x86_64__)
+    const uint8_t *p = (const uint8_t *)addr;
+    if (p[0] == 0x55 && p[1] == 0x48 && p[2] == 0x89 && p[3] == 0xE5) return 1;
+    if (p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xEC) return 1;
+    if (p[0] == 0x48 && p[1] == 0x81 && p[2] == 0xEC) return 1;
+    if (p[0] == 0x41 && (p[1] & 0xF8) == 0x50) return 1;
+    return p[0] == 0x53 || p[0] == 0x56 || p[0] == 0x57;
+#else
     uint32_t w = *(const uint32_t *)addr;
     for (int i = 0; i < (int)(sizeof(prologue_forms) / sizeof(prologue_forms[0])); i++) {
         if ((w & prologue_forms[i].mask) == prologue_forms[i].val)
             return 1;
     }
     return 0;
+#endif
 }
 
 // Result accumulator
@@ -149,13 +161,11 @@ static uintptr_t try_anchor(np_sig_entry_t *sig,
     return addr;
 }
 
-// arm64 instructions are 4-byte aligned, so a misaligned or out-of-__TEXT
-// address cannot be a hook site.
 static int usable_code_address(const char *name, uintptr_t addr,
                                uintptr_t text, size_t text_sz) {
-    if (addr & 3u) {
-        NP_WARN("resolver: '%s' resolved to 0x%lx, not a 4-byte aligned "
-                "instruction address; rejecting", name, (unsigned long)addr);
+    if (NP_SCAN_ALIGNMENT > 1u && (addr % NP_SCAN_ALIGNMENT) != 0) {
+        NP_WARN("resolver: '%s' resolved to 0x%lx, not an aligned instruction "
+                "address; rejecting", name, (unsigned long)addr);
         return 0;
     }
     if (addr < text || addr > text + text_sz - sizeof(uint32_t)) {

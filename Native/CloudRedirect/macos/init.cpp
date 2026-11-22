@@ -7,11 +7,13 @@
 #include "steam_profile.h"
 #include "runtime_settings.h"
 #include "manifest_provider.h"
+#include "../../Common/native_arch.h"
 #include <unistd.h>
 #include <cstring>
 #include <thread>
 #include <filesystem>
 #include <atomic>
+#include <string>
 static VtableHook::VtableInfo hooks{};
 static std::atomic<bool> active{false};
 extern "C" const char* CR_GetVersion() { return "mac-port-0.1"; }
@@ -39,7 +41,7 @@ extern "C" int FluentCloudInstallHooks() {
     RuntimeSettings::Start();
     CloudHooks::InstallGamesPlayedObserver(base,size);
     ManifestProvider::Install();
-    active=true;std::atexit(&FluentCloudRemoveHooks);Log::Info("macOS ARM64 runtime extension initialized");return 1;
+    active=true;std::atexit(&FluentCloudRemoveHooks);const std::string msg=std::string("macOS ")+FLUENT_ARCH_NAME+" runtime extension initialized";Log::Info("%s",msg.c_str());return 1;
 }
 __attribute__((constructor)) static void Start() {
     const char* process=getprogname();

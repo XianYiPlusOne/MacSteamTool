@@ -10,8 +10,6 @@
 #include <string.h>
 
 extern int DobbyHook(void *address, void *replace_call, void **origin_call);
-typedef void (*np_prehook_fn)(void *address, void *ctx);
-extern int DobbyInstrument(void *address, np_prehook_fn pre_handler);
 
 int np_hooks_env_lists_label(const char *var, const char *label) {
     const char *list = getenv(var);
@@ -77,8 +75,18 @@ static int np_apply_entry(np_resolve_result_t *resolved, const char *group,
         return 0;
     }
 
+#if defined(__x86_64__)
+    if (e->mode == NP_PATCH_PREHOOK) {
+        /* These callbacks rewrite architecture-specific registers at a
+         * reviewed ARM64 instruction.  Do not install them on Intel until an
+         * x86 profile supplies the equivalent register mapping. */
+        NP_WARN("[%s] %s: prehook has no reviewed x86 ABI, skipped", group, e->label);
+        return 0;
+    }
+#endif
+
     int prehook = (e->mode == NP_PATCH_PREHOOK);
-    int rc = prehook ? DobbyInstrument((void *)addr, (np_prehook_fn)e->entry)
+    int rc = prehook ? DobbyInstrument((void *)addr, (dobby_instrument_callback_t)e->entry)
                      : DobbyHook((void *)addr, e->entry, e->trampoline);
     if (rc == 0) {
         NP_LOG("[%s] %s: %s @ %p", group, e->label,

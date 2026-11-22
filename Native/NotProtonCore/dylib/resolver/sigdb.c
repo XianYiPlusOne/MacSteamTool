@@ -1,6 +1,7 @@
 // Signature database loader
 
 #include "sigdb.h"
+#include "../core/arch.h"
 #include "../util/log.h"
 #include "../util/file.h"
 #include "../../vendor/cJSON.h"
@@ -227,6 +228,7 @@ int np_load_profile(const char *path, np_sigdb_t *out) {
     if ((v = cJSON_GetObjectItem(root, "profile_version")))
         out->sigdb_version = v->valueint;
     out->steam_build = build_field(root, "steam_build");
+    str_field(root, "arch", out->arch, sizeof(out->arch));
     str_field(root, "steam_build_date", out->steam_build_date, sizeof(out->steam_build_date));
 
     cJSON *arr = cJSON_GetObjectItem(root, "signatures");

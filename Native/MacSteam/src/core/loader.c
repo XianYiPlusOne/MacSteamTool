@@ -6,6 +6,7 @@
 #include "../resolver/resolver.h"
 #include "../resolver/sigdb.h"
 #include "../core/macho.h"
+#include "../core/arch.h"
 #include "../core/reconcile.h"
 #include "../core/hot_refresh.h"
 #include "../hooks/hooks.h"
@@ -133,7 +134,7 @@ get_sigdb_path(char *buf, size_t buf_size, const void *mh) {
     if (!home) home = "/tmp";
 
     char dir[512];
-    sx_macsteam_support_path(dir, sizeof(dir), home, "signatures/macos.arm64");
+    sx_macsteam_support_path(dir, sizeof(dir), home, SX_SIGNATURE_DIR);
 
     if (newest_sigdb_in_dir(dir, buf, buf_size, mh) == 0)
         return;

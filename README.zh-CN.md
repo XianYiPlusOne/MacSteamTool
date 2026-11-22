@@ -8,7 +8,7 @@
 
 <p align="center">
   在 Mac 上搜索游戏并加入 Steam 游戏库，用 Wine 或 CrossOver 运行兼容的 Windows 游戏，也可以通过 Steam 与好友组建联机房间。<br>
-  <sub>Apple Silicon · SwiftUI · AGPL-3.0</sub>
+  <sub>通用 arm64/x86_64 · SwiftUI · AGPL-3.0</sub>
 </p>
 
 > [!IMPORTANT]
@@ -42,7 +42,7 @@
 - **需要 Wine**　选择「安装 Wine」后会联网下载运行器和图形组件。
 - **先看看游戏库**　选择「仅管理本机游戏」可跳过运行器配置。之后仍可从侧栏打开「搜索入库」「清单管理」或「运行环境」。
 
-当前构建面向 **Apple Silicon**。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
+应用和原生库现在均以 **通用 arm64/x86_64** 构建。Steam 接入按架构 fail-closed：只有存在经过审查的 `macos.x86_64` Steam profile 时才会修改 Intel 客户端；缺少 profile 时会保持客户端不变。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
 
 ## 开源鸣谢
 

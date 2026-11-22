@@ -26,6 +26,7 @@ typedef struct {
     int             schema_version;
     int             sigdb_version;
     uint64_t        steam_build;
+    char            arch[16];
     char            steam_build_date[32];
 } np_sigdb_t;
 

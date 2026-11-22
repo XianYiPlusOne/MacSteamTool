@@ -6,6 +6,7 @@
 void sx_hooks_stats_set_layout(uintptr_t owner, uintptr_t game);
 #include <stddef.h>
 #include "../resolver/resolver.h"
+#include <dobby.h>
 
 enum {
     SX_HOOK_INLINE = 0,

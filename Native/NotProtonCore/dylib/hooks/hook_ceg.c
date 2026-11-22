@@ -39,9 +39,14 @@ void np_hooks_ceg_service_installed(void) {
 
 static void instrument_RequestCustomBinary(void *address, void *ctx_) {
     (void)address;
-    np_arm64_ctx_t *ctx = (np_arm64_ctx_t *)ctx_;
+#if defined(__x86_64__)
+    (void)ctx_;
+    return;
+#else
+    np_dobby_ctx_t *ctx = (np_dobby_ctx_t *)ctx_;
     uint32_t appid = (uint32_t)ctx->general.x[1];
     np_ceg_note_tool(appid, np_compat_app_tool_dir(appid));
+#endif
 }
 
 // macOS Steam's ExtractGUIDsFromFile is a stub
@@ -91,11 +96,16 @@ static void hook_ExtractGUIDs(uint8_t *job) {
 // CDRM::OnDRMDownloadJobFinish(this, path, appid, result), which macOS Steam doesn't log.
 static void instrument_DRMJobFinish(void *address, void *ctx_) {
     (void)address;
-    np_arm64_ctx_t *ctx = (np_arm64_ctx_t *)ctx_;
+#if defined(__x86_64__)
+    (void)ctx_;
+    return;
+#else
+    np_dobby_ctx_t *ctx = (np_dobby_ctx_t *)ctx_;
     uint64_t path = ctx->general.x[1];
     NP_LOG("[ceg] appID %u: CEG job finished with result %u (%s)",
            (uint32_t)ctx->general.x[2], (uint32_t)ctx->general.x[3],
            np_plausible_addr(path) ? (const char *)path : "<no path>");
+#endif
 }
 
 // CWorkItemFunctionCall fields

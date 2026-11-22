@@ -8,7 +8,7 @@
 
 <p align="center">
   Find games and add them to your Steam library on Mac, run compatible Windows games with Wine or CrossOver, and host multiplayer rooms for friends over Steam.<br>
-  <sub>Apple Silicon · SwiftUI · AGPL-3.0</sub>
+  <sub>Universal arm64/x86_64 · SwiftUI · AGPL-3.0</sub>
 </p>
 
 > [!IMPORTANT]
@@ -42,7 +42,7 @@ The **Getting started** guide checks whether Steam is installed. If needed, you 
 - **Need Wine?** Select **Install Wine** to download the runtime and graphics components.
 - **Want to explore first?** Select **Manage local games only** to skip runner setup. You can still open **Discover**, **Manifests**, or **Runtime** from the sidebar later.
 
-The current build targets **Apple Silicon**. The app runs on **macOS 14 or later**. Automatic setup requires **macOS 15 or later**. Some Steam integration features modify the local client and affect ownership checks for games and DLC.
+The application and native libraries are built as **universal arm64/x86_64** binaries. Steam integration is fail-closed per architecture: an Intel client is only modified when a reviewed `macos.x86_64` Steam profile is present; without one, the app leaves the client untouched. The app runs on **macOS 14 or later**. Automatic setup requires **macOS 15 or later**. Some Steam integration features modify the local client and affect ownership checks for games and DLC.
 
 ## Open-source acknowledgments
 

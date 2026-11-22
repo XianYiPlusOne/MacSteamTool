@@ -32,7 +32,7 @@ int main(int argc,char** argv){
     auto manifest=cache+"/621_"+std::to_string(gid)+".manifest";
     std::filesystem::copy_file(argv[2],manifest);
     std::ofstream(config)<<"Apps:\n  - 480\nFluentManifestPins:\n  480:\n    621: "<<gid<<"\n";
-    void* client=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);require(client,"load real ARM64 steamclient without Steam IPC");
+    void* client=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);require(client,"load real steamclient without Steam IPC");
     uintptr_t base=0;for(uint32_t i=0;i<_dyld_image_count();++i)if(std::string_view(_dyld_get_image_name(i)).ends_with("/steamclient.dylib"))base=reinterpret_cast<uintptr_t>(_dyld_get_image_header(i));
     require(base,"locate loaded client image");
     using Find=void*(*)(void*,const char*,uint8_t,void*);auto find=reinterpret_cast<Find>(base+RuntimeProfile::kvFindKey(base));
@@ -47,7 +47,7 @@ int main(int argc,char** argv){
     struct Depot {uint32_t id=621;uint32_t padding=0;uint64_t gid=0,size=0;} depot;
     using Read=bool(*)(void*,void*,const char*);auto read=reinterpret_cast<Read>(base+RuntimeProfile::readManifest(base));
     require(read(&depot,tree,"public") && depot.gid==111 && depot.size==222,"real depot helper ABI and native KV selection verified");
-    require(FluentPinsInstall()==1 && FluentPinsCount()==1,"production dylib installs guarded ARM64 detour and validates cache");
+    require(FluentPinsInstall()==1 && FluentPinsCount()==1,"production dylib installs guarded detour and validates cache");
     require(read(&depot,tree,"public") && depot.gid==gid && depot.size>222,"pinned gid and matching manifest disk size selected through real Steam function");
     require(read(&depot,tree,"beta") && depot.gid==333 && depot.size==444,"private/beta branch passes through unchanged");
     depot.id=622;require(read(&depot,tree,"public") && depot.gid==555 && depot.size==666,"unselected depot passes through unchanged");

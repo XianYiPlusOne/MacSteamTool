@@ -5,6 +5,7 @@
 #include "../resolver/resolver.h"
 #include "../resolver/sigdb.h"
 #include "../core/macho.h"
+#include "../core/arch.h"
 #include "../hooks/hooks.h"
 #include "../feats/ceg.h"
 #include "../feats/compat.h"
@@ -97,7 +98,7 @@ static void sigdb_path_for(char *buf, size_t buf_size) {
     }
 
     char dir[512];
-    np_support_path(dir, sizeof(dir), home, "signatures/macos.arm64");
+    np_support_path(dir, sizeof(dir), home, NP_SIGNATURE_DIR);
 
     if (pick_latest_sigdb(dir, buf, buf_size) == 0)
         return;
@@ -184,6 +185,13 @@ static void *install_thread(void *unused) {
 
     if (np_load_profile(sig_path, &sigdb) != 0) {
         NP_ERR("install_thread: cannot load signature database from %s", sig_path);
+        return NULL;
+    }
+
+    if (sigdb.arch[0] && strcmp(sigdb.arch, NP_ARCH_NAME) != 0) {
+        NP_ERR("install_thread: profile architecture '%s' does not match this %s slice; "
+               "refusing to install hooks", sigdb.arch, NP_ARCH_NAME);
+        np_free_profile(&sigdb);
         return NULL;
     }
 

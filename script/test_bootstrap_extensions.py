@@ -17,10 +17,6 @@ int main(int argc, char **argv) {
     for (int i = 1; i + 1 < argc; i += 2) {
         void *lib = dlopen(argv[i], RTLD_NOW | RTLD_LOCAL);
         if (!lib || !dlsym(lib, argv[i+1])) return 1;
-#if defined(__x86_64__)
-        const char *(*marker)(void) = dlsym(lib, "FluentBootstrapOnly");
-        if (!marker || strcmp(marker(), "x86_64-bootstrap-no-hooks")) return 2;
-#endif
     }
     return 0;
 }
@@ -32,6 +28,6 @@ int main(int argc, char **argv) {
         env["DYLD_INSERT_LIBRARIES"] = ":".join(str(p) for p, _ in libraries)
         args = [str(binary)]
         for library, symbol in libraries:
-            args += [str(library), "FluentBootstrapOnly" if arch == "x86_64" else symbol]
+            args += [str(library), symbol]
         subprocess.run(args, env=env, check=True, timeout=20)
-        print("PASS:", arch, "startup loads both extensions;", "no-op bootstrap slices" if arch == "x86_64" else "real ARM64 exports retained")
+        print("PASS:", arch, "startup loads both production extension slices")

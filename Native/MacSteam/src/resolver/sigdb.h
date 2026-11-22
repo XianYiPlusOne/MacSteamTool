@@ -22,6 +22,7 @@ typedef struct {
     int             schema_version;      // file format revision
     int             sigdb_version;       // signature-set revision for this Steam build
     uint64_t        steam_build;         // Steam client build id this profile targets
+    char            arch[16];
     char            steam_build_date[32];
     char            module_uuid[33];
     uintptr_t       engine_global, package_cache, stats_job_owner, stats_job_game;

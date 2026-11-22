@@ -58,30 +58,21 @@ SRCS := src/core/loader.c \
         vendor/cJSON.c
 
 OUT_DIR  := out
-ARM64_DYLIB := $(OUT_DIR)/macsteam.arm64.dylib
-X86_STUB    := $(OUT_DIR)/macsteam.x86_64.dylib
 TARGET      := $(OUT_DIR)/macsteam.dylib
+ROOT_DIR := $(abspath ../..)
 OBJS     := $(patsubst %.c,$(OUT_DIR)/%.o,$(SRCS))
 DEPS     := $(OBJS:.o=.d)
 
-.PHONY: all clean rebuild test probe
+.PHONY: all clean rebuild test probe native-dylib
 
-all: $(TARGET)
+all: native-dylib
 
-$(ARM64_DYLIB): $(OBJS) $(DOBBY_STAMP)
-	@mkdir -p $(dir $@)
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(DOBBY_LIBS) $(FRAMEWORKS) -lc++
-
-$(X86_STUB): src/stub_x86_64.c
-	@mkdir -p $(dir $@)
-	$(CC) -arch x86_64 -mmacosx-version-min=$(MIN_VER) \
-		-dynamiclib -install_name @rpath/macsteam.dylib \
-		-o $@ $<
-
-$(TARGET): $(ARM64_DYLIB) $(X86_STUB)
-	lipo -create $^ -output $@
-	codesign -fs - $@
-	@echo "==> Built: $@"
+# The maintained integration build compiles both complete architecture slices.
+# Keep this compatibility target from recreating the retired Intel stub path.
+native-dylib:
+	python3 "$(ROOT_DIR)/script/build_native_integration.py"
+	@mkdir -p "$(OUT_DIR)"
+	cp -f "$(ROOT_DIR)/work/native-integration/macsteam.dylib" "$(TARGET)"
 
 $(OUT_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

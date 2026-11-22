@@ -1,5 +1,6 @@
 // Signature database loader
 #include "sigdb.h"
+#include "../core/arch.h"
 #include "../util/log.h"
 #include "../util/file.h"
 #include "../../vendor/cJSON.h"
@@ -89,6 +90,7 @@ int sx_sigdb_load(const char *path, sx_sigdb_t *out) {
     if ((j = cJSON_GetObjectItem(root, "profile_version")))
         out->sigdb_version = j->valueint;
     out->steam_build = read_build_id(root, "steam_build");
+    json_copy_str(root, "arch", out->arch, sizeof(out->arch));
     json_copy_str(root, "steam_build_date", out->steam_build_date, sizeof(out->steam_build_date));
     json_copy_str(root, "module_uuid", out->module_uuid, sizeof(out->module_uuid));
     cJSON *layout = cJSON_GetObjectItem(root, "layout");
@@ -131,8 +133,9 @@ int sx_sigdb_load(const char *path, sx_sigdb_t *out) {
 
 int sx_sigdb_matches_image(const sx_sigdb_t *db, const void *image) {
     const struct mach_header_64 *h = image;
-    if (!h || h->magic != MH_MAGIC_64 || h->cputype != CPU_TYPE_ARM64 ||
+    if (!h || h->magic != MH_MAGIC_64 || h->cputype != SX_CPU_TYPE ||
         h->sizeofcmds > 1024*1024 || strlen(db->module_uuid) != 32) return 0;
+    if (db->arch[0] && strcmp(db->arch, SX_ARCH_NAME) != 0) return 0;
     const unsigned char *p = (const unsigned char *)(h + 1), *end = p + h->sizeofcmds;
     for (unsigned i = 0; i < h->ncmds && p + sizeof(struct load_command) <= end; ++i) {
         const struct load_command *c = (const void *)p;

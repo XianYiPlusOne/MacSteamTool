@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET="$1"
-STAGE="$(mktemp -d "$(dirname "$TARGET")/.bootstrap-slice.XXXXXX")"
-trap 'rm -rf "$STAGE"' EXIT
-ARCHES="$(lipo -archs "$TARGET")"
-if [[ "$ARCHES" == "arm64" ]]; then
-  cp "$TARGET" "$STAGE/arm64.dylib"
-else
-  lipo "$TARGET" -thin arm64 -output "$STAGE/arm64.dylib"
-fi
-clang -arch x86_64 -mmacosx-version-min=15.0 -dynamiclib \
-  -install_name "@loader_path/$(basename "$TARGET")" \
-  "$ROOT_DIR/Native/BootstrapSupport/noop.c" -o "$STAGE/x86_64.dylib"
-lipo -create "$STAGE/arm64.dylib" "$STAGE/x86_64.dylib" -output "$STAGE/universal.dylib"
-codesign --force --sign - "$STAGE/universal.dylib"
-mv "$STAGE/universal.dylib" "$TARGET"
+TARGET="${1:?usage: add_bootstrap_slice.sh TARGET}"
+
+# Kept as a compatibility entrypoint for old build recipes.  The previous
+# implementation manufactured an x86_64 no-op slice, which made a universal
+# file look compatible while Intel Steam received no hooks.  All supported
+# targets are now produced by their architecture-aware build scripts.
+case "$(basename "$TARGET")" in
+  cloud_redirect.dylib) SOURCE="$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" ;;
+  fluent_manifest.dylib|manifest.dylib) SOURCE="$ROOT_DIR/work/pins-build/fluent_manifest.dylib" ;;
+  macsteam.dylib|notproton.dylib) SOURCE="$ROOT_DIR/work/native-integration/$(basename "$TARGET")" ;;
+  *) echo "unsupported target; run the architecture-aware build script first" >&2; exit 2 ;;
+esac
+
+[[ -f "$SOURCE" ]] || { echo "missing universal source $SOURCE" >&2; exit 1; }
+for arch in arm64 x86_64; do lipo "$SOURCE" -verify_arch "$arch"; done
+mkdir -p "$(dirname "$TARGET")"
+cp "$SOURCE" "$TARGET"
+codesign --force --sign - "$TARGET"

@@ -1,4 +1,4 @@
-// Reverse-engineered steamclient struct layouts (arm64)
+// Reverse-engineered steamclient struct layouts for the selected macOS profile.
 #ifndef MACSTEAM_STEAM_TYPES_H
 #define MACSTEAM_STEAM_TYPES_H
 

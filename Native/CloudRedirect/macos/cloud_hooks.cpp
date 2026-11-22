@@ -29,7 +29,7 @@
 #include <chrono>
 #include <condition_variable>
 
-// Verified macOS ARM64 transport ABI (Steam build 1792618285).
+// Verified macOS transport ABI for the selected Steam profile.
 using BYieldingSend_t     = int(*)(void* pThis, const char* method, void* req, void* resp, int* flags);
 
 static std::atomic<BYieldingSend_t>      g_origBYieldingSend{nullptr};
@@ -75,7 +75,7 @@ public:
     }
 };
 
-// Verified Itanium C++ protobuf vtable layout on macOS ARM64:
+// Verified Itanium C++ protobuf vtable layout for the selected macOS profile:
 //   slot[5]  (+40): Clear()
 //   slot[9]  (+72): ByteSizeLong() -> int
 //   slot[10] (+80): GetCachedSize() -> int
@@ -103,7 +103,7 @@ bool CloudHooks::ResolveProtobufHelpers(void* steamclientBase, size_t steamclien
 static std::vector<uint8_t> SerializeMessage(void* msg) {
     if (!msg || !g_serializeToArray) return {};
 
-    // vtable[9] = ByteSizeLong (+72 on ARM64)
+    // vtable[9] = ByteSizeLong (+72 in the selected profile)
     uintptr_t* vtable = *(uintptr_t**)msg;
     if (!vtable || !vtable[9]) return {};
     using ByteSizeFn = size_t(*)(void*);

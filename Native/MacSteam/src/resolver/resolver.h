@@ -19,6 +19,7 @@ typedef struct {
 } sx_resolve_result_t;
 
 int sx_is_arm64_prologue(uintptr_t addr);
+int sx_is_function_prologue(uintptr_t addr);
 
 int sx_resolve_all_ex(const struct mach_header_64 *mh, intptr_t slide,
                       const char *dylib_path,

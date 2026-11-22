@@ -1,4 +1,5 @@
 #include "macho.h"
+#include "arch.h"
 #include "../util/log.h"
 #include <mach-o/dyld.h>
 #include <mach-o/fat.h>
@@ -80,7 +81,7 @@ static int hash_range(FILE *f, uint64_t off, uint64_t size, char *out_hex, size_
     return 0;
 }
 
-int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
+int sx_hash_slice(const char *path, char *out_hex, size_t out_size) {
     if (!path || !out_hex || out_size < 65) return -1;
 
     FILE *f = fopen(path, "rb");
@@ -100,7 +101,7 @@ int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
     // Fat header + arch table are big-endian.
     int is64 = (magic == FAT_MAGIC_64 || magic == FAT_CIGAM_64);
     if (magic != FAT_MAGIC && magic != FAT_CIGAM && !is64) {
-        SX_ERR("hash: '%s' is neither thin arm64 nor fat", path);
+        SX_ERR("hash: '%s' is neither thin %s nor fat", path, SX_ARCH_NAME);
         fclose(f);
         return -1;
     }
@@ -115,7 +116,7 @@ int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
         if (is64) {
             struct fat_arch_64 a;
             if (fread(&a, 1, sizeof(a), f) != sizeof(a)) break;
-            if ((cpu_type_t)OSSwapBigToHostInt32(a.cputype) == CPU_TYPE_ARM64) {
+            if ((cpu_type_t)OSSwapBigToHostInt32(a.cputype) == SX_CPU_TYPE) {
                 off = OSSwapBigToHostInt64(a.offset);
                 size = OSSwapBigToHostInt64(a.size);
                 found = 1;
@@ -123,7 +124,7 @@ int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
         } else {
             struct fat_arch a;
             if (fread(&a, 1, sizeof(a), f) != sizeof(a)) break;
-            if ((cpu_type_t)OSSwapBigToHostInt32(a.cputype) == CPU_TYPE_ARM64) {
+            if ((cpu_type_t)OSSwapBigToHostInt32(a.cputype) == SX_CPU_TYPE) {
                 off = OSSwapBigToHostInt32(a.offset);
                 size = OSSwapBigToHostInt32(a.size);
                 found = 1;
@@ -132,7 +133,7 @@ int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
     }
 
     if (!found) {
-        SX_ERR("hash: no arm64 slice in '%s'", path);
+        SX_ERR("hash: no %s slice in '%s'", SX_ARCH_NAME, path);
         fclose(f);
         return -1;
     }
@@ -140,4 +141,8 @@ int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
     int rc = hash_range(f, off, size, out_hex, out_size);
     fclose(f);
     return rc;
+}
+
+int sx_hash_arm64_slice(const char *path, char *out_hex, size_t out_size) {
+    return sx_hash_slice(path, out_hex, out_size);
 }

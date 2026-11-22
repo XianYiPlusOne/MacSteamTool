@@ -1,6 +1,6 @@
 # MacSteamTool Manifest extension
 
-Independent macOS ARM64 implementation, distributed with MacSteamTool under AGPL-3.0. It does not bundle Steam or macSteam binaries.
+Independent macOS implementation, distributed with MacSteamTool under AGPL-3.0. The dylib is built for arm64 and x86_64; it does not bundle Steam or macSteam binaries. Steam-specific installation remains fail-closed without a reviewed profile for the selected architecture.
 
 - Hook engine: [Dobby](https://github.com/jmpews/Dobby), unmodified revision `5dfc8546954ce3b3198132ab13fddb89ee92cdd7`, Apache-2.0 (`Licenses/Dobby.txt`). Build script fetches that source and links it privately; Dobby exports are hidden to avoid interposition with macSteam's own instance.
 - Manifest framing and metadata: [SteamKit DepotManifest](https://github.com/SteamRE/SteamKit/blob/master/SteamKit2/SteamKit2/Types/DepotManifest.cs) and [content_manifest.proto](https://github.com/SteamDatabase/Protobufs/blob/master/steam/content_manifest.proto). CRC/framing/identity checks do **not** verify Valve's cryptographic signature.
