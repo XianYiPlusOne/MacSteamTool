@@ -5,7 +5,6 @@ public struct AutomaticLibraryResult: Sendable {
     public var warnings: [String]
     public var complete: Bool
     public var skippedDLC: Set<Int> = []
-    public var verificationDepots: Set<Int> = []
     public var notes: [String] = []
     public var content: [LibraryContentReport] = []
 }
@@ -116,7 +115,6 @@ public enum AutomaticLibraryImport {
                     await report(result, stage: source.name)
                     if result.complete { return result }
                     if result.warnings == [LuaDocument.versionPinNotice], !requirements.depotIDs.isEmpty {
-                        result.verificationDepots = requirements.depotIDs
                         return result
                     }
                     result.warnings += failures
@@ -148,10 +146,7 @@ public enum AutomaticLibraryImport {
                         return try await appInfo(id)
                     }, progress: progress)
                 var reduced = scoped.result(keys: keys, remote: remoteDocument)
-                if reduced.warnings == [LuaDocument.versionPinNotice], !scoped.depotIDs.isEmpty {
-                    reduced.verificationDepots = scoped.depotIDs
-                }
-                if reduced.complete || !reduced.verificationDepots.isEmpty {
+                if reduced.complete || (reduced.warnings == [LuaDocument.versionPinNotice] && !scoped.depotIDs.isEmpty) {
                     reduced.skippedDLC = skipped
                     await report(reduced, stage: "跳过不可用的可选 DLC 后检查")
                     return reduced

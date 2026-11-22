@@ -3,6 +3,9 @@ import SwiftUI
 extension RuntimePreparationController {
     func statusTitle(_ model: AppModel) -> String {
         switch state {
+        case .wineNotInstalled: model.tr("请选择游戏兼容层", "Choose a game translation backend")
+        case .ready where model.testing && model.previewCrossOver != nil: model.tr("已验证 CrossOver 应用", "CrossOver app verified")
+        case .ready where model.testing: model.tr("Wine 已就绪", "Wine is ready")
         case .checking: model.tr("正在检查运行环境", "Checking the runtime")
         case .preparing: model.tr("正在准备安装文件", "Preparing setup files")
         case .installing: model.tr("正在安装运行环境", "Installing the runtime")
@@ -41,7 +44,7 @@ struct RuntimeSetupPanel: View {
             case .failed(let error):
                 Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 Button(model.tr("重试", "Retry")) { model.reconcileRuntimePreparation(retry: true) }.disabled(model.busy)
-            case .ready where flow.ready:
+            case .ready where flow.ready && !model.testing:
                 Button(model.tr("打开 Steam", "Open Steam")) { model.launchSteam() }.disabled(model.busy)
             default: EmptyView()
             }
@@ -55,6 +58,14 @@ struct RuntimeSetupPanel: View {
 
     private var instructions: String {
         switch flow.state {
+        case .wineNotInstalled:
+            model.tr("在使用指南中选择本机已有的兼容层，或安装 Wine。", "Choose an existing backend in the setup guide or install Wine.")
+        case .ready where model.testing && model.previewCrossOver != nil:
+            model.tr("本次隔离预览已选择 CrossOver。", "CrossOver is selected for this preview.")
+        case .ready where model.testing:
+            model.tr("本次隔离环境已可以使用所选的 Wine。", "The selected Wine is ready for this isolated session.")
+        case .installing where model.testing:
+            model.tr("请保持应用打开，直到隔离目录中的 Wine 安装完成。", "Keep the app open while Wine is being installed in the isolated directory.")
         case .checking, .preparing:
             model.tr("保持联网，MacSteamTool 会检查本机的 Steam 并自动准备所需文件。", "Stay connected to the internet while MacSteamTool checks your Steam installation and prepares the files it needs.")
         case .installing:

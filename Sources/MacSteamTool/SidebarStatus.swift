@@ -7,10 +7,10 @@ struct SidebarStatus: View {
     var body: some View {
         if flow.ready {
             MultiplayerSidebarStatus(client: model.multiplayer)
-        } else {
+        } else if model.page != .guide {
             SidebarStatusLink(title: model.title(.runtime), icon: Page.runtime.icon,
                               status: flow.statusTitle(model), color: flow.working || flow.state == .checking ? Palette.accent : Palette.amber,
-                              actionTitle: model.tr("查看安装步骤", "View setup steps")) { model.page = .runtime }
+                              actionTitle: model.tr("查看安装步骤", "View setup steps")) { model.page = .guide }
         }
     }
 }

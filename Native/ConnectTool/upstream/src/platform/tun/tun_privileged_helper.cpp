@@ -231,10 +231,12 @@ bool helperCommand(const std::string &command, std::string *error) {
 } // namespace
 
 const char *helperSocketPath() {
+#ifndef MP_APP_BINDINGS
   const char *overridePath = std::getenv("CONNECTTOOL_TUN_HELPER_SOCKET");
   if (overridePath && overridePath[0] != '\0') {
     return overridePath;
   }
+#endif
   return kDefaultHelperSocket;
 }
 

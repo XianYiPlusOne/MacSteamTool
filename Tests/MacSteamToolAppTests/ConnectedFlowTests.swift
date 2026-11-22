@@ -41,9 +41,9 @@ import Testing
         let key = String(repeating: "ab", count: 32)
         try ArchiveIO.export([ImportFile(name: "480.lua", data: Data("addappid(480) -- Connected fixture\naddappid(481, 1, \"\(key)\")\n".utf8))], to: zip)
         let bytes = try FileStore.read(zip)
-        model.remotePackageFetch = { id, preferences, engine in
+        model.remotePackageFetch = { id, preferences in
             #expect(id == 480); #expect(try RemoteLuaPackage.source(preferences).template == RemoteLuaPackage.defaultTemplate)
-            return try await RemoteLuaPackage.extract(bytes, appID: id, engine: engine)
+            return try await RemoteLuaPackage.extract(bytes, appID: id)
         }
         model.libraryPackageFallbacks = { id in
             [("Fixture secondary", {
@@ -180,14 +180,5 @@ import Testing
         #expect(model.achievementGame?.id == second.id)
         #expect(model.loadedAchievementApp == nil && !model.achievementStatus.isEmpty)
         #expect(model.message == nil)
-    }
-    @Test func loginCompletionPersistsBeforeReplacingAccountAndClearsOldLibrary() throws {
-        let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
-        model.onlineAccount = "old"; model.ownedGames = [OwnedGame(id: 480, name: "Old library", type: "game")]
-        let result = try JSONDecoder().decode(SteamEngineResponse.self, from: Data(#"{"ok":true,"account":"new","token":"synthetic"}"#.utf8))
-        #expect(throws: (any Error).self) { try model.completeOnlineAuthentication(result, persist: { _ in throw AppFailure("Store failed") }) }
-        #expect(model.onlineAccount == "old"); #expect(!model.ownedGames.isEmpty)
-        try model.completeOnlineAuthentication(result, persist: { credential in #expect(credential.account == "new"); #expect(credential.token == "synthetic") })
-        #expect(model.onlineAccount == "new"); #expect(model.ownedGames.isEmpty)
     }
 }

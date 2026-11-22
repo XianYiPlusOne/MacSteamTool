@@ -3,10 +3,41 @@
 import hashlib
 import json
 from pathlib import Path
+import struct
 import sys
 from native_core_validation import validate_macsteam
+from bundle_connecttool import verify as verify_multiplayer
 
 app = Path(sys.argv[1])
+verify_multiplayer(app / 'Contents/Resources/Helpers/ConnectTool')
+retired = {
+    'steamengine', 'macsteamtoolengine', 'steamkit2.dll', 'steamlessbridge',
+    'steamlessbridge.exe', 'dotnet', 'dotnet.exe', 'coreclr.dll', 'libcoreclr.dylib',
+    'hostfxr.dll', 'libhostfxr.dylib', 'hostpolicy.dll', 'libhostpolicy.dylib',
+    'system.private.corelib.dll',
+}
+for entry in app.rglob('*'):
+    assert entry.name.lower() not in retired, f'Retired helper or .NET runtime in bundle: {entry}'
+    if entry.suffix.lower() not in {'.exe', '.dll'} or not entry.is_file():
+        continue
+    data = entry.read_bytes()
+    if len(data) < 64 or data[:2] != b'MZ':
+        continue
+    pe = struct.unpack_from('<I', data, 0x3c)[0]
+    if pe + 26 > len(data) or data[pe:pe+4] != b'PE\0\0':
+        continue
+    optional = pe + 24
+    magic = struct.unpack_from('<H', data, optional)[0]
+    if magic not in {0x10b, 0x20b}:
+        continue
+    directories = optional + (96 if magic == 0x10b else 112)
+    optional_size = struct.unpack_from('<H', data, pe + 20)[0]
+    if directories + 15 * 8 <= min(len(data), optional + optional_size):
+        count = struct.unpack_from('<I', data, directories - 4)[0]
+        if count >= 15:
+            clr = struct.unpack_from('<II', data, directories + 14 * 8)
+            assert clr == (0, 0), f'Managed PE assembly in bundle: {entry}'
+print('PASS: no retired helpers, .NET runtime or managed Windows assemblies')
 root = app / 'Contents/Resources/RuntimeComponents'
 for provider, version in [('macsteam', '0.8.2'), ('notproton', '1.2.3')]:
     component = root / provider / version

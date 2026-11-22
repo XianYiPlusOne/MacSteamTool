@@ -26,20 +26,4 @@ import Testing
         #expect(roundtrip.keys[app]?[872415] == nil)
         #expect(roundtrip.keys[app]?.count == 4)
     }
-    @Test func authorizedExtractionPreservesDepotOwnerAndCanFillMissingDepot() async throws {
-        let json: [String: Any] = ["ok": true, "appID": app, "name": "SAN14 fixture", "accessToken": "0",
-            "depots": [["id": 872415, "owner": app, "sourceApp": app, "key": placeholder,
-                        "result": "OK", "manifest": "2940628593678107107"]]]
-        let response = try JSONDecoder().decode(SteamEngineResponse.self, from: JSONSerialization.data(withJSONObject: json))
-        let doc = try LuaDocument.parse(response.lua())
-        #expect(doc.depots.first?.owner == app)
-        var config = MacSteamConfig(); try config.merge(doc)
-        #expect(try MacSteamConfig.parse(config.serialized()).keys[app]?[872415] == placeholder)
-        // Cached manifest availability is independent of possessing a key.
-        #expect(doc.pins.contains { $0.depot == 872415 && $0.active })
-        let keys = Dictionary(uniqueKeysWithValues: (872411...872415).map { ($0, placeholder) })
-        let completed = try await AutomaticLibraryImport.resolve(appID: app, includeDLC: false,
-            appInfo: { _ in metadata() }, cachedKeys: { keys }, refreshKeys: { Issue.record("No refresh needed"); return [:] }, remote: { [] })
-        #expect(completed.complete)
-    }
 }

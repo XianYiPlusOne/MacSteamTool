@@ -11,14 +11,11 @@ struct ImportPreview: View {
                 Image(systemName: "tray.and.arrow.down.fill").font(.title2).foregroundStyle(Palette.accent)
                 VStack(alignment: .leading, spacing: 4) { Text(model.tr("导入预览", "Import preview")).font(.title2.bold()); Text("\(session.plan.documents.count) " + model.tr("个游戏", "games") + " · \(session.plan.files.count) " + model.tr("个文件", "files")).foregroundStyle(.secondary) }
                 Spacer()
-                if session.automatic && !AuthorizedContentRepair.missingDepots(in: session.plan.warnings).isEmpty {
-                    Button(model.tr("账号授权补齐", "Repair with owned account")) { model.repairAuthorizedContent() }.disabled(model.busy)
-                }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if session.automatic {
-                        Label(!session.verificationDepots.isEmpty ? model.tr("内容已齐，可使用 Steam 账号核验后继续导入。", "Content found. Verify with Steam to continue.") : session.complete ? model.tr("待确认导入，尚未入库", "Awaiting confirmation; not yet imported") : model.tr("内容缺失或待核实，请补齐并重新检查后入库", "Content missing or unverified; complete the check before importing"), systemImage: "info.circle").foregroundStyle(Palette.amber)
+                        Label(session.complete ? model.tr("待确认导入，尚未入库", "Awaiting confirmation; not yet imported") : model.tr("内容缺失或待核实，请补齐并重新检查后入库", "Content missing or unverified; complete the check before importing"), systemImage: "info.circle").foregroundStyle(Palette.amber)
                         ForEach(session.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
                     }
                     ForEach(session.plan.documents, id: \.appID) { doc in
@@ -48,12 +45,7 @@ struct ImportPreview: View {
                 if session.automatic && !session.unavailableDLC.isEmpty {
                     Button(model.tr("跳过不可用的可选 DLC 并重查", "Exclude unverified optional DLC and recheck")) { model.excludeUnverifiedDLC() }.disabled(model.busy)
                 }
-                if !session.verificationDepots.isEmpty {
-                    Button(model.tr("使用 Steam 账号核验", "Verify with Steam")) { model.repairAuthorizedContent() }
-                        .buttonStyle(.borderedProminent).disabled(model.busy).keyboardShortcut(.defaultAction)
-                } else {
-                    Button(model.tr("导入并启用", "Import and enable")) { model.commitImport() }.buttonStyle(.borderedProminent).disabled(model.busy || (session.automatic && !session.complete)).keyboardShortcut(.defaultAction)
-                }
+                Button(model.tr("导入并启用", "Import and enable")) { model.commitImport() }.buttonStyle(.borderedProminent).disabled(model.busy || (session.automatic && !session.complete)).keyboardShortcut(.defaultAction)
             }
         }.padding(28).frame(width: 820, height: 720)
     }

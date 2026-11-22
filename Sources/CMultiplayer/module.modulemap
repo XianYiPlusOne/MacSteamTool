@@ -1,0 +1,4 @@
+module CMultiplayer [system] {
+    header "Multiplayer.h"
+    export *
+}

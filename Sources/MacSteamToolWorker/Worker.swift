@@ -17,7 +17,6 @@ import NativeSteam
     }
     static func execute(_ request: AchievementRequest) throws -> AchievementResponse {
         try request.validate()
-        if request.operation == "tickets" { return try tickets(request) }
         if request.operation == "schema" {
             guard let source = request.schemaSourceSteamID, let context = fs_create_session(request.library, UInt32(request.appID), 0) else { throw AppFailure("Cannot create schema session") }
             defer { fs_destroy(context) }
@@ -88,19 +87,6 @@ import NativeSteam
         }
         var result = AchievementResponse(ok: true, achievements: rows, stored: !request.changes.isEmpty)
         result.backend = compatible ? "compatibility" : "steam"; result.serverResult = serverResult
-        return result
-    }
-    static func tickets(_ request: AchievementRequest) throws -> AchievementResponse {
-        guard request.changes.isEmpty else { throw AppFailure("Ticket requests cannot contain achievement changes") }
-        guard let context = fs_create_session(request.library, UInt32(request.appID), 0) else { throw AppFailure("Cannot create Steam context") }
-        defer { fs_destroy(context) }
-        guard fs_ready(context) != 0 else { throw AppFailure(String(cString: fs_error(context))) }
-        var ownership = [UInt8](repeating: 0, count: 4096), encrypted = [UInt8](repeating: 0, count: 4096)
-        var ownershipSize: UInt32 = 0, encryptedSize: UInt32 = 0
-        guard fs_tickets(context, &ownership, 4096, &ownershipSize, &encrypted, 4096, &encryptedSize) != 0 else { throw AppFailure(String(cString: fs_error(context))) }
-        var result = AchievementResponse(ok: true)
-        result.ownershipTicket = Data(ownership.prefix(Int(ownershipSize)))
-        result.encryptedTicket = Data(encrypted.prefix(Int(encryptedSize)))
         return result
     }
 }

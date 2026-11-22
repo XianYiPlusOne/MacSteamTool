@@ -65,7 +65,6 @@ public enum OneClickSetup {
         }
         let p = resolveSteamPath(paths), status = RuntimeStatus.read(p)
         guard !RuntimeInstaller.backups(p).contains(where: \.interrupted) else { throw AppFailure("发现中断的安装，请先在安装与恢复中恢复备份 / Recover the interrupted installation before retrying") }
-        let engine = application.appendingPathComponent("Contents/Resources/Helpers/SteamEngine/MacSteamToolEngine")
         var result = Prepared(paths: p, options: options, awaitingFirstSteamLaunch: status.build.isEmpty)
         await progress("准备原生 Steam / Preparing native Steam…")
         if !status.steamInstalled { result.steam = try await NativeSteamBootstrap.prepare(cache: p.cache.appendingPathComponent("NativeSteam")) }
@@ -81,7 +80,7 @@ public enum OneClickSetup {
                 continue
             }
             await progress("准备内置 \(provider) / Preparing bundled \(provider)…")
-            let component = try await ManagedRuntimeComponents.prepare(provider: provider, paths: p, engine: engine, localApplication: provider == "macsteam" ? options.macSteamSource : options.notProtonSource, application: application)
+            let component = try await ManagedRuntimeComponents.prepare(provider: provider, paths: p, localApplication: provider == "macsteam" ? options.macSteamSource : options.notProtonSource, application: application)
             if provider == "macsteam" {
                 if !status.build.isEmpty, !FileStore.fm.fileExists(atPath: component.resources.appendingPathComponent("signatures/macos.arm64/\(status.build).json").path) {
                     throw AppFailure("当前安装轨道尚未支持 Steam build \(status.build)，未修改内核 / This setup track does not support this Steam build; kernels unchanged")

@@ -13,7 +13,13 @@ struct OfflineToolsPage: View {
     @ViewState<PatchReceipt?> private var restoring = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            PageHeader(title: model.tr("离线工具与还原", "Offline tools & restore"), subtitle: model.tr("离线启动工具，以及已有文件修改的备份还原。", "Offline launch tools and restoration of previously changed files.")) { EmptyView() }
+            PageHeader(
+                title: model.tr("离线工具与还原", "Offline tools & restore"),
+                subtitle: model.tr(
+                    "离线启动是实验性功能，开发者尚未进行实机测试。应用配置后，游戏仍可能无法离线启动。",
+                    "Offline launch is experimental. The developer hasn’t tested it with a game yet, so your game may still fail to launch offline after you apply the settings."
+                )
+            ) { EmptyView() }
             Panel { PatchTargetPanel(appID: $appID, customRoot: $customRoot) }
             OfflineToolsPanel(appID: $appID, gameRoot: gameRoot) { value in plan = value }
             Panel {

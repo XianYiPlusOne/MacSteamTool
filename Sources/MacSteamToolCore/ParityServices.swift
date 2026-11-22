@@ -116,9 +116,9 @@ public enum RemoteLuaPackage {
               url.scheme == "https", url.host?.isEmpty == false, url.user == nil, url.password == nil else { throw AppFailure("远程包地址需要 HTTPS 和 {app} / Remote package URL requires HTTPS and {app}") }
         return (value, linked)
     }
-    public static func fetch(appID: Int, preferences: Preferences, engine: URL, progress: (String) async -> Void = { _ in }) async throws -> [ImportFile] {
+    public static func fetch(appID: Int, preferences: Preferences, progress: (String) async -> Void = { _ in }) async throws -> [ImportFile] {
         return try await fetch(preferences: preferences, progress: progress) { template, linked in
-            try await fetch(appID: appID, template: template, engine: engine, useLinkService: linked)
+            try await fetch(appID: appID, template: template, useLinkService: linked)
         }
     }
     // A link service outage must not prevent trying the underlying repository.
@@ -146,7 +146,7 @@ public enum RemoteLuaPackage {
         }
         throw AppFailure(failures.joined(separator: "\n"))
     }
-    public static func fetch(appID: Int, template: String, engine: URL, useLinkService: Bool = false) async throws -> [ImportFile] {
+    public static func fetch(appID: Int, template: String, useLinkService: Bool = false) async throws -> [ImportFile] {
         guard TextUtil.validID(String(appID)) != nil, template.contains("{app}") else { throw AppFailure("远程包 URL 需要 {app} / Remote package URL requires {app}") }
         let url = try HTTP.url(template.replacingOccurrences(of: "{app}", with: String(appID)))
         let downloadURL: URL
@@ -155,7 +155,7 @@ public enum RemoteLuaPackage {
             downloadURL = try proxyURL(link)
         } else { downloadURL = url }
         let data = try await HTTP.get(downloadURL, limit: 64 * 1024 * 1024, headers: useLinkService ? ["Referer": "https://short.walftech.com/"] : [:])
-        return try await extract(data, appID: appID, engine: engine)
+        return try await extract(data, appID: appID)
     }
     public static func libraryFallbacks(appID: Int) -> [AutomaticLibraryImport.RemoteSource] {
         [
@@ -242,14 +242,14 @@ public enum RemoteLuaPackage {
               (1...128).contains(code.utf8.count), code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "_-".contains($0)) }) else { throw AppFailure("远程仓库未返回有效链接代码 / Remote repository returned no valid link code") }
         return try HTTP.url("https://short.walftech.com/proxy.php", query: ["short": code])
     }
-    public static func extract(_ data: Data, appID: Int, engine: URL) async throws -> [ImportFile] {
+    public static func extract(_ data: Data, appID: Int) async throws -> [ImportFile] {
         guard TextUtil.validID(String(appID)) != nil, data.count <= 64 * 1024 * 1024 else { throw AppFailure("无效远程包 / Invalid remote package") }
         guard data.starts(with: [0x50, 0x4b]) else { throw AppFailure("远程仓库未返回 ZIP / Remote repository did not return a ZIP") }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("FluentRemote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: folder) }
         let zip = folder.appendingPathComponent("\(appID).zip"); try FileStore.write(data, to: zip)
-        let files = try await ArchiveIO.importFiles([zip], engine: engine)
+        let files = try ArchiveIO.importFiles([zip])
         let lua = try files.filter { $0.name.lowercased().hasSuffix(".lua") }.map { file -> ImportFile in
             let doc = try LuaDocument.parse(String(decoding: file.data, as: UTF8.self), suggestedID: TextUtil.validID(URL(fileURLWithPath: file.name).deletingPathExtension().lastPathComponent))
             guard doc.appID == appID else { throw AppFailure("远程包包含其他游戏 Lua / Remote package contains a different game's Lua") }

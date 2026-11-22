@@ -206,13 +206,13 @@ public actor ContentService {
         if refresh { _ = try await refreshKeys(preferences: preferences) }
         return try parseKeys(FileStore.read(cache.appendingPathComponent("depotkeys.json")))
     }
-    public func generate(id: Int, includeDLC: Bool, preferences: Preferences, metadata: LuaGenerationMetadata? = nil, appendingTo existing: URL? = nil, progress: @Sendable (String) async -> Void) async throws -> GenerationResult {
+    public func generate(id: Int, includeDLC: Bool, preferences: Preferences, appInfo: (@Sendable (Int) async throws -> AppInfo)? = nil, appendingTo existing: URL? = nil, progress: @Sendable (String) async -> Void) async throws -> GenerationResult {
         let keyURL = cache.appendingPathComponent("depotkeys.json")
         if !FileStore.fm.fileExists(atPath: keyURL.path) { await progress("正在获取 depot 密钥缓存…"); _ = try await refreshKeys(preferences: preferences) }
         let keys = try parseKeys(FileStore.read(keyURL))
         await progress("正在查询游戏和 depot…")
-        let source = metadata ?? LuaGenerationMetadata(includeDLC: includeDLC, publicInfo: { [api] in try await api.appInfo($0) })
-        let main = try await source.appInfo(id)
+        let lookup = appInfo ?? { [api] in try await api.appInfo($0) }
+        let main = try await lookup(id)
         var lua = "-- MacSteamTool / macSteam compatible\naddappid(\(id)) -- \(TextUtil.cleanLine(main.name))\n"
         if let key = keys[id] { lua = try WorkshopKeys.adding(key, to: LuaDocument.parse(lua, suggestedID: id)).raw }
         var count = 0; var warnings: [String] = []
@@ -224,7 +224,7 @@ public actor ContentService {
             for (i, dlcID) in main.dlc.enumerated() {
                 try Task.checkCancellation(); await progress("查询 DLC \(i + 1) / \(main.dlc.count)…")
                 do {
-                    let dlc = try await source.appInfo(dlcID)
+                    let dlc = try await lookup(dlcID)
                     let matched = dlc.depots.filter { keys[$0.id] != nil }
                     if !dlc.depots.isEmpty && matched.isEmpty { warnings.append("DLC \(dlcID) 缺少全部 depot 密钥，已跳过 / No depot keys available; skipped"); continue }
                     lua += "\naddappid(\(dlcID)) -- \(TextUtil.cleanLine(dlc.name))\n"
@@ -238,10 +238,8 @@ public actor ContentService {
         guard count > 0 || main.depots.isEmpty else { throw AppFailure("该游戏没有可用 depot 密钥；无法生成可下载的清单 / No depot keys available; cannot generate a downloadable manifest") }
         try Task.checkCancellation()
         let previous = try existing.map { try FileStore.text($0) }
-        let existingIDs = try previous.map { Set(try LuaDocument.parse($0, suggestedID: id).tokens.keys) } ?? []
-        lua = try await source.addingTokens(to: lua, preserving: existingIDs)
         if let previous { lua = previous + "\n-- Additional depot and DLC data\n" + lua }
-        return GenerationResult(lua: lua, warnings: warnings + (await source.notices), depots: count)
+        return GenerationResult(lua: lua, warnings: warnings, depots: count)
     }
     public func fetchManifest(depot: Int, manifest: String, template: String, fallbacks: Bool = true, probe: Bool = false) async throws -> Data {
         guard TextUtil.validID(String(depot)) != nil, UInt64(manifest) != nil else { throw AppFailure("无效的 DepotID / ManifestID") }

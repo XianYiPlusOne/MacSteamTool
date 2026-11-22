@@ -89,7 +89,8 @@ extension AppModel {
         run(tr("恢复容器与存档", "Restore container and saves"), cancellable: false) {
             try await SaveRecovery.restoreContainer(backup, paths: paths, requireIdle: { if !fixture { try GameContainers.requireIdle() } })
             self.saveRecoveryRequest?.containers.removeAll { $0.id == backup.id }
-            let marker = "/steamapps/compatdata/\(backup.appID)/" + (backup.isWine ? "fluent-free/pfx/" : "pfx/")
+            let directory = backup.runtime.subdirectory
+            let marker = "/steamapps/compatdata/\(backup.appID)/" + (directory.isEmpty ? "" : directory + "/") + "pfx/"
             self.saveRecoveryRequest?.backups.removeAll { $0.appID == backup.appID && $0.source.contains(marker) }
             if self.saveRecoveryRequest?.backups.isEmpty == true && self.saveRecoveryRequest?.containers.isEmpty == true {
                 if let ids = self.saveRecoveryRequest?.appIDs { try SaveManagerStore.remindAfterInstall(ids, enabled: false, paths: paths) }

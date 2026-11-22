@@ -4,13 +4,33 @@ import Darwin
 @testable import MacSteamToolCore
 
 struct OneClickSetupTests {
+    @Test func guideDetectsAnInstalledSteamClient() throws {
+        let root = FileStore.fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileStore.fm.removeItem(at: root) }
+        let app = root.appendingPathComponent("Steam.app")
+        #expect(!NativeSteamBootstrap.isSteamApplication(app))
+        let plist = app.appendingPathComponent("Contents/Info.plist")
+        func writeBundle(_ identifier: String, executable: String) throws {
+            let info = ["CFBundleIdentifier": identifier, "CFBundleExecutable": executable]
+            try FileStore.write(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0), to: plist)
+        }
+        try writeBundle(NativeSteamBootstrap.bundleIdentifier, executable: "steam_osx")
+        #expect(!NativeSteamBootstrap.isSteamApplication(app))
+        let binary = app.appendingPathComponent("Contents/MacOS/steam_osx")
+        try FileStore.write(Data(), to: binary)
+        try FileStore.fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        #expect(NativeSteamBootstrap.isSteamApplication(app))
+        try writeBundle("example.other", executable: "steam_osx")
+        #expect(!NativeSteamBootstrap.isSteamApplication(app))
+        try writeBundle(NativeSteamBootstrap.bundleIdentifier, executable: "gameoverlayui")
+        #expect(!NativeSteamBootstrap.isSteamApplication(app))
+    }
     @Test func missingInternalComponentsNeverFallBackToManagerDownload() async throws {
         let root = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentNoManager-\(UUID().uuidString)")
         defer { try? FileStore.fm.removeItem(at: root) }
         let paths = AppPaths(home: root)
         do {
-            _ = try await ManagedRuntimeComponents.prepare(provider: "notproton", paths: paths,
-                engine: root.appendingPathComponent("must-not-execute"))
+            _ = try await ManagedRuntimeComponents.prepare(provider: "notproton", paths: paths)
             Issue.record("Missing internal components must fail locally")
         } catch let error as AppFailure {
             #expect(error.localizedDescription.contains("Internal components missing"))
@@ -47,7 +67,7 @@ struct OneClickSetupTests {
         try FileStore.json(receipt, to: embedded.appendingPathComponent("component.json"))
         let backend = p.data.appendingPathComponent("Components/macsteam/0.8.2/sentinel")
         try FileStore.write(Data("keep-backend".utf8), to: backend)
-        let installed = try await ManagedRuntimeComponents.prepare(provider: "macsteam", paths: p, engine: root.appendingPathComponent("nonexistent-engine"), application: app)
+        let installed = try await ManagedRuntimeComponents.prepare(provider: "macsteam", paths: p, application: app)
         try ManagedRuntimeComponents.validate(installed)
         #expect(installed.root.lastPathComponent == "bundled-0.8.2")
         #expect(try FileStore.text(backend) == "keep-backend")
@@ -60,15 +80,6 @@ struct OneClickSetupTests {
         _ = try OneClickSetup.seedConfiguration(paths: p, defaultTool: nil, requireIdle: {})
         #expect(!FileStore.fm.fileExists(atPath: p.steam.appendingPathComponent("config/config.vdf").path))
         #expect(!FileStore.fm.fileExists(atPath: FreeRuntime.root(p).path))
-    }
-    @Test(.timeLimit(.minutes(1))) func asyncEngineExitReturnsWithoutRunLoopWait() async throws {
-        let root = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentEngineExitTest-\(UUID().uuidString)")
-        defer { try? FileStore.fm.removeItem(at: root) }
-        let engine = root.appendingPathComponent("engine")
-        try FileStore.write(Data("#!/bin/sh\n/bin/sleep 0.05\nprintf '%s' '{\"ok\":true}' > \"$2\"\n".utf8), to: engine)
-        try FileStore.fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: engine.path)
-        let result = try await SteamEngine.run(SteamEngineRequest("runtime-release"), executable: engine)
-        #expect(result.ok)
     }
     @Test func preservesAllExistingChoices() throws {
         let fresh = try SteamCompatibility.seedDefault(nil, tool: FreeRuntime.toolID)

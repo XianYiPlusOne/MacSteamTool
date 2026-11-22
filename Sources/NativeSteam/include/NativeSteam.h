@@ -7,7 +7,6 @@ typedef struct FSContext FSContext;
 FSContext *fs_create(const char *library, uint32_t app);
 FSContext *fs_create_session(const char *library, uint32_t app, int load_stats);
 int fs_schema(FSContext *context, uint64_t public_user);
-int fs_tickets(FSContext *context, void *ownership, uint32_t capacity, uint32_t *ownership_size, void *encrypted, uint32_t encrypted_capacity, uint32_t *encrypted_size);
 const char *fs_error(FSContext *context);
 int fs_ready(FSContext *context);
 uint32_t fs_account(FSContext *context);

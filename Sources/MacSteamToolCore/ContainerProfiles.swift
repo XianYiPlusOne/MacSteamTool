@@ -87,7 +87,7 @@ public struct ContainerProfiles: Sendable {
         let id = UUID(), slot = storage.appendingPathComponent(id.uuidString)
         let stage = storage.appendingPathComponent(".creating-" + id.uuidString)
         defer { try? FileStore.fm.removeItem(at: stage) }
-        let root = backend.isWine ? stage.appendingPathComponent("fluent-free") : stage
+        let root = backend.runtime.root(in: stage)
         let log = paths.data.appendingPathComponent("Logs/containers/\(id.uuidString).log")
         try await GameContainers.initializePrefix(root.appendingPathComponent("pfx"), appID: container.appID, backend: backend, paths: paths, log: log)
         try GameContainers.recordBackend(backend, in: root)
@@ -103,7 +103,8 @@ public struct ContainerProfiles: Sendable {
         }
         var locks: [Int32] = []
         defer { locks.reversed().forEach(GameContainers.release) }
-        for root in [profile.directory, profile.directory.appendingPathComponent("fluent-free")] {
+        for runtime in ContainerRuntime.allCases {
+            let root = runtime.root(in: profile.directory)
             try GameRemoval.noLinks(root.appendingPathComponent("pfx"))
             if FileStore.fm.fileExists(atPath: root.path) {
                 locks.append(try await GameContainers.claimPrefix(at: root, requireIdle: {}))
@@ -161,12 +162,12 @@ public struct ContainerProfiles: Sendable {
     private func withPrefixLocks(_ slot: URL, requireIdle: @Sendable () throws -> Void, perform: () throws -> Void) async throws {
         var locks: [Int32] = []
         defer { for fd in locks.reversed() { GameContainers.release(fd) } }
-        for wine in [false, true] {
-            let current = GameContainer(appID: container.appID, library: container.library, isWine: wine)
-            if !wine || current.exists { locks.append(try await GameContainers.claim(current, paths: paths, requireIdle: requireIdle)) }
-            let root = wine ? slot.appendingPathComponent("fluent-free") : slot
+        for runtime in ContainerRuntime.allCases {
+            let current = GameContainer(appID: container.appID, library: container.library, runtime: runtime)
+            if runtime == .crossOver || current.exists { locks.append(try await GameContainers.claim(current, paths: paths, requireIdle: requireIdle)) }
+            let root = runtime.root(in: slot)
             try GameRemoval.noLinks(root.appendingPathComponent("pfx"))
-            if !wine || FileStore.fm.fileExists(atPath: root.path) {
+            if runtime == .crossOver || FileStore.fm.fileExists(atPath: root.path) {
                 locks.append(try await GameContainers.claimPrefix(at: root, requireIdle: requireIdle))
             }
         }

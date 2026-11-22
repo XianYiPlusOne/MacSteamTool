@@ -1,14 +1,25 @@
 import Foundation
 
 public enum NativeSteamBootstrap {
+    public static let bundleIdentifier = "com.valvesoftware.steam"
     public static let download = URL(string: "https://cdn.akamai.steamstatic.com/client/installer/steam.dmg")!
+    public static func isSteamApplication(_ app: URL) -> Bool {
+        guard app.pathExtension.lowercased() == "app",
+              let data = try? FileStore.read(app.appendingPathComponent("Contents/Info.plist")),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              info["CFBundleIdentifier"] as? String == bundleIdentifier,
+              let executable = info["CFBundleExecutable"] as? String, executable == "steam_osx" else { return false }
+        let binary = app.appendingPathComponent("Contents/MacOS").appendingPathComponent(executable)
+        return (try? binary.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            && FileStore.fm.isExecutableFile(atPath: binary.path)
+    }
     public static func validate(_ app: URL) async throws {
         let info = try PropertyListSerialization.propertyList(from: FileStore.read(app.appendingPathComponent("Contents/Info.plist")), format: nil) as? [String: Any]
-        guard info?["CFBundleIdentifier"] as? String == "com.valvesoftware.steam",
+        guard info?["CFBundleIdentifier"] as? String == bundleIdentifier,
               FileStore.fm.isExecutableFile(atPath: app.appendingPathComponent("Contents/MacOS/steam_osx").path) else { throw AppFailure("下载中缺少原生 Steam / Native Steam missing from download") }
-        let (status, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", app.path])
-        let (_, detail) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["-dv", "--verbose=4", app.path])
-        guard status == 0, detail.contains("TeamIdentifier=MXGJJ98X76"), detail.contains("Authority=Developer ID Application: Valve Corporation") else { throw AppFailure("Steam 的 Valve 签名校验失败 / Steam Valve signature verification failed") }
+        let valveSignature = #"anchor apple generic and identifier "com.valvesoftware.steam" and certificate leaf[subject.OU] = "MXGJJ98X76""#
+        let (status, _) = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", "-R=" + valveSignature, app.path])
+        guard status == 0 else { throw AppFailure("Steam 的 Valve 签名校验失败 / Steam Valve signature verification failed") }
         try OfficialRuntimeUpdates.validateLinks(app)
     }
     public static func prepare(cache: URL, archive: URL? = nil) async throws -> URL {

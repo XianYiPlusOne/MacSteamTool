@@ -1,19 +1,36 @@
 import Foundation
 import Darwin
 
+public enum ContainerRuntime: String, Sendable, CaseIterable {
+    case crossOver = "crossover", managedWine = "wine", localWine = "local-wine"
+
+    public var subdirectory: String {
+        switch self {
+        case .crossOver: return ""
+        case .managedWine: return "fluent-free"
+        case .localWine: return LocalWine.prefixDirectory
+        }
+    }
+    func root(in directory: URL) -> URL {
+        subdirectory.isEmpty ? directory : directory.appendingPathComponent(subdirectory)
+    }
+}
+
 public struct GameContainer: Identifiable, Sendable, Hashable {
     public let appID: Int
     public let library: URL
-    public let isWine: Bool
+    public let runtime: ContainerRuntime
+    public var isWine: Bool { runtime != .crossOver }
     public var id: String { prefix.path }
     public var root: URL {
         let base = library.appendingPathComponent("steamapps/compatdata/\(appID)")
-        return isWine ? base.appendingPathComponent("fluent-free") : base
+        return runtime.root(in: base)
     }
     public var prefix: URL { root.appendingPathComponent("pfx") }
     public var exists: Bool { FileStore.fm.fileExists(atPath: prefix.path) }
     public var ready: Bool { ["user.reg", "system.reg", "drive_c"].allSatisfy { FileStore.fm.fileExists(atPath: prefix.appendingPathComponent($0).path) } }
-    public init(appID: Int, library: URL, isWine: Bool) { self.appID = appID; self.library = library; self.isWine = isWine }
+    public init(appID: Int, library: URL, runtime: ContainerRuntime) { self.appID = appID; self.library = library; self.runtime = runtime }
+    public init(appID: Int, library: URL, isWine: Bool) { self.init(appID: appID, library: library, runtime: isWine ? .managedWine : .crossOver) }
 }
 
 public struct ContainerBackend: Identifiable, Sendable {
@@ -21,7 +38,14 @@ public struct ContainerBackend: Identifiable, Sendable {
     public let name: String
     public let build: String
     public let flavor: String
-    public var isWine: Bool { id == FreeRuntime.toolID }
+    public var runtime: ContainerRuntime {
+        switch id {
+        case FreeRuntime.toolID: return .managedWine
+        case LocalWine.toolID: return .localWine
+        default: return .crossOver
+        }
+    }
+    public var isWine: Bool { runtime != .crossOver }
 }
 
 public struct ContainerBackup: Codable, Identifiable, Sendable {
@@ -33,6 +57,9 @@ public struct ContainerBackup: Codable, Identifiable, Sendable {
     public let metadata: [String: Data]
     public var reason: String? = nil
     var profile: ContainerProfiles.Record? = nil
+    // Receipts predating standalone Wine stored just the managed-Wine flag.
+    var localWine: Bool? = nil
+    public var runtime: ContainerRuntime { localWine == true ? .localWine : (isWine ? .managedWine : .crossOver) }
 }
 
 /// Manages only per-game prefixes. Both backends remain visible regardless of
@@ -46,7 +73,7 @@ public enum GameContainers {
         SteamLibrary.libraries(paths).flatMap { library in
             FileStore.files(library.appendingPathComponent("steamapps/compatdata")).flatMap { root -> [GameContainer] in
                 guard let id = TextUtil.validID(root.lastPathComponent) else { return [] }
-                return [true, false].map { GameContainer(appID: id, library: library, isWine: $0) }.filter { $0.exists }
+                return ContainerRuntime.allCases.map { GameContainer(appID: id, library: library, runtime: $0) }.filter { $0.exists }
             }
         }.sorted { ($0.appID, $0.id) < ($1.appID, $1.id) }
     }
@@ -54,7 +81,7 @@ public enum GameContainers {
         var seen = Set<String>()
         return FileStore.files(paths.data.appendingPathComponent("ContainerBackups")).compactMap { folder in
             guard let item = try? FileStore.decode(ContainerBackup.self, at: folder.appendingPathComponent("receipt.json")), item.id == folder.lastPathComponent, UUID(uuidString: item.id) != nil else { return nil }
-            let container = GameContainer(appID: item.appID, library: URL(fileURLWithPath: item.library), isWine: item.isWine)
+            let container = GameContainer(appID: item.appID, library: URL(fileURLWithPath: item.library), runtime: item.runtime)
             guard (try? validate(container, paths: paths)) != nil, !container.exists, matchesProfile(item, container: container), seen.insert(container.id).inserted else { return nil }
             return container
         }
@@ -63,6 +90,9 @@ public enum GameContainers {
         let tools = try SteamCompatibility.tools(paths: paths)
         let rows = ((try? FileStore.text(paths.notProton.appendingPathComponent("tools"))) ?? "").split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }
         return tools.compactMap { tool in
+            if tool.id == LocalWine.toolID, let wine = LocalWine.registered(paths) {
+                return ContainerBackend(id: tool.id, name: tool.name, build: wine.path, flavor: "wine")
+            }
             if tool.id == FreeRuntime.toolID, FreeRuntime.installedRoot(paths) != nil {
                 return ContainerBackend(id: tool.id, name: "Wine", build: FreeRuntime.release, flavor: "wine")
             }
@@ -82,7 +112,7 @@ public enum GameContainers {
     }
     public static func backend(for container: GameContainer, paths: AppPaths) throws -> ContainerBackend? {
         let available = try backends(paths)
-        if container.isWine { return available.first(where: \.isWine) }
+        if container.isWine { return available.first(where: { $0.runtime == container.runtime }) }
         let build = (try? FileStore.text(container.root.appendingPathComponent("notproton-build")))?.components(separatedBy: .newlines).first
         // An old container without a record can use only an unambiguous runner.
         let candidates = available.filter { !$0.isWine && (build == nil || $0.build == build) }
@@ -96,7 +126,7 @@ public enum GameContainers {
         // Allow a user-selected library volume, but reject links in the owned
         // suffix. Wine's internal dosdevices links are preserved as links.
         let base = container.library.resolvingSymlinksInPath()
-        let suffix = "steamapps/compatdata/\(container.appID)" + (container.isWine ? "/fluent-free" : "")
+        let suffix = "steamapps/compatdata/\(container.appID)/" + container.runtime.subdirectory
         var path = base
         for part in (suffix + "/pfx").split(separator: "/") {
             path.appendPathComponent(String(part))
@@ -156,7 +186,7 @@ public enum GameContainers {
         try perform()
     }
     public static func create(_ container: GameContainer, backend: ContainerBackend, paths: AppPaths, requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws {
-        guard backend.isWine == container.isWine else { throw AppFailure("容器与运行器不匹配 / Container backend mismatch") }
+        guard backend.runtime == container.runtime else { throw AppFailure("容器与运行器不匹配 / Container backend mismatch") }
         let fd = try await claim(container, paths: paths, requireIdle: requireIdle); defer { release(fd) }
         guard !container.exists else { throw AppFailure("此游戏已有该兼容层的容器 / This container already exists") }
         let stage = container.root.appendingPathComponent(".pfx-creating-\(UUID().uuidString)")
@@ -198,7 +228,7 @@ public enum GameContainers {
         if let record = try? ContainerProfiles.read(gameRoot(container)), record.name != nil {
             return paths.data.appendingPathComponent("Logs/containers/\(record.id.uuidString).log")
         }
-        return paths.data.appendingPathComponent("Logs/containers/\(container.appID)-\(container.isWine ? "wine" : "crossover").log")
+        return paths.data.appendingPathComponent("Logs/containers/\(container.appID)-\(container.runtime.rawValue).log")
     }
     public static func launch(_ container: GameContainer, command: String, paths: AppPaths, requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws -> Process {
         let fd = try await claim(container, paths: paths, requireIdle: requireIdle)
@@ -224,7 +254,7 @@ public enum GameContainers {
                   item.reason == "before-uninstall", item.id == folder.lastPathComponent, UUID(uuidString: item.id) != nil,
                   appIDs.contains(item.appID) else { return nil }
             return item
-        }.sorted { $0.created > $1.created }.filter { seen.insert("\($0.appID):\($0.isWine):\($0.profile?.id.uuidString ?? "")").inserted }
+        }.sorted { $0.created > $1.created }.filter { seen.insert("\($0.appID):\($0.runtime.rawValue):\($0.profile?.id.uuidString ?? "")").inserted }
     }
     private static func matchesProfile(_ backup: ContainerBackup, container: GameContainer) -> Bool {
         do {
@@ -236,7 +266,7 @@ public enum GameContainers {
     public static func backups(_ container: GameContainer, paths: AppPaths) -> [ContainerBackup] {
         FileStore.files(paths.data.appendingPathComponent("ContainerBackups")).compactMap { folder in
             guard let item = try? FileStore.decode(ContainerBackup.self, at: folder.appendingPathComponent("receipt.json")),
-                  item.id == folder.lastPathComponent, item.appID == container.appID, item.isWine == container.isWine,
+                  item.id == folder.lastPathComponent, item.appID == container.appID, item.runtime == container.runtime,
                   item.library == container.library.path, matchesProfile(item, container: container) else { return nil }
             return item
         }.sorted { $0.created > $1.created }
@@ -258,7 +288,7 @@ public enum GameContainers {
     }
     private static func snapshot(_ container: GameContainer, paths: AppPaths, requireIdle: @Sendable () throws -> Void, reason: String? = nil) throws -> ContainerBackup {
         guard container.exists else { throw AppFailure("容器不存在 / Container does not exist") }
-        let item = ContainerBackup(id: UUID().uuidString, appID: container.appID, library: container.library.path, isWine: container.isWine, created: Date(), metadata: try metadata(container), reason: reason, profile: try ContainerProfiles.read(gameRoot(container)))
+        let item = ContainerBackup(id: UUID().uuidString, appID: container.appID, library: container.library.path, isWine: container.isWine, created: Date(), metadata: try metadata(container), reason: reason, profile: try ContainerProfiles.read(gameRoot(container)), localWine: container.runtime == .localWine ? true : nil)
         let base = paths.data.appendingPathComponent("ContainerBackups"), stage = base.appendingPathComponent(".stage-" + item.id)
         try FileStore.mkdir(stage); defer { try? FileStore.fm.removeItem(at: stage) }
         try FileStore.fm.copyItem(at: container.prefix, to: stage.appendingPathComponent("pfx"))
@@ -280,10 +310,10 @@ public enum GameContainers {
     }
     public static func restore(_ item: ContainerBackup, to container: GameContainer, paths: AppPaths, relocating: Bool = false, requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws {
         let fd = try await claim(container, paths: paths, requireIdle: requireIdle); defer { release(fd) }
-        guard item.appID == container.appID, item.isWine == container.isWine, UUID(uuidString: item.id) != nil else { throw AppFailure("备份与容器不匹配 / Backup does not match this container") }
+        guard item.appID == container.appID, item.runtime == container.runtime, UUID(uuidString: item.id) != nil else { throw AppFailure("备份与容器不匹配 / Backup does not match this container") }
         let backup = paths.data.appendingPathComponent("ContainerBackups/\(item.id)")
         let receipt = try FileStore.decode(ContainerBackup.self, at: backup.appendingPathComponent("receipt.json"))
-        guard receipt.appID == container.appID, receipt.isWine == container.isWine, receipt.id == item.id,
+        guard receipt.appID == container.appID, receipt.runtime == container.runtime, receipt.id == item.id,
               receipt.library == item.library, relocating || receipt.library == container.library.path else { throw AppFailure("容器备份记录不匹配 / Container backup receipt mismatch") }
         let root = gameRoot(container)
         let adopting = !matchesProfile(receipt, container: container)

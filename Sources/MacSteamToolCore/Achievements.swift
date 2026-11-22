@@ -37,8 +37,6 @@ public struct AchievementRequest: Codable, Sendable {
     }
 }
 public struct AchievementResponse: Codable, Sendable {
-    public var ownershipTicket: Data?
-    public var encryptedTicket: Data?
     public var ok: Bool
     public var error: String
     public var achievements: [Achievement]

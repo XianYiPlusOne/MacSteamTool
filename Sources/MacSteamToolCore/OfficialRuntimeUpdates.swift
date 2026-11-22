@@ -28,21 +28,32 @@ public struct PreparedRuntime: Sendable {
     public let supportedSteamBuilds: [String]
 }
 public enum OfficialRuntimeUpdates {
-    public static func check(_ provider: String, engine: URL, tag: String? = nil) async throws -> OfficialRuntimeRelease {
-        var request = SteamEngineRequest("runtime-release"); request.provider = provider
-        request.query = tag ?? ""
-        guard let release = try await SteamEngine.run(request, executable: engine).runtimeRelease else { throw AppFailure("没有版本信息 / No release metadata") }
-        try release.validate(); return release
+    public static func check(_ provider: String, tag: String? = nil) async throws -> OfficialRuntimeRelease {
+        let repository: String
+        switch provider {
+        case "macsteam": repository = "crghofficial/macsteam"
+        case "notproton": repository = "NotProtonNot/NotProton"
+        default: throw AppFailure("Unknown runtime provider")
+        }
+        let asset = try await ReleaseAssets.resolve(repository: repository, tag: tag) { tag in
+            let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            return provider == "macsteam" ? "macSteam-\(version).dmg" : "NotProton.zip"
+        }
+        let version = asset.tag.hasPrefix("v") ? String(asset.tag.dropFirst()) : asset.tag
+        let release = OfficialRuntimeRelease(provider: provider, tag: asset.tag, version: version, assetName: asset.name,
+            url: asset.url.absoluteString, sha256: asset.sha256, notes: asset.notes,
+            releaseURL: "https://github.com/\(repository)/releases/tag/\(asset.tag)")
+        try release.validate()
+        return release
     }
-    public static func prepare(_ release: OfficialRuntimeRelease, engine: URL, cache: URL) async throws -> PreparedRuntime {
+    public static func prepare(_ release: OfficialRuntimeRelease, cache: URL) async throws -> PreparedRuntime {
         try release.validate()
         let folder = cache.appendingPathComponent(UUID().uuidString)
         try FileStore.fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         do {
-            var request = SteamEngineRequest("runtime-download"); request.runtimeRelease = release; request.destination = folder.appendingPathComponent("download").path
-            let result = try await SteamEngine.run(request, executable: engine)
-            let archive = URL(fileURLWithPath: request.destination).appendingPathComponent(release.assetName)
-            guard result.path == archive.path, result.runtimeRelease == release, try FileStore.hash(FileStore.read(archive)) == release.sha256 else { throw AppFailure("运行器下载摘要不匹配 / Runtime download digest mismatch") }
+            let archive = folder.appendingPathComponent(release.assetName)
+            try await ReleaseAssets.download(URL(string: release.url)!, sha256: release.sha256, to: archive,
+                hosts: ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"])
             let extracted = folder.appendingPathComponent("payload")
             try FileStore.mkdir(extracted)
             if release.assetName.hasSuffix(".zip") { try extractZIP(archive, into: extracted, appName: release.appName) }
@@ -50,7 +61,7 @@ public enum OfficialRuntimeUpdates {
             let app = extracted.appendingPathComponent(release.appName)
             let builds = try await validate(app, release: release)
             try FileStore.json(release, to: folder.appendingPathComponent("release.json"))
-            try FileStore.fm.removeItem(at: archive.deletingLastPathComponent())
+            try FileStore.fm.removeItem(at: archive)
             return PreparedRuntime(application: app, release: release, supportedSteamBuilds: builds)
         } catch { try? FileStore.fm.removeItem(at: folder); throw error }
     }

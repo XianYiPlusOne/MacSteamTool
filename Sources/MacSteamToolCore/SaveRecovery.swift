@@ -17,10 +17,10 @@ public enum SaveRecovery {
         let target: URL
         if let range = source.path.range(of: marker) {
             let suffix = String(source.path[range.upperBound...])
-            let wine = suffix.hasPrefix("fluent-free/pfx/")
-            let prefix = wine ? "fluent-free/pfx/" : "pfx/"
-            guard suffix.hasPrefix(prefix), !suffix.dropFirst(prefix.count).isEmpty,
-                  GameContainer(appID: backup.appID, library: installed.library, isWine: wine).ready else {
+            guard let runtime = ContainerRuntime.allCases.first(where: { runtime in
+                let prefix = runtime.subdirectory.isEmpty ? "pfx/" : runtime.subdirectory + "/pfx/"
+                return suffix.hasPrefix(prefix) && suffix.count > prefix.count
+            }), GameContainer(appID: backup.appID, library: installed.library, runtime: runtime).ready else {
                 throw AppFailure("请先准备此游戏对应的容器，再恢复存档 / Prepare this game's container before restoring saves")
             }
             target = installed.library.appendingPathComponent("steamapps/compatdata/\(backup.appID)/" + suffix)
@@ -51,7 +51,7 @@ public enum SaveRecovery {
         requireIdle: @escaping @Sendable () throws -> Void = GameContainers.requireIdle) async throws {
         let game = try installedGame(backup.appID, paths: paths)
         guard GameContainers.removalBackups(appIDs: [backup.appID], paths: paths).contains(where: { $0.id == backup.id }) else { throw AppFailure("未找到删除前的容器备份 / Removal container backup unavailable") }
-        let container = GameContainer(appID: backup.appID, library: game.library, isWine: backup.isWine)
+        let container = GameContainer(appID: backup.appID, library: game.library, runtime: backup.runtime)
         try await GameContainers.restore(backup, to: container, paths: paths, relocating: true, requireIdle: requireIdle)
     }
     public static func restore(_ backup: GameSaveBackup, paths: AppPaths,

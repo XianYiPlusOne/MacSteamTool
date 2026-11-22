@@ -67,10 +67,10 @@ import MacSteamToolCore
             }
             print("PASS: isolated upgrade cleanup; only the unique fixture launchd service was targeted"); return
         }
-        if args.first == "--verify-remote-package", args.count >= 3, let id = TextUtil.validID(args[1]) {
+        if args.first == "--verify-remote-package", (2...3).contains(args.count), let id = TextUtil.validID(args[1]) {
             var preferences = Preferences()
-            if args.count == 4 { preferences.remotePackageMode = "direct"; preferences.remotePackageURL = args[3] }
-            let files = try await RemoteLuaPackage.fetch(appID: id, preferences: preferences, engine: URL(fileURLWithPath: args[2]))
+            if args.count == 3 { preferences.remotePackageMode = "direct"; preferences.remotePackageURL = args[2] }
+            let files = try await RemoteLuaPackage.fetch(appID: id, preferences: preferences)
             let home = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentRemoteFlow-\(UUID().uuidString)")
             defer { try? FileStore.fm.removeItem(at: home) }
             let service = LibraryService(paths: AppPaths(home: home))
@@ -106,8 +106,8 @@ import MacSteamToolCore
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             print(String(decoding: try encoder.encode(GameStartupDiagnostics.inspect(game)), as: UTF8.self)); return
         }
-        if ["--verify-library-import", "--exercise-library-import"].contains(args.first ?? ""), args.count >= 3 {
-            let files = try await ArchiveIO.importFiles(args.dropFirst(2).map { URL(fileURLWithPath: $0) }, engine: URL(fileURLWithPath: args[1]))
+        if ["--verify-library-import", "--exercise-library-import"].contains(args.first ?? ""), args.count >= 2 {
+            let files = try await ArchiveIO.readImport(args.dropFirst().map { URL(fileURLWithPath: $0) })
             if args.first == "--exercise-library-import" {
                 let home = FileStore.fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("FluentImportFixture-\(UUID().uuidString)")
                 defer { try? FileStore.fm.removeItem(at: home) }
@@ -126,10 +126,15 @@ import MacSteamToolCore
             let report = files.map { ["name": $0.name, "sha256": FileStore.hash($0.data)] }
             print(String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), as: UTF8.self)); return
         }
-        if args.first == "--prepare-official-runtime", args.count == 4 {
-            let engine = URL(fileURLWithPath: args[2]), cache = URL(fileURLWithPath: args[3])
-            let release = try await OfficialRuntimeUpdates.check(args[1], engine: engine)
-            let prepared = try await OfficialRuntimeUpdates.prepare(release, engine: engine, cache: cache)
+        if args.first == "--extract-archive", args.count == 3 {
+            let password = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            try NativeArchive.extract(URL(fileURLWithPath: args[1]), to: URL(fileURLWithPath: args[2]), password: password)
+            return
+        }
+        if args.first == "--prepare-official-runtime", args.count == 3 {
+            let cache = URL(fileURLWithPath: args[2])
+            let release = try await OfficialRuntimeUpdates.check(args[1])
+            let prepared = try await OfficialRuntimeUpdates.prepare(release, cache: cache)
             let report: [String: Any] = ["ok": true, "provider": release.provider, "version": release.version, "sha256": release.sha256, "source": release.url, "application": prepared.application.path, "steamBuilds": prepared.supportedSteamBuilds]
             print(String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), as: UTF8.self)); return
         }

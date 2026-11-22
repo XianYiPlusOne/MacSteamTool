@@ -53,21 +53,20 @@ import Testing
     @Test func remotePackagePreviewRejectsWrongAppAndInvalidLink() async throws {
         let root = FileStore.fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileStore.mkdir(root); defer { try? FileStore.fm.removeItem(at: root) }
-        let engine = URL(fileURLWithPath: "/missing-engine")
         for app in [480, 490] {
             let archive = root.appendingPathComponent("\(app).zip")
             try ArchiveIO.export([ImportFile(name: "\(app).lua", data: Data("addappid(\(app))".utf8))], to: archive)
             let data = try FileStore.read(archive)
             if app == 480 {
-                let files = try await RemoteLuaPackage.extract(data, appID: 480, engine: engine)
+                let files = try await RemoteLuaPackage.extract(data, appID: 480)
                 #expect(files.count == 1); #expect(files.first?.name == "480.lua")
                 let plan = try LibraryService(paths: AppPaths(home: root)).plan(files)
                 #expect(plan.documents.first?.appID == 480)
             } else {
-                await #expect(throws: (any Error).self) { try await RemoteLuaPackage.extract(data, appID: 480, engine: engine) }
+                await #expect(throws: (any Error).self) { try await RemoteLuaPackage.extract(data, appID: 480) }
             }
         }
-        await #expect(throws: (any Error).self) { try await RemoteLuaPackage.extract(Data("<html>error</html>".utf8), appID: 480, engine: engine) }
+        await #expect(throws: (any Error).self) { try await RemoteLuaPackage.extract(Data("<html>error</html>".utf8), appID: 480) }
         let url = try RemoteLuaPackage.proxyURL(Data(#"{"short_code":"abc_123"}"#.utf8))
         #expect(url.absoluteString == "https://short.walftech.com/proxy.php?short=abc_123")
         #expect(throws: (any Error).self) { try RemoteLuaPackage.proxyURL(Data(#"{"short_code":"../evil?x=1"}"#.utf8)) }

@@ -115,6 +115,17 @@ public struct WineLaunch {
     /// currently configured to use this game's other translation backend.
     public static func prepare(appID: Int, command: String, prefix: URL, paths: AppPaths, buildRecord: [String]? = nil) throws -> Self {
         let root = prefix.deletingLastPathComponent()
+        if root.lastPathComponent == LocalWine.prefixDirectory {
+            guard let wine = LocalWine.registered(paths) else { throw AppFailure("请在使用指南中重新选择本机 Wine / Reselect local Wine in the setup guide.") }
+            var env = FreeRuntime.environment()
+            env["PATH"] = wine.deletingLastPathComponent().path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+            env["WINEPREFIX"] = prefix.path
+            let server = wine.deletingLastPathComponent().appendingPathComponent("wineserver")
+            if FileStore.fm.isExecutableFile(atPath: server.path) { env["WINESERVER"] = server.path }
+            env["SteamAppId"] = String(appID); env["SteamGameId"] = String(appID)
+            let args = command.lowercased().hasSuffix(".msi") ? ["msiexec", "/i", command] : [command]
+            return Self(executable: wine, arguments: args, environment: env, prefix: prefix)
+        }
         if root.lastPathComponent == "fluent-free" { return try FreeRuntime.launch(appID: appID, command: command, prefix: prefix, paths: paths) }
         let record = buildRecord ?? (try? FileStore.text(root.appendingPathComponent("notproton-build")))?.components(separatedBy: .newlines)
         let runners = RuntimeStatus.read(paths).runners

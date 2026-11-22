@@ -76,15 +76,6 @@ final class CoreTests {
         expectThrow(try KernelDeployment.mergedPlist(original, library: path + "untrusted.dylib", install: true))
     }
 
-    @Test func onlineExportRoundTripsTokensAndSharedDepots() throws {
-        let json = """
-        {"ok":true,"appID":480,"name":"Spacewar","accessToken":"123456","depots":[{"id":481,"owner":480,"key":"\(key)","result":"OK","manifest":"18446744073709551615"},{"id":484,"owner":483,"key":"\(key)","result":"OK","manifest":"123"}]}
-        """
-        let response = try JSONDecoder().decode(SteamEngineResponse.self, from: Data(json.utf8))
-        let doc = try LuaDocument.parse(response.lua())
-        assertEqual(doc.tokens[480], "123456"); assertEqual(doc.depots.map(\.owner), [480, 483])
-        assertEqual(doc.pins.count, 2)
-    }
 
     @Test func runtimeEvidenceRejectsOldProcessAndReportsFallbackHooks() {
         let log = """

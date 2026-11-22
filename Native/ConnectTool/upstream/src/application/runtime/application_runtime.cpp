@@ -383,6 +383,15 @@ bool ApplicationRuntime::tryInitializeSteam() {
   if (SteamNetworkingUtils()) {
     SteamNetworkingUtils()->SetDebugOutputFunction(k_ESteamNetworkingSocketsDebugOutputType_Msg,
                                                    &steamNetDebugHook);
+#ifdef Q_OS_MACOS
+    // Valve's built-in ICE client works without the Intel-only WebRTC library.
+    // Set the global default before either TCP or TUN creates a connection.
+    constexpr int nativeIce = 1;
+    if (!SteamNetworkingUtils()->SetGlobalConfigValueInt32(
+            k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, nativeIce)) {
+      qWarning() << "Steam rejected the native ICE setting; using Steam's default transport selection.";
+    }
+#endif
   }
 
   roomName_ = defaultRoomName();

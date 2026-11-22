@@ -14,8 +14,10 @@ let package = Package(
     ],
     dependencies: [.package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20")],
     targets: [
-        .target(name: "MacSteamToolCore", dependencies: ["ZIPFoundation"]),
-        .executableTarget(name: "MacSteamTool", dependencies: ["MacSteamToolCore"]),
+        .systemLibrary(name: "CArchive"),
+        .systemLibrary(name: "CMultiplayer"),
+        .target(name: "MacSteamToolCore", dependencies: ["ZIPFoundation", "CArchive"]),
+        .executableTarget(name: "MacSteamTool", dependencies: ["MacSteamToolCore", "CMultiplayer"]),
         .executableTarget(name: "MacSteamToolUpdater", dependencies: ["MacSteamToolCore"]),
         .executableTarget(name: "MacSteamToolRuntime", dependencies: ["MacSteamToolCore"]),
         .executableTarget(name: "MacSteamToolInspect", dependencies: ["MacSteamToolCore"]),

@@ -116,36 +116,6 @@ int fs_store(FSContext *c) {
     if (!fs_ready(c) || !method<bool (*)(void *)>(c->stats, 9 + c->shift)(c->stats)) { if (c) c->error = "Steam refused StoreStats"; return 0; }
     return waitCallback(c, 1102);
 }
-int fs_tickets(FSContext *c, void *ownership, uint32_t capacity, uint32_t *ownership_size, void *encrypted, uint32_t encrypted_capacity, uint32_t *encrypted_size) {
-    if (!fs_ready(c) || !ownership || !encrypted || !ownership_size || !encrypted_size || capacity < 2048 || encrypted_capacity < 4096) return 0;
-    *ownership_size = 0; *encrypted_size = 0;
-    void *ticket = method<void *(*)(void *, int, int, const char *)>(c->client, 12)(c->client, c->user, c->pipe, "STEAMAPPTICKET_INTERFACE_VERSION001");
-    void *user = method<void *(*)(void *, int, int, const char *)>(c->client, 5)(c->client, c->user, c->pipe, "SteamUser023");
-    if (!ticket || !user) { c->error = "Steam ticket interfaces are unavailable"; return 0; }
-    uint32_t app_offset = 0, steam_offset = 0, signature_offset = 0, signature_size = 0;
-    uint32_t written = method<uint32_t (*)(void *, uint32_t, void *, uint32_t, uint32_t *, uint32_t *, uint32_t *, uint32_t *)>(ticket, 0)(ticket, c->app, ownership, capacity, &app_offset, &steam_offset, &signature_offset, &signature_size);
-    if (!written || written > capacity || app_offset > written || written - app_offset < 4) { c->error = "Steam returned no valid ownership ticket"; return 0; }
-    uint32_t embedded_app = 0; std::memcpy(&embedded_app, static_cast<char *>(ownership) + app_offset, 4);
-    if (embedded_app != c->app) { c->error = "Ownership ticket belongs to a different AppID"; return 0; }
-    *ownership_size = written;
-    uint64_t call = method<uint64_t (*)(void *, void *, int)>(user, 21)(user, nullptr, 0);
-    if (!call) { c->error = "Steam refused the encrypted ticket request"; return 0; }
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    bool failed = false, done = false;
-    while (std::chrono::steady_clock::now() < deadline) {
-        done = method<bool (*)(void *, uint64_t, bool *)>(c->utils, 11)(c->utils, call, &failed);
-        if (done || failed) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    int32_t result = 0;
-    if (!done || failed || !method<bool (*)(void *, uint64_t, void *, int, int, bool *)>(c->utils, 13)(c->utils, call, &result, 4, 154, &failed) || failed || result != 1) {
-        c->error = "Steam encrypted ticket request failed, EResult=" + std::to_string(result); return 0;
-    }
-    if (!method<bool (*)(void *, void *, int, uint32_t *)>(user, 22)(user, encrypted, static_cast<int>(encrypted_capacity), encrypted_size) || !*encrypted_size || *encrypted_size > encrypted_capacity) {
-        *encrypted_size = 0; c->error = "Steam returned no valid encrypted ticket"; return 0;
-    }
-    return 1;
-}
 void fs_destroy(FSContext *c) {
     if (!c) return;
     if (c->client && c->pipe) {

@@ -19,7 +19,6 @@ struct AccountsPage: View {
                     }
                 }
             }
-            OnlineAccountPanel()
             RuntimeFeaturesPanel()
         }
     }

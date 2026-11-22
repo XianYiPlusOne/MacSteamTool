@@ -13,7 +13,7 @@ import Testing
         model.libraryInfoFetch = { id in AppInfo(id: id, dictionary: ["common": ["name": "Fixture", "oslist": "windows"], "depots": ["481": ["manifests": ["public": ["gid": "123"]]], "482": ["manifests": ["public": ["gid": "124"]]]]]) }
         return (root, model)
     }
-    @Test func pinnedPreviewCanContinueAfterSteamVerification() async throws {
+    @Test func unverifiedPinnedPreviewCannotCommit() async throws {
         let (root, model) = try fixture()
         defer { try? FileStore.fm.removeItem(at: root) }
         let app = 2852190
@@ -24,7 +24,7 @@ import Testing
             ]])
         }
         model.libraryKeyFetch = { _ in [:] }
-        model.remotePackageFetch = { _, _, _ in
+        model.remotePackageFetch = { _, _ in
             let lua = """
             addappid(\(app))
             addappid(\(depot), 1, "\(key)")
@@ -35,23 +35,15 @@ import Testing
         model.libraryPackageFallbacks = { _ in [("Fixture fallback", { Issue.record("Unexpected fallback"); return [] })] }
         model.addToLibrary(app, dlc: false)
         await model.operation?.value
-        #expect(model.pendingImport?.verificationDepots == [depot])
-        model.authorizedRepairFetch = { id, depots, _ in
-            #expect(id == app && depots == [depot])
-            let json = try JSONSerialization.data(withJSONObject: ["ok": true, "appID": app,
-                "depots": [["id": depot, "owner": app, "sourceApp": app, "key": key, "result": "OK", "manifest": "123"]]])
-            return try JSONDecoder().decode(SteamEngineResponse.self, from: json)
-        }
-        model.repairAuthorizedContent()
+        #expect(model.pendingImport?.complete == false)
+        model.commitImport()
         await model.operation?.value
-        #expect(model.pendingImport?.complete == true)
-        #expect(model.pendingImport?.verificationDepots.isEmpty == true)
-        #expect(model.pendingImport?.plan.documents.first?.pins.first?.active == true)
+        #expect(try SteamLibrary.games(model.paths).isEmpty)
     }
     @Test func progressModalAppearsSynchronouslyAndKeepsFullLog() async throws {
         let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         model.libraryKeyFetch = { _ in [481: key] }
-        model.remotePackageFetch = { _, _, _ in throw AppFailure("Fixture remote offline") }
+        model.remotePackageFetch = { _, _ in throw AppFailure("Fixture remote offline") }
         model.addToLibrary(480, dlc: false)
         #expect(model.busy); #expect(model.importWorkflowPresented)
         #expect(model.importActivity?.appID == 480)
@@ -75,7 +67,7 @@ import Testing
                 if cancelled { throw CancellationError() }
                 throw AppFailure("Fixture cache offline")
             }
-            model.remotePackageFetch = { _, _, _ in throw AppFailure("Fixture remote offline") }
+            model.remotePackageFetch = { _, _ in throw AppFailure("Fixture remote offline") }
             model.addToLibrary(480, dlc: false); await model.operation?.value
             #expect(model.importActivity?.finished == true)
             #expect(model.importActivity?.failed == !cancelled)
@@ -99,7 +91,7 @@ import Testing
         let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         var reads = 0
         model.libraryKeyFetch = { refresh in #expect(!refresh); reads += 1; return [481: key, 482: key] }
-        model.remotePackageFetch = { _, _, _ in Issue.record("Complete local content must not fetch remote"); return [] }
+        model.remotePackageFetch = { _, _ in Issue.record("Complete local content must not fetch remote"); return [] }
         model.addToLibrary(480, dlc: true); await model.operation?.value
         #expect(model.message == nil); #expect(model.pendingImport != nil); #expect(!model.needsRestart)
         #expect(model.pendingImport?.complete == true)
@@ -118,7 +110,7 @@ import Testing
     @Test func incompleteContentCannotBeCommitted() async throws {
         let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         model.libraryKeyFetch = { _ in [481: key] }
-        model.remotePackageFetch = { _, _, _ in throw AppFailure("Unavailable") }
+        model.remotePackageFetch = { _, _ in throw AppFailure("Unavailable") }
         model.addToLibrary(480, dlc: false); await model.operation?.value
         #expect(model.message == nil); #expect(!model.needsRestart)
         #expect(model.pendingImport?.plan.warnings.contains { $0.contains("482") } == true)
@@ -136,7 +128,7 @@ import Testing
             let (root, model) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
             var remoteCalls = 0
             model.libraryKeyFetch = { _ in if cancelled { throw CancellationError() }; throw AppFailure("No keys") }
-            model.remotePackageFetch = { _, _, _ in remoteCalls += 1; throw AppFailure("No remote package") }
+            model.remotePackageFetch = { _, _ in remoteCalls += 1; throw AppFailure("No remote package") }
             model.addToLibrary(480, dlc: false); await model.operation?.value
             #expect(model.pendingImport == nil); #expect(model.games.isEmpty)
             #expect(!FileStore.fm.fileExists(atPath: model.paths.config.path)); #expect(model.backups.isEmpty)
@@ -193,7 +185,7 @@ import Testing
         try FileStore.write(Data(original.utf8), to: file)
         model.refresh()
         model.libraryKeyFetch = { _ in [481: key] }
-        model.remotePackageFetch = { _, _, _ in throw AppFailure("Unavailable") }
+        model.remotePackageFetch = { _, _ in throw AppFailure("Unavailable") }
         model.addToLibrary(480, dlc: false); await model.operation?.value
         #expect(model.pendingImport?.complete == false)
         model.commitImport(); await model.operation?.value

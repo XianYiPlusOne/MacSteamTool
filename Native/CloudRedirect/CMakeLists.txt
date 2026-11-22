@@ -85,7 +85,7 @@ target_link_libraries(FluentAchievementProbe PRIVATE cloud_redirect)
 add_executable(FluentMultiplayerPresenceTest tests/multiplayer_presence_test.cpp)
 target_include_directories(FluentMultiplayerPresenceTest PRIVATE common macos)
 target_link_libraries(FluentMultiplayerPresenceTest PRIVATE cloud_redirect)
-set_target_properties(FluentMultiplayerPresenceTest PROPERTIES OUTPUT_NAME MacSteamToolConnect
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture.app/Contents/Resources/Helpers/ConnectTool/MacOS")
+set_target_properties(FluentMultiplayerPresenceTest PROPERTIES OUTPUT_NAME MacSteamTool
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture.app/Contents/MacOS")
 enable_testing()
 add_test(NAME multiplayer_presence COMMAND FluentMultiplayerPresenceTest)

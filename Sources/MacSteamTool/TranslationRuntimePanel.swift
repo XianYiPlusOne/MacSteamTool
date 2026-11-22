@@ -11,7 +11,7 @@ struct TranslationRuntimePanel: View {
         Panel {
             VStack(alignment: .leading, spacing: 12) {
                 Label(model.tr("游戏兼容层", "Game translation backends"), systemImage: "cpu").font(.headline)
-                if flow.ready { Label(model.tr("原生 Steam 接入已就绪 · 自动管理", "Native Steam integration ready · Managed automatically"), systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary) }
+                if flow.ready && !model.testing { Label(model.tr("原生 Steam 接入已就绪 · 自动管理", "Native Steam integration ready · Managed automatically"), systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary) }
                 Picker(model.tr("添加兼容层", "Add a backend"), selection: $useCrossOver) {
                     Text("Wine").tag(false)
                     Text(model.tr("已购买的 CrossOver", "Purchased CrossOver")).tag(true)
@@ -26,11 +26,16 @@ struct TranslationRuntimePanel: View {
                             if panel.runModal() == .OK, let url = panel.url { crossOver = url.path }
                         }
                     }
-                    Text(model.tr("首次使用需要联网准备必要文件。CrossOver 许可由用户持有。", "The first setup needs an internet connection to prepare the required files. The user supplies the CrossOver license.")).font(.caption).foregroundStyle(.secondary)
+                    if model.testing {
+                        Text(model.tr("隔离预览将验证所选 CrossOver 应用。", "The isolated session verifies the selected CrossOver app.")).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(model.tr("首次使用需要联网准备必要文件。CrossOver 许可由用户持有。", "The first setup needs an internet connection to prepare the required files. The user supplies the CrossOver license.")).font(.caption).foregroundStyle(.secondary)
+                    }
                 } else {
+                    Button(model.tr("在使用指南中检测已有 Wine 或 CrossOver", "Find an existing Wine or CrossOver in the setup guide")) { model.page = .guide }.buttonStyle(.link)
                     Text(model.tr("首次准备会下载 Wine、DXVK 和 D3DMetal。每个游戏可在 Steam「属性 → 兼容性」里选择图形后端、高分辨率和其他选项。", "Setup downloads Wine, DXVK and D3DMetal. Choose a renderer, High Resolution and other options in each game’s Steam Properties → Compatibility.")).font(.subheadline)
                     Link(model.tr("Wine 运行器来源与版本", "Wine runtime source and release"), destination: URL(string: "https://github.com/Drustburn/steamplay-mac/releases/tag/v2026.10.13")!).font(.caption)
-                    Text(FreeRuntime.installedRoot(model.paths) == nil ? model.tr("Wine 尚未安装", "Wine is not installed") : FreeRuntime.graphicsReady(model.paths) ? model.tr("Wine 已安装", "Wine is installed") : model.tr("当前为旧版 Wine。选择「使用 Wine」更新图形组件。", "Select Use Wine to update this installation’s graphics components.")).font(.caption).foregroundStyle(.secondary)
+                    Text(FreeRuntime.installedRoot(model.testing ? model.defaults : model.paths) == nil ? model.tr("MacSteamTool Wine 尚未安装", "MacSteamTool Wine is not installed") : FreeRuntime.graphicsReady(model.testing ? model.defaults : model.paths) ? model.tr("Wine 已安装", "Wine is installed") : model.tr("当前为旧版 Wine。选择「使用 Wine」更新图形组件。", "Select Use Wine to update this installation’s graphics components.")).font(.caption).foregroundStyle(.secondary)
                 }
                 HStack {
                     Button(useCrossOver ? model.tr("使用 CrossOver", "Use CrossOver") : model.tr("使用 Wine", "Use Wine")) {
@@ -39,8 +44,10 @@ struct TranslationRuntimePanel: View {
                         .disabled(model.busy || (useCrossOver && crossOver.isEmpty))
                     if flow.pendingBackend != nil { Text(model.tr("已记住选择，正在等待自动准备", "Choice saved; automatic preparation is pending")).font(.caption).foregroundStyle(.secondary) }
                 }
-                RuntimeCompatibilityDefaults(useCrossOver: useCrossOver, state: flow.state)
-                Text(model.tr("选择后会设为默认兼容层；已单独指定运行器的游戏保持原选择。Wine 与 CrossOver 使用独立环境，已有存档保留。", "Your choice becomes the default backend. Games with individual runtime settings keep their choices. Wine and CrossOver use separate environments; existing saves are preserved.")).font(.caption).foregroundStyle(.secondary)
+                if !model.testing {
+                    RuntimeCompatibilityDefaults(useCrossOver: useCrossOver, state: flow.state)
+                    Text(model.tr("选择后会设为默认兼容层；已单独指定运行器的游戏保持原选择。Wine 与 CrossOver 使用独立环境，已有存档保留。", "Your choice becomes the default backend. Games with individual runtime settings keep their choices. Wine and CrossOver use separate environments; existing saves are preserved.")).font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -107,7 +114,7 @@ private struct RuntimeCompatibilityDefaults: View {
     private func reload() {
         do {
             backends = try GameContainers.backends(model.paths).filter {
-                useCrossOver ? !$0.isWine : $0.isWine && FreeRuntime.graphicsReady(model.paths)
+                useCrossOver ? !$0.isWine : $0.runtime == .managedWine && FreeRuntime.graphicsReady(model.paths)
             }
             if !backends.contains(where: { $0.id == selectedID }) { selectedID = backends.first?.id ?? "" }
             readSettings()

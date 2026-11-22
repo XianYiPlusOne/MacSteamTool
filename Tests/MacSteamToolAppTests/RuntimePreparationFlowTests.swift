@@ -4,6 +4,60 @@ import Testing
 @testable import MacSteamTool
 
 @Suite @MainActor struct RuntimePreparationFlowTests {
+    @Test func guideSteamInstallStagesLeadToBackendChoice() {
+        let target = URL(fileURLWithPath: "/Applications/Steam.app")
+        let found = GuideEnvironment(steam: target, wineInstalled: false, activeBackend: nil)
+        #expect(GuideStep(environment: nil, runtime: .checking, hasPendingChoice: false, installer: .downloading) == .downloadingSteam)
+        #expect(GuideStep(environment: nil, runtime: .ready, hasPendingChoice: false, installer: .installing) == .installingSteam)
+        #expect(GuideStep(environment: nil, runtime: .checking, hasPendingChoice: false, installer: .failed("offline")) == .steamFailure("offline"))
+        #expect(GuideStep(environment: found, runtime: .checking, hasPendingChoice: false, installer: .installed(target)) == .choice)
+    }
+
+    @Test func guideInstallerKeepsAnOccupiedDestination() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(fixtureHome: home)
+        let target = home.appendingPathComponent("Applications/Steam.app")
+        let bytes = Data("existing file".utf8)
+        try FileStore.write(bytes, to: target)
+        await model.installSteamFromGuide()
+        guard case .failed = model.guideSteamInstallation else { Issue.record("Expected an install error"); return }
+        #expect(try Data(contentsOf: target) == bytes)
+    }
+
+    @Test func guideAdvancesOnlyWhenTheUsersSetupIsReady() {
+        let steam = URL(fileURLWithPath: "/Applications/Steam.app")
+        let clean = GuideEnvironment(steam: steam, wineInstalled: false, activeBackend: nil)
+        let ready = GuideEnvironment(steam: steam, wineInstalled: true, activeBackend: "Wine")
+        let missing = GuideEnvironment(steam: nil, wineInstalled: true, activeBackend: "Wine")
+        #expect(GuideStep(environment: nil, runtime: .ready, hasPendingChoice: false) == .checking)
+        #expect(GuideStep(environment: missing, runtime: .ready, hasPendingChoice: false) == .steam)
+        #expect(GuideStep(environment: clean, runtime: .ready, hasPendingChoice: false) == .choice)
+        #expect(GuideStep(environment: clean, runtime: .wineNotInstalled, hasPendingChoice: false) == .choice)
+        #expect(GuideStep(environment: ready, runtime: .ready, hasPendingChoice: true) == .checking)
+        #expect(GuideStep(environment: ready, runtime: .ready, hasPendingChoice: false) == .complete)
+        #expect(GuideStep(environment: nil, runtime: .needsRosetta, hasPendingChoice: true) == .rosetta)
+        #expect(GuideStep(environment: ready, runtime: .waitingForSteam, hasPendingChoice: true) == .quitSteam)
+        #expect(GuideStep(environment: clean, runtime: .failed("offline"), hasPendingChoice: true) == .failure("offline"))
+    }
+    @Test func isolatedCrossOverChoiceChecksTheAppAndLeavesSteamUntouched() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(fixtureHome: home)
+        let app = home.appendingPathComponent("CrossOver.app")
+        let flow = model.runtimePreparation
+        await flow.choose(.crossOver(app))
+        guard case .failed = flow.state else { Issue.record("Missing CrossOver should require another choice"); return }
+        let info = ["CFBundleIdentifier": "com.codeweavers.CrossOver", "CFBundlePackageType": "APPL"]
+        try FileStore.write(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0), to: app.appendingPathComponent("Contents/Info.plist"))
+        let runner = app.appendingPathComponent("Contents/SharedSupport/CrossOver/bin/wine")
+        try FileStore.write(Data(), to: runner)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runner.path)
+        await flow.choose(.crossOver(app))
+        #expect(flow.ready && model.previewCrossOver == app)
+        #expect(!FileManager.default.fileExists(atPath: model.defaults.steam.path))
+        #expect(!FileManager.default.fileExists(atPath: FreeRuntime.root(model.defaults).path))
+    }
     @Test func guideOpensOnceAndSetupRemainsPendingAcrossLaunches() {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -13,6 +67,105 @@ import Testing
         let next = AppModel(fixtureHome: home)
         #expect(next.page == .library)
         #expect(!next.runtimePreparation.ready)
+    }
+
+    @Test func guideReusesLocalWineAndLaunchesWithItsOwnPrefix() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(fixtureHome: home), paths = model.defaults
+        let wine = home.appendingPathComponent(".local/bin/wine")
+        let script = #"""
+        #!/bin/sh
+        if [ "$1" = --version ]; then echo wine-11.0; exit 0; fi
+        printf '%s\n' "$WINEPREFIX" "$@"
+        """#
+        try FileStore.write(Data(script.utf8), to: wine)
+        try FileStore.fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wine.path)
+        func snapshot() -> GuideEnvironment {
+            GuideEnvironment.read(paths: paths, isolated: true, previewCrossOver: nil, home: home)
+        }
+        #expect(snapshot().detectedWine == wine)
+        #expect(snapshot().activeBackend == nil)
+        await model.runtimePreparation.choose(.localWine(wine))
+        #expect(model.runtimePreparation.ready)
+        #expect(snapshot().activeBackend == "Wine")
+        #expect(LocalWine.registered(paths) == wine)
+        #expect(LocalWine.isDefault(paths))
+        #expect(!FileStore.fm.fileExists(atPath: paths.cache.appendingPathComponent("FreeRuntime").path))
+        let root = paths.steam.appendingPathComponent("steamapps/compatdata/123")
+        let tool = paths.steam.appendingPathComponent("compatibilitytools.d").appendingPathComponent(LocalWine.toolID).appendingPathComponent("run")
+        var env = FreeRuntime.environment()
+        env["STEAM_COMPAT_DATA_PATH"] = root.path
+        let (queryStatus, query) = try await ProcessRunner.run(tool, ["getcompatpath"], environment: env)
+        #expect(queryStatus == 0)
+        let data = root.appendingPathComponent("macsteamtool-local-wine")
+        #expect(query.trimmingCharacters(in: .newlines) == data.path)
+        env["STEAM_COMPAT_DATA_PATH"] = data.path
+        let args = ["game with spaces.exe", "$(literal)", "A & B"]
+        let (status, output) = try await ProcessRunner.run(tool, ["waitforexitandrun"] + args, environment: env)
+        let prefix = data.appendingPathComponent("pfx")
+        #expect(status == 0)
+        #expect(output.components(separatedBy: "\n") == [prefix.path] + args + [""])
+        try FileStore.mkdir(prefix)
+        let launch = try WineLaunch.prepare(appID: 123, command: "winecfg", paths: paths)
+        #expect(launch.executable == wine)
+        let launchedPrefix = try #require(launch.environment["WINEPREFIX"])
+        #expect(URL(fileURLWithPath: launchedPrefix).resolvingSymlinksInPath().path == prefix.resolvingSymlinksInPath().path)
+        let container = try #require(GameContainers.all(paths).first { $0.runtime == .localWine })
+        #expect(try GameContainers.backend(for: container, paths: paths)?.id == LocalWine.toolID)
+        let backup = try await GameContainers.backup(container, paths: paths, requireIdle: {})
+        #expect(backup.runtime == .localWine)
+        #expect(GameContainers.backups(GameContainer(appID: 123, library: paths.steam, isWine: true), paths: paths).isEmpty)
+        let relaunched = AppModel(fixtureHome: home)
+        await relaunched.runtimePreparation.reconcile()
+        #expect(relaunched.runtimePreparation.ready)
+        try FileStore.fm.removeItem(at: wine)
+        await relaunched.runtimePreparation.reconcile()
+        #expect(relaunched.runtimePreparation.state == .wineNotInstalled)
+        #expect(snapshot().activeBackend == nil)
+    }
+
+    @Test func isolatedFirstLaunchLeavesCheckingAndWineChoiceReachesInstaller() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(fixtureHome: home)
+        let flow = model.runtimePreparation
+        await model.bootstrap()
+        defer { model.timer?.invalidate() }
+        for _ in 0..<100 where flow.state == .checking { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(flow.state == .wineNotInstalled)
+        var attempts = 0
+        flow.installBackend = { backend in
+            #expect(backend == .wine)
+            attempts += 1
+            throw AppFailure("offline")
+        }
+        model.chooseTranslationBackend(.wine)
+        for _ in 0..<100 where attempts == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(flow.state == .failed("offline"))
+        #expect(!model.busy)
+        await flow.reconcile()
+        #expect(attempts == 1)
+        await flow.reconcile(retry: true)
+        #expect(attempts == 2)
+    }
+
+    @Test func isolatedWineChoiceVerifiesTheSessionArchive() async throws {
+        guard await OneClickSetup.rosettaAvailable() else { return }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(fixtureHome: home)
+        let archive = model.defaults.cache.appendingPathComponent("FreeRuntime").appendingPathComponent(FreeRuntime.assetName)
+        try FileStore.write(Data("incomplete download".utf8), to: archive)
+        let flow = model.runtimePreparation
+        await flow.choose(.wine)
+        guard case .failed(let message) = flow.state else {
+            Issue.record("An invalid session archive must stop installation")
+            return
+        }
+        #expect(message.contains("digest mismatch"))
+        #expect(!FileManager.default.fileExists(atPath: archive.path))
+        #expect(FreeRuntime.installedRoot(model.defaults) == nil)
     }
 
     @Test func existingSettingsKeepTheLibraryAsTheStartupPage() throws {

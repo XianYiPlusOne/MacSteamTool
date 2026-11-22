@@ -11,7 +11,7 @@ struct RuntimeFeaturesPanel: View {
     var body: some View {
         Panel {
             Text(model.tr("票据消费与好友广播", "Ticket consumption and friend presence")).font(.headline)
-            Text(model.tr("由原生扩展处理 macSteam 与 NotProton 游戏的 Steam 请求。扫码登录可以暂缓；本地票据来自已登录的 Steam。", "The native extension handles Steam requests from macSteam and NotProton games. Local tickets use the signed-in Steam client.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("由原生扩展处理 macSteam 与 NotProton 游戏的 Steam 请求。可导入本机保存的票据。", "The native extension handles Steam requests from macSteam and NotProton games. You can import tickets saved on this Mac.")).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button(model.tr("安装 / 更新原生扩展", "Install / update native extension")) { deploy() }.disabled(model.busy || model.steamRunning)
                 Text(model.tr("安装前需退出 Steam；会完整备份原应用。", "Quit Steam before installing. The original app is backed up.")).font(.caption).foregroundStyle(.secondary)
@@ -67,7 +67,7 @@ struct RuntimeFeaturesPanel: View {
                 Button(model.tr("导入原版票据文本…", "Import ticket text…")) { importText() }
                 Button(model.tr("导入双票据文件夹…", "Import ticket folder…")) { importFolder() }
             }.disabled(model.busy)
-            if config.tickets.isEmpty { Text(model.tr("暂无票据。可在上方提取本地票据后导入。", "No tickets. Extract local tickets above, then import them.")).font(.caption).foregroundStyle(.secondary) }
+            if config.tickets.isEmpty { Text(model.tr("暂无票据。可从本机文件导入。", "No tickets. Import a ticket file from this Mac.")).font(.caption).foregroundStyle(.secondary) }
             ForEach(config.tickets.keys.sorted(), id: \.self) { key in
                 HStack {
                     Text("App \(key)").font(.system(.body, design: .monospaced))

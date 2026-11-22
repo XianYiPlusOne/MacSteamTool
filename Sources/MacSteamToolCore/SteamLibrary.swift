@@ -31,6 +31,13 @@ public enum SteamLibrary {
         var seen = Set<String>()
         return roots.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
+    private static func selectedPrefix(_ config: Data?, appID: Int, root: URL) -> URL? {
+        switch SteamCompatibility.selectedTool(config, appID: appID) {
+        case FreeRuntime.toolID: return FreeRuntime.prefix(in: root)
+        case LocalWine.toolID: return root.appendingPathComponent(LocalWine.prefixDirectory).appendingPathComponent("pfx")
+        default: return nil
+        }
+    }
     public static func installed(_ paths: AppPaths) -> [InstalledGame] {
         var result: [InstalledGame] = []
         let compatibility = try? FileStore.read(paths.steam.appendingPathComponent("config/config.vdf"))
@@ -46,7 +53,7 @@ public enum SteamLibrary {
                 result.append(InstalledGame(id: id, name: app.string("name") ?? "App \(id)", library: library,
                                             folder: library.appendingPathComponent("steamapps/common/\(dir)"),
                                             buildID: app.string("buildid") ?? "", bytes: Int64(app.string("SizeOnDisk") ?? "0") ?? 0, depots: depots,
-                                            selectedPrefix: FreeRuntime.selected(compatibility, appID: id) ? FreeRuntime.prefix(in: library.appendingPathComponent("steamapps/compatdata/\(id)")) : nil))
+                                            selectedPrefix: selectedPrefix(compatibility, appID: id, root: library.appendingPathComponent("steamapps/compatdata/\(id)"))))
             }
         }
         return result
@@ -56,7 +63,7 @@ public enum SteamLibrary {
         return libraries(paths).flatMap { library in
             FileStore.files(library.appendingPathComponent("steamapps/compatdata")).compactMap { root in
                 guard let id = TextUtil.validID(root.lastPathComponent) else { return nil }
-                let pfx = FreeRuntime.selected(compatibility, appID: id) ? FreeRuntime.prefix(in: root) : root.appendingPathComponent("pfx")
+                let pfx = selectedPrefix(compatibility, appID: id, root: root) ?? root.appendingPathComponent("pfx")
                 guard FileStore.fm.fileExists(atPath: pfx.path) else { return nil }
                 return (id, pfx)
             }

@@ -36,19 +36,21 @@ struct OfflineSchemaTests {
         #expect(throws: (any Error).self) { try OfflineSchema.fromBinary(Data(bytes), appID: 101, language: "english") }
         #expect(throws: (any Error).self) { try VDF.binary(Data(bytes.dropLast(3))) }
     }
-    @Test func combinedOfflineInstallAndRestoreUseOneReceipt() throws {
+    @Test func existingOfflineBackupRestoresAllFilesAfterReload() throws {
         let root = FileStore.fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("OfflineCombined-\(UUID().uuidString)")
         defer { try? FileStore.fm.removeItem(at: root) }
         let p = AppPaths(home: root, data: root.appendingPathComponent("Data")), game = root.appendingPathComponent("Game").standardizedFileURL
         try FileStore.write(Data("original exe".utf8), to: game.appendingPathComponent("Game.exe"))
         try FileStore.write(Data("original api".utf8), to: game.appendingPathComponent("steam_api64.dll"))
-        let a = root.appendingPathComponent("Unpacked"), b = root.appendingPathComponent("Goldberg")
-        try FileStore.write(Data("unpacked exe".utf8), to: a.appendingPathComponent("Game.exe"))
-        try FileStore.write(Data("new api".utf8), to: b.appendingPathComponent("steam_api64.dll"))
-        try FileStore.write(Data("[]".utf8), to: b.appendingPathComponent("steam_settings/stats.json"))
-        let plan = try OfflineTools.combined([GamePatches.plan(package: a, gameRoot: game, appID: 100), GamePatches.plan(package: b, gameRoot: game, appID: 100)])
-        let receipt = try GamePatches.install(plan, paths: p)
-        #expect(receipt.deployed.count == 3); #expect(GamePatches.receipts(paths: p).count == 1)
+        let staged = root.appendingPathComponent("Steamless + Goldberg") // source label saved by build 39
+        try FileStore.write(Data("previous exe".utf8), to: staged.appendingPathComponent("Game.exe"))
+        try FileStore.write(Data("previous api".utf8), to: staged.appendingPathComponent("steam_api64.dll"))
+        try FileStore.write(Data("[]".utf8), to: staged.appendingPathComponent("steam_settings/stats.json"))
+        let plan = try GamePatches.plan(package: staged, gameRoot: game, appID: 100)
+        _ = try GamePatches.install(plan, paths: p)
+        let receipt = try #require(GamePatches.receipts(paths: p).first)
+        #expect(receipt.source == "Steamless + Goldberg")
+        #expect(receipt.deployed.count == 3)
         try GamePatches.restore(receipt, paths: p)
         #expect(try FileStore.text(game.appendingPathComponent("Game.exe")) == "original exe")
         #expect(try FileStore.text(game.appendingPathComponent("steam_api64.dll")) == "original api")

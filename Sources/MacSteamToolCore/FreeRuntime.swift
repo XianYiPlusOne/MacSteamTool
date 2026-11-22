@@ -34,14 +34,11 @@ public enum FreeRuntime {
                 "runner/lib/external/D3DMetal.framework/D3DMetal"]).allSatisfy { FileStore.fm.fileExists(atPath: root.appendingPathComponent($0).path) }
     }
     public static func selected(_ data: Data?, appID: Int) -> Bool {
-        guard let data else { return false }
-        // An explicit empty mapping is a manual choice, not the global default.
-        if let mapping = try? SteamCompatibility.mapping(data, appID: appID) { return mapping.string("name") == toolID }
-        return (try? SteamCompatibility.globalTool(data)) == toolID
+        SteamCompatibility.selectedTool(data, appID: appID) == toolID
     }
     public static func prefix(in compatibilityData: URL) -> URL { compatibilityData.appendingPathComponent("fluent-free/pfx") }
 
-    public static func install(paths: AppPaths, resources: URL, archive supplied: URL? = nil, cloudHelper: URL? = nil,
+    public static func install(paths: AppPaths, resources: URL, archive supplied: URL? = nil, cloudHelper: URL? = nil, installerHome: URL? = nil,
                                steamRunning: @escaping @Sendable () -> Bool = { SteamProcesses.isRunning },
                                progress: @escaping @Sendable (String) async -> Void = { _ in }) async throws {
         let fm = FileStore.fm, support = root(paths), lock = support.appendingPathComponent("install.lock")
@@ -64,8 +61,13 @@ public enum FreeRuntime {
         let archive = try await prepareArchive(paths: paths, archive: supplied, progress: progress)
         try reuseValvePackages(paths: paths, resources: resources)
         await progress("安装图形后端与 Steam 桥接组件 / Preparing graphics backends and Steam bridge…")
+        var installerEnvironment = environment()
+        if let installerHome {
+            installerEnvironment["HOME"] = installerHome.path
+            installerEnvironment["CFFIXED_USER_HOME"] = installerHome.path
+        }
         let (status, output) = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/bash"),
-            [resources.appendingPathComponent("prepare.sh").path, archive.path, version.path, cache.path], environment: environment())
+            [resources.appendingPathComponent("prepare.sh").path, archive.path, version.path, cache.path], environment: installerEnvironment)
         guard status == 0 else { throw AppFailure("免费运行器安装失败 / Free runtime preparation failed:\n\(output.suffix(4000))") }
         if let previous = installedRoot(paths) {
             let legacy = previous.appendingPathComponent("global.env")

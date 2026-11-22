@@ -15,7 +15,7 @@ public struct ManagedRuntimeComponent: Codable, Sendable {
 public enum ManagedRuntimeComponents {
     /// The initial one-click track uses the versions exercised with our adapter.
     public static let versions = ["macsteam": "0.8.2", "notproton": "1.2.3"]
-    public static func prepare(provider: String, paths: AppPaths, engine: URL, localApplication: URL? = nil, application: URL? = nil) async throws -> ManagedRuntimeComponent {
+    public static func prepare(provider: String, paths: AppPaths, localApplication: URL? = nil, application: URL? = nil) async throws -> ManagedRuntimeComponent {
         guard let version = versions[provider] else { throw AppFailure("未知组件 / Unknown component") }
         let folder = paths.data.appendingPathComponent("Components/\(provider)/\(version)")
         if let application, localApplication == nil {

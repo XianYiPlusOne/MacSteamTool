@@ -5,12 +5,13 @@ import MacSteamToolCore
 /// Coordinates automatic initialization and a user's queued backend choice.
 /// Waiting states release the UI; repeated ticks never repeat a failed mutation.
 @MainActor final class RuntimePreparationController: ObservableObject {
-    enum State: Equatable { case checking, preparing, waitingForSteam, needsRosetta, installing, ready, failed(String) }
-    enum Backend: Equatable { case wine, crossOver(URL) }
+    enum State: Equatable { case checking, preparing, waitingForSteam, needsRosetta, installing, wineNotInstalled, ready, failed(String) }
+    enum Backend: Equatable { case wine, localWine(URL), crossOver(URL) }
     @Published private(set) var state: State = .checking { didSet { stateChanged(state) } }
     @Published private(set) var pendingBackend: Backend?
     @Published private(set) var detail = ""
     var stateChanged: (State) -> Void = { _ in }
+    var idleState: () -> State = { .ready }
     var completed: () -> Void = {}
     var mayStart: () -> Bool = { true }
     var inspect: () async throws -> Bool = { false }
@@ -46,7 +47,12 @@ import MacSteamToolCore
             let needed = try await inspect()
             guard mayStart() else { return }
             if let backend = pendingBackend, try await backendReady(backend) { pendingBackend = nil }
-            if !needed && pendingBackend == nil { state = .ready; completed(); return }
+            if !needed && pendingBackend == nil {
+                let idle = idleState()
+                if state != idle { state = idle }
+                if ready { completed() }
+                return
+            }
             if steamRunning() { state = .waitingForSteam; return }
             state = .preparing; detail = ""
             if needed { try await prepare() }

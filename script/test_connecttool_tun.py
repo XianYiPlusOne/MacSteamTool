@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 
-helper = str(Path(sys.argv[1] if len(sys.argv) > 1 else 'work/connecttool-native-build/connecttool-tun-daemon').resolve())
+helper = str(Path(sys.argv[1] if len(sys.argv) > 1 else 'outputs/MacSteamTool.app/Contents/Resources/Helpers/ConnectTool/Resources/connecttool-tun-daemon').resolve())
 with tempfile.TemporaryDirectory(prefix='fluent-tun-') as temp:
     path = str(Path(temp) / 'helper.sock')
     env = dict(os.environ, CONNECTTOOL_TUN_HELPER_SOCKET=path)

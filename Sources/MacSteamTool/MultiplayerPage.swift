@@ -17,17 +17,17 @@ private struct ConnectToolPage: View {
             }
             HStack {
                 Circle().fill(client.state.steamReady == true ? Palette.green : Palette.amber).frame(width: 8, height: 8)
-                Text(client.state.status ?? client.statusText(model))
+                Text(client.statusText(model))
                 Spacer()
-                if client.running && client.state.steamReady != true { Button(model.tr("打开 Steam", "Open Steam")) { model.openSteamClientURL("steam://open/main") } }
                 if let id = client.state.selfSteamId, !id.isEmpty { Text("SteamID \(id)").font(.caption.monospaced()).textSelection(.enabled) }
             }.font(.callout)
+            MultiplayerSteamPrompt(client: client)
             MultiplayerFailureNotice(client: client)
             Picker("", selection: $section) {
                 Text(model.tr("房间", "Room")).tag("room")
                 Text(model.tr("公开大厅", "Lobbies")).tag("lobbies")
                 Text(model.tr("网络状态", "Network")).tag("network")
-                Text(model.tr("说明与版本", "About")).tag("about")
+                Text(model.tr("协议说明", "About")).tag("about")
             }.pickerStyle(.segmented).labelsHidden()
             switch section {
             case "lobbies": ConnectLobbies(client: client)
@@ -52,10 +52,10 @@ private struct ConnectSession: View {
                 Picker(model.tr("联机模式", "Mode"), selection: $client.mode) {
                     Text(model.tr("TCP 转发", "TCP forwarding")).tag(0)
                     Text(model.tr("TUN 虚拟局域网", "TUN virtual LAN")).tag(1)
-                }.frame(width: 260).disabled(client.state.active)
+                }.frame(width: 260).disabled(client.state.active || client.starting)
                 Spacer()
-                if client.state.active {
-                    Button(model.tr("断开连接", "Disconnect")) { client.send("disconnect") }.buttonStyle(.borderedProminent)
+                if client.state.active || client.starting {
+                    Button(model.tr("断开连接", "Disconnect")) { client.disconnect() }.buttonStyle(.borderedProminent)
                 } else {
                     Button(model.tr("创建房间", "Create room")) { client.connect(host: true) }.disabled(client.state.steamReady != true)
                     Button(model.tr("加入房间", "Join room")) { client.connect(host: false) }.buttonStyle(.borderedProminent).disabled(client.state.steamReady != true || client.target.isEmpty)
@@ -65,7 +65,7 @@ private struct ConnectSession: View {
                 TextField(model.tr("房间 ID 或房主 SteamID64", "Room ID or host SteamID64"), text: $client.target).textFieldStyle(.roundedBorder)
                 TextField(model.tr("创建房间的名称", "Name for your room"), text: $client.roomName).textFieldStyle(.roundedBorder)
                 Toggle(model.tr("公开房间", "Public room"), isOn: $client.published)
-            }.disabled(client.state.active)
+            }.disabled(client.state.active || client.starting)
             if client.mode == 0 {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -77,7 +77,7 @@ private struct ConnectSession: View {
                         TextField("8888", text: $client.bindPort).textFieldStyle(.roundedBorder)
                     }
                     Text(model.tr("加入后连接 localhost:", "After joining, connect to localhost:") + (client.state.active ? String(client.state.localBindPort ?? 8888) : client.bindPort)).font(.caption).textSelection(.enabled)
-                }.disabled(client.state.active)
+                }.disabled(client.state.active || client.starting)
             } else if client.running {
                 ConnectTunSetup(setup: client.tun, active: client.state.active)
                 if let ip = client.state.tunLocalIp, !ip.isEmpty { CopyValue(title: model.tr("本机 IP", "Local IP"), value: ip) }
@@ -114,12 +114,39 @@ private struct ConnectTunSetup: View {
     }
 }
 struct CopyValue: View {
+    @EnvironmentObject var model: AppModel
     let title: String
     let value: String
+    var buttonTitle: String? = nil
+    @ViewState private var copied = false
+
+    func copy(to pasteboard: NSPasteboard) -> Bool {
+        guard !value.isEmpty else { return false }
+        pasteboard.clearContents()
+        return pasteboard.setString(value, forType: .string)
+    }
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: buttonTitle == nil ? 6 : 14) {
             VStack(alignment: .leading) { Text(title).font(.caption).foregroundStyle(.secondary); Text(value.isEmpty ? "—" : value).font(.caption.monospaced()).textSelection(.enabled) }
-            Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.plain).disabled(value.isEmpty).help("复制 / Copy").accessibilityLabel("复制 / Copy \(title)")
+            let label = copied ? model.tr("已复制", "Copied") : (buttonTitle ?? model.tr("复制", "Copy"))
+            let button = Button {
+                copied = copy(to: .general)
+            } label: {
+                Label(label, systemImage: copied ? "checkmark" : "doc.on.doc")
+            }.disabled(value.isEmpty).help(label)
+                .accessibilityLabel(copied ? label : model.tr("复制\(title)", "Copy \(title)"))
+            if buttonTitle != nil {
+                button.buttonStyle(.bordered).controlSize(.small)
+            } else {
+                button.labelStyle(.iconOnly).buttonStyle(.plain)
+            }
+        }
+        .onChange(of: value) { _, _ in copied = false }
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { copied = false }
         }
     }
 }
@@ -134,7 +161,7 @@ private struct ConnectChatPanel: View {
                     Image(systemName: "pin.fill").foregroundStyle(Palette.accent)
                     VStack(alignment: .leading) { Text(pin.displayName ?? "").font(.caption.bold()); Text(text).font(.callout).textSelection(.enabled) }
                     Spacer()
-                    if client.state.isHost == true { Button(model.tr("取消置顶", "Unpin")) { client.send("clearPin") }.font(.caption) }
+                    if client.state.isHost == true { Button(model.tr("取消置顶", "Unpin")) { client.clearPin() }.font(.caption) }
                 }.padding(10).background(Palette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
             ScrollViewReader { proxy in
@@ -172,8 +199,8 @@ private struct ConnectPeople: View {
                 Text(model.tr("Steam 好友", "Friends")).tag(true)
             }.pickerStyle(.segmented).labelsHidden()
             HStack {
-                if friends { TextField(model.tr("搜索好友", "Find friends"), text: $client.friendFilter).textFieldStyle(.roundedBorder).onChange(of: client.friendFilter) { _, value in client.send("filterFriends", ["text": value]) } }
-                Spacer(); Button { client.send(friends ? "refreshFriends" : "refreshMembers") } label: { Image(systemName: "arrow.clockwise") }.disabled(!client.running)
+                if friends { TextField(model.tr("搜索好友", "Find friends"), text: $client.friendFilter).textFieldStyle(.roundedBorder).onChange(of: client.friendFilter) { _, _ in client.refreshFriends() } }
+                Spacer(); Button { if friends { client.refreshFriends() } else { client.refreshMembers() } } label: { Image(systemName: "arrow.clockwise") }.disabled(!client.running)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
@@ -189,7 +216,7 @@ private struct ConnectPeople: View {
                                 }
                                 Spacer()
                                 if friends {
-                                    Button((person.inviteCooldown ?? 0) > 0 ? "\(person.inviteCooldown!)s" : model.tr("邀请", "Invite")) { client.send("invite", ["target": person.steamId]) }.disabled((client.state.lobbyId ?? "").isEmpty || (person.inviteCooldown ?? 0) > 0)
+                                    Button((person.inviteCooldown ?? 0) > 0 ? "\(person.inviteCooldown!)s" : model.tr("邀请", "Invite")) { client.invite(person.steamId) }.disabled((client.state.lobbyId ?? "").isEmpty || (person.inviteCooldown ?? 0) > 0)
                                 } else if person.isFriend != true && person.isSelf != true,
                                           let steamID = UInt64(person.steamId),
                                           let url = URL(string: "https://steamcommunity.com/profiles/\(steamID)/") {
@@ -221,7 +248,7 @@ private struct ConnectAvatar: View {
 private struct ConnectLobbies: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var client: MultiplayerController
-    private func filter() { client.send("filterLobbies", ["text": client.lobbyFilter, "sort": client.lobbySort]) }
+    private func filter() { client.filterLobbies() }
     var body: some View {
         Panel {
             HStack {
@@ -229,7 +256,7 @@ private struct ConnectLobbies: View {
                 Picker(model.tr("排序", "Sort"), selection: $client.lobbySort) {
                     Text(model.tr("人数", "Members")).tag(0); Text(model.tr("名称", "Name")).tag(1); Text(model.tr("延迟", "Latency")).tag(2)
                 }.frame(width: 180).onChange(of: client.lobbySort) { _, _ in filter() }
-                Button(client.state.lobbyRefreshing == true ? model.tr("刷新中…", "Refreshing…") : model.tr("刷新大厅", "Refresh lobbies")) { client.send("refreshLobbies") }.disabled(client.state.steamReady != true || client.state.lobbyRefreshing == true)
+                Button(client.state.lobbyRefreshing == true ? model.tr("刷新中…", "Refreshing…") : model.tr("刷新大厅", "Refresh lobbies")) { client.refreshLobbies() }.disabled(client.state.steamReady != true || client.state.lobbyRefreshing == true)
             }
             if (client.state.lobbies ?? []).isEmpty { Text(model.tr("未找到公开房间。私有房间请通过房间 ID 或邀请加入。", "No public rooms found. Join private rooms by ID or invitation.")).foregroundStyle(.secondary).padding(.vertical, 24) }
             ForEach(client.state.lobbies ?? []) { room in
@@ -237,10 +264,10 @@ private struct ConnectLobbies: View {
                     VStack(alignment: .leading, spacing: 4) { Text(room.name).font(.headline); Text(room.hostName + " · " + room.lobbyId).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     Spacer(); Text("\(room.members) " + model.tr("人", "members")).font(.caption)
                     Text(room.ping >= 0 ? "\(room.ping) ms" : "—").font(.caption).frame(width: 75)
-                    Button(model.tr("加入", "Join")) { client.target = room.lobbyId; client.connect(host: false) }.disabled(client.state.active)
+                    Button(model.tr("加入", "Join")) { client.target = room.lobbyId; client.connect(host: false) }.disabled(client.state.active || client.starting)
                 }.padding(.vertical, 8)
             }
-        }.onAppear { if client.state.steamReady == true { client.send("refreshLobbies") } }
+        }.onAppear { if client.state.steamReady == true { client.refreshLobbies() } }
     }
 }
 private struct ConnectNetwork: View {
@@ -268,23 +295,13 @@ private struct ConnectAbout: View {
     @ObservedObject var client: MultiplayerController
     var body: some View {
         Panel {
-            Text("ConnectTool 1.6.0").font(.headline)
+            Text("ConnectTool 1.6.0 · Steamworks").font(.headline)
             Text(model.tr("房间、聊天与网络服务直接集成在本页。Windows 玩家使用 connecttool-qt，双方登录 Steam 后使用同一种模式加入房间。", "Rooms, chat and networking are integrated into this page. Windows players use connecttool-qt. Sign into Steam and join a room using the same mode."))
             Text(model.tr("TCP：房主填写游戏监听端口，加入方连接本地映射端口。TUN：在游戏中连接房主的虚拟 IP。游戏版本及跨平台局域网/直连支持须相互兼容。", "TCP: the host enters the game port, and guests connect to the local forwarded port. TUN: connect to the host's virtual IP in the game. Game versions and cross-platform LAN/direct connection support must be compatible."))
-            Text(model.tr("切换页面或关闭主窗口保持连接；退出本程序会断开。Apple Silicon 的网络服务需要 Rosetta 2；TUN 首次配置需要系统管理员授权。", "Connections persist across page changes and closing the main window. Quitting disconnects. The networking service requires Rosetta 2 on Apple Silicon; initial TUN setup requests administrator authorization.")).font(.caption).foregroundStyle(.secondary)
+            Text(model.tr("切换页面或关闭主窗口后仍会保持连接，退出本程序后断开。首次配置 TUN 需要管理员授权。", "Connections stay active across page changes and when the window closes. Quitting disconnects. Initial TUN setup requires administrator authorization.")).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Link(model.tr("Windows 下载 / 项目说明", "Windows download / project"), destination: URL(string: "https://github.com/moeleak/connecttool-qt/releases/tag/v1.6.0")!)
-                Spacer()
-                Toggle(model.tr("使用下载代理", "Use download proxy"), isOn: $client.useProxy).font(.caption)
-                Button(model.tr("检查上游版本", "Check upstream version")) { client.send("checkUpdate", ["proxy": client.useProxy]) }.disabled(!client.running || client.state.checkingUpdate == true)
             }
-            if let status = client.state.updateStatusText, !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
-            if client.state.updateAvailable == true {
-                HStack { Text(model.tr("上游版本：", "Upstream version: ") + (client.state.latestVersion ?? "")); Button(model.tr("保存上游安装包…", "Save upstream package…")) { client.downloadUpdate() }.disabled(client.state.downloadingUpdate == true) }
-                Text(model.tr("此下载不会替换内置联机服务；内置版本随本程序更新。", "This download does not replace the integrated service; it updates with this app.")).font(.caption).foregroundStyle(.secondary)
-            }
-            if client.state.downloadingUpdate == true { ProgressView(value: client.state.downloadProgress ?? 0) }
-            if let path = client.state.downloadSavedPath, !path.isEmpty { Text(path).font(.caption).textSelection(.enabled) }
         }
     }
 }

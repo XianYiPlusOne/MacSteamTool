@@ -13,8 +13,10 @@ if [[ "$MODE" != "--build" ]]; then
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   pkill -x FluentSteam >/dev/null 2>&1 || true
 fi
-swift build
-BIN_DIR="$(swift build --show-bin-path)"
+configuration=debug
+if [[ "$MODE" == "--build" ]]; then configuration=release; fi
+swift build -c "$configuration"
+BIN_DIR="$(swift build -c "$configuration" --show-bin-path)"
 mkdir -p "$ROOT_DIR/work"
 # Independent staging prevents simultaneous builds from modifying each other.
 STAGING="$(mktemp -d "$ROOT_DIR/work/app-staging.XXXXXX")"
@@ -27,7 +29,7 @@ python3 "$ROOT_DIR/script/bundle_connecttool.py" "$STAGING/Contents/Resources/He
 cp "$ROOT_DIR/Resources/UpdatePublicKey.txt" "$STAGING/Contents/Resources/UpdatePublicKey.txt"
 cp -RL "$ROOT_DIR/Resources/FreeRuntime" "$STAGING/Contents/Resources/"
 cp "$BIN_DIR/MacSteamToolWorker" "$STAGING/Contents/MacOS/MacSteamToolWorker"
-"$ROOT_DIR/script/build_engine.sh"
+"$ROOT_DIR/script/build_patch_probe.sh"
 "$ROOT_DIR/script/build_cloud.sh"
 "$ROOT_DIR/script/build_notproton.sh"
 "$ROOT_DIR/script/build_pins.sh"
@@ -49,9 +51,8 @@ mkdir -p "$STAGING/Contents/Helpers/Manifest"
 cp "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" "$STAGING/Contents/Helpers/Manifest/manifest.dylib"
 mkdir -p "$STAGING/Contents/Helpers/Cloud"
 cp "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" "$STAGING/Contents/Helpers/Cloud/"
-ditto "$ROOT_DIR/work/patch-probe-publish" "$STAGING/Contents/Resources/Helpers/PatchProbe"
-ditto "$ROOT_DIR/work/steamless-bridge-publish" "$STAGING/Contents/Resources/Helpers/SteamlessBridge"
-ditto "$ROOT_DIR/work/macsteamtool-engine-publish" "$STAGING/Contents/Resources/Helpers/SteamEngine"
+mkdir -p "$STAGING/Contents/Resources/Helpers/PatchProbe"
+cp "$ROOT_DIR/work/patch-probe-publish/PatchProbe.exe" "$STAGING/Contents/Resources/Helpers/PatchProbe/"
 ditto "$ROOT_DIR/work/macsteamtool-notproton-publish" "$STAGING/Contents/Helpers/NotProton"
 chmod +x "$STAGING/Contents/MacOS/$APP_NAME"
 for resource in "$BIN_DIR"/*.bundle; do
@@ -71,7 +72,7 @@ cat > "$STAGING/Contents/Info.plist" <<PLIST
 <key>CFBundleDisplayName</key><string>$APP_NAME</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.2.35</string>
-<key>CFBundleVersion</key><string>37</string>
+<key>CFBundleVersion</key><string>44</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
@@ -79,7 +80,7 @@ cat > "$STAGING/Contents/Info.plist" <<PLIST
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-# PE/.NET payloads belong in Resources, where their integrity is sealed as data.
+# Windows PE payloads belong in Resources, where their integrity is sealed as data.
 # In Contents/Helpers, codesign gives non-Mach-O DLLs xattr-only signatures that
 # disappear when a normal ZIP extractor installs an update.
 python3 - "$STAGING" <<'PY_SIGN'

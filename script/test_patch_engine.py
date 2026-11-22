@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
-"""Exercise the shipped helper on isolated archives, including malformed inputs."""
+"""Exercise the native archive reader on isolated archives, including malformed inputs."""
 from pathlib import Path
-import json, os, stat, struct, subprocess, tempfile, zipfile
+import json, os, stat, struct, subprocess, sys, tempfile, zipfile
 
 root=Path(__file__).resolve().parents[1]
-engine=root/'outputs/MacSteamTool.app/Contents/Resources/Helpers/SteamEngine/MacSteamToolEngine'
+inspect=Path(sys.argv[1]) if len(sys.argv)>1 else root/'.build/debug/MacSteamToolInspect'
 with tempfile.TemporaryDirectory(prefix='FluentPatchTests-') as folder:
     temp=Path(folder)
     def extract(archive,success=True,password=''):
         dest=temp/('extract-'+str(len(list(temp.iterdir()))))
-        request=temp/'request.json'; response=temp/'response.json'
-        request.write_text(json.dumps(dict(operation='patch-extract',archive=str(archive),destination=str(dest),password=password)))
-        request.chmod(0o600)
-        completed=subprocess.run([str(engine),str(request),str(response)],timeout=30,capture_output=True)
-        result=json.loads(response.read_text())
-        assert result['ok']==success,(archive.name,result)
-        assert (completed.returncode==0)==success
-        assert stat.S_IMODE(response.stat().st_mode)==0o600
+        completed=subprocess.run([str(inspect),'--extract-archive',str(archive),str(dest)],
+                                 input=password.encode(),timeout=30,capture_output=True)
+        assert (completed.returncode==0)==success,(archive.name,completed.stderr)
         assert dest.exists()==success
-        assert not list(temp.glob(dest.name+'.extract-*'))
+        assert not list(temp.glob('.archive-*'))
         return dest
     valid=temp/'valid.zip'
     with zipfile.ZipFile(valid,'w',zipfile.ZIP_DEFLATED) as z:
@@ -47,9 +42,4 @@ with tempfile.TemporaryDirectory(prefix='FluentPatchTests-') as folder:
     seven=temp/'fixture.7z'
     subprocess.run(['/usr/bin/tar','--format=7zip','-cf',str(seven),plain.name],cwd=temp,check=True)
     dest=extract(seven); assert (dest/'password.txt').read_text()=='encrypted fixture'
-    request=temp/'request.json'; response=temp/'response.json'
-    request.write_text(json.dumps(dict(operation='onlinefix-detail',url='http://127.0.0.1:1/')))
-    subprocess.run([str(engine),str(request),str(response)],check=False,timeout=15,capture_output=True)
-    assert json.loads(response.read_text())['ok'] is False
-    assert 'removed' in json.loads(response.read_text())['error']
-    print('PASS: ZIP/7z binary and empty files, encrypted ZIP, incorrect password, traversal, absolute and Windows paths, case aliases, trailing dot, symlink, CRC, cleanup, output permissions and retired multiplayer requests fail before network access')
+    print('PASS: native archive extraction, password-protected ZIP, 7z, unsafe names, links, CRC and failure cleanup')

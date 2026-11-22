@@ -6,7 +6,22 @@ extension AppModel {
     func makeRuntimePreparation() -> RuntimePreparationController {
         let flow = RuntimePreparationController()
         var prepared: OneClickSetup.Prepared?
-        flow.mayStart = { [weak self] in guard let self else { return false }; return !self.busy || self.preparationOwnsBusy }
+        flow.mayStart = { [weak self] in guard let self else { return false }; return !self.guideSteamInstallation.isRunning && (!self.busy || self.preparationOwnsBusy) }
+        flow.stateChanged = { [weak self] state in
+            guard let self else { return }
+            let active = state == .preparing || state == .installing
+            if active {
+                self.preparationOwnsBusy = true; self.busy = true; self.canCancelOperation = false
+                self.progress = self.tr("正在自动准备游戏环境", "Preparing your gaming environment automatically")
+            } else if self.preparationOwnsBusy {
+                self.preparationOwnsBusy = false; self.busy = false; self.canCancelOperation = true
+                self.refresh()
+            }
+        }
+        if testing {
+            configureIsolatedWine(flow)
+            return flow
+        }
         flow.steamRunning = { [weak self] in self?.steamRunning ?? false }
         flow.inspect = { [weak self] in
             guard let self else { return false }
@@ -28,6 +43,7 @@ extension AppModel {
             guard let self, let config = try? FileStore.read(self.paths.steam.appendingPathComponent("config/config.vdf")) else { return false }
             let tool: String?
             switch backend {
+            case .localWine(let source): tool = LocalWine.registered(self.paths) == source ? LocalWine.toolID : nil
             case .wine: tool = FreeRuntime.graphicsReady(self.paths) ? FreeRuntime.toolID : nil
             case .crossOver(let source): tool = try TranslationRuntime.registeredCrossOverTool(paths: self.paths, source: source)
             }
@@ -52,6 +68,9 @@ extension AppModel {
             let application = Bundle.main.bundleURL, paths = self.paths
             let selectedTool: String
             switch backend {
+            case .localWine(let source):
+                if LocalWine.registered(paths) != source { try await LocalWine.register(source, paths: paths) }
+                selectedTool = LocalWine.toolID
             case .wine:
                 selectedTool = FreeRuntime.toolID
                 if !FreeRuntime.graphicsReady(paths) {
@@ -69,17 +88,6 @@ extension AppModel {
             try SteamCompatibility.chooseDefault(paths: paths, tool: selectedTool)
             self.log(self.tr("游戏兼容层已就绪", "Game translation backend is ready"))
         }
-        flow.stateChanged = { [weak self] state in
-            guard let self else { return }
-            let active = state == .preparing || state == .installing
-            if active {
-                self.preparationOwnsBusy = true; self.busy = true; self.canCancelOperation = false
-                self.progress = self.tr("正在自动准备游戏环境", "Preparing your gaming environment automatically")
-            } else if self.preparationOwnsBusy {
-                self.preparationOwnsBusy = false; self.busy = false; self.canCancelOperation = true
-                self.refresh()
-            }
-        }
         flow.completed = { [weak self] in
             guard let self else { return }
             if let url = self.pendingRuntimeURL {
@@ -94,15 +102,75 @@ extension AppModel {
         }
         return flow
     }
+    private func configureIsolatedWine(_ flow: RuntimePreparationController) {
+        let home = self.home.standardizedFileURL.resolvingSymlinksInPath()
+        // Use only fixture defaults. Saved preferences can point to a real Steam library.
+        var fixture = AppPaths(home: home)
+        fixture.steamApp = home.appendingPathComponent("Applications/Steam.app")
+        let paths = fixture
+        flow.idleState = { [weak self] in
+            if self?.previewCrossOver.map(GuideEnvironment.isCrossOverApplication) == true { return .ready }
+            if LocalWine.isDefault(paths) { return LocalWine.registered(paths) == nil ? .wineNotInstalled : .ready }
+            return FreeRuntime.graphicsReady(paths) ? .ready : .wineNotInstalled
+        }
+        flow.backendReady = { [weak self] backend in
+            switch backend {
+            case .localWine(let source): return self?.previewCrossOver == nil && LocalWine.isDefault(paths) && LocalWine.registered(paths) == source
+            case .wine: return self?.previewCrossOver == nil && !LocalWine.isDefault(paths) && FreeRuntime.graphicsReady(paths)
+            case .crossOver(let app): return self?.previewCrossOver == app && GuideEnvironment.isCrossOverApplication(app)
+            }
+        }
+        flow.installBackend = { [weak self, weak flow] backend in
+            if case .crossOver(let app) = backend {
+                guard GuideEnvironment.isCrossOverApplication(app) else {
+                    throw AppFailure("请选择包含 Wine 运行器的 CrossOver 应用 / Select a CrossOver app containing its Wine runner")
+                }
+                self?.previewCrossOver = app
+                return
+            }
+            let temporaryRoots = [FileManager.default.temporaryDirectory, URL(fileURLWithPath: "/tmp")]
+            guard temporaryRoots.contains(where: { home.path.hasPrefix($0.standardizedFileURL.resolvingSymlinksInPath().path + "/") }),
+                  [paths.data, paths.cache.appendingPathComponent("FreeRuntime"), FreeRuntime.root(paths),
+                   FreeRuntime.tool(paths), paths.steam.appendingPathComponent("config"), paths.steamApp].allSatisfy({ $0.resolvingSymlinksInPath().path.hasPrefix(home.path + "/") }) else {
+                throw AppFailure("请使用独立的临时目录测试 Wine 安装 / Use a private temporary directory to test Wine installation")
+            }
+            if case .localWine(let source) = backend {
+                try await LocalWine.register(source, paths: paths, home: home, requireIdle: {})
+                try SteamCompatibility.chooseDefault(paths: paths, tool: LocalWine.toolID, requireIdle: {})
+                self?.previewCrossOver = nil
+                return
+            }
+            if !FreeRuntime.graphicsReady(paths) {
+                guard await OneClickSetup.rosettaAvailable() else {
+                    throw AppFailure("Wine 需要 Rosetta 2，请先在 macOS 中安装，然后重试 / Install Rosetta 2 in macOS before retrying Wine setup")
+                }
+                let resources = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/FreeRuntime")
+                try await FreeRuntime.install(paths: paths, resources: resources, installerHome: home,
+                                              steamRunning: { false }) { [weak flow] message in
+                    await flow?.reportProgress(message)
+                }
+                guard FreeRuntime.graphicsReady(paths) else {
+                    throw AppFailure("隔离目录中的 Wine 文件不完整，请重试 / Wine files in the isolated directory are incomplete. Retry setup.")
+                }
+            }
+            if LocalWine.isDefault(paths) {
+                try SteamCompatibility.chooseDefault(paths: paths, tool: FreeRuntime.toolID, requireIdle: {})
+            }
+            self?.previewCrossOver = nil
+        }
+    }
     func setRuntimePaths(_ paths: AppPaths) { savedPaths = paths }
     func reconcileRuntimePreparation(retry: Bool = false) {
-        guard !testing, !busy else { return }
+        guard !busy, !guideSteamInstallation.isRunning else { return }
         let key = [paths.data, paths.steamApp, paths.steam, paths.macSteam, paths.notProton, paths.config].map(\.path).joined(separator: "\n")
         if preparationPathKey != key { preparationPathKey = key; runtimePreparation.reset() }
+        // The guide installs the Valve client first; backend preparation follows the user's choice.
+        if !testing, page == .guide, !retry, runtimePreparation.pendingBackend == nil,
+           guideSteamInstallation.installedApp != nil || !FileManager.default.fileExists(atPath: guideSteamDestination.path) { return }
         Task { await runtimePreparation.reconcile(retry: retry) }
     }
     func chooseTranslationBackend(_ backend: RuntimePreparationController.Backend) {
-        guard !testing, !busy else { return }
+        guard !busy, !guideSteamInstallation.isRunning else { return }
         Task { await runtimePreparation.choose(backend) }
     }
     func quitSteamForPreparation() {

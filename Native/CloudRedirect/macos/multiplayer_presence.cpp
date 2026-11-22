@@ -5,14 +5,14 @@
 #include <unordered_set>
 
 namespace MultiplayerPresence {
-static bool isBundledHelper(uint64_t pid) {
+static bool isMultiplayerApp(uint64_t pid) {
     if (!pid || pid > INT32_MAX) return false;
     char path[PROC_PIDPATHINFO_MAXSIZE]{};
     return proc_pidpath(static_cast<int>(pid), path, sizeof(path)) > 0 &&
-        std::string_view(path).ends_with(".app/Contents/Resources/Helpers/ConnectTool/MacOS/MacSteamToolConnect");
+        std::string_view(path).ends_with(".app/Contents/MacOS/MacSteamTool");
 }
 
-static bool helperProcessesOnly(const std::vector<PB::Field>& game) {
+static bool appProcessesOnly(const std::vector<PB::Field>& game) {
     bool found = false;
     for (const auto& field : game) {
         uint64_t pid;
@@ -29,7 +29,7 @@ static bool helperProcessesOnly(const std::vector<PB::Field>& game) {
             continue;
         }
         if (!pid) continue;
-        if (!isBundledHelper(pid)) return false;
+        if (!isMultiplayerApp(pid)) return false;
         found = true;
     }
     return found;
@@ -47,7 +47,7 @@ bool PreferGames(std::vector<PB::Field>& fields) {
         const auto game = PB::Parse(entry.data, entry.dataLen);
         const auto* id = PB::FindField(game, 2);
         if (!id || id->wireType != PB::Fixed64 || !id->varintVal) continue;
-        if (id->varintVal == 480 && helperProcessesOnly(game))
+        if (id->varintVal == 480 && appProcessesOnly(game))
             helpers.insert(entry.data);
         else
             hasGame = true;

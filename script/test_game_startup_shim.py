@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -24,9 +25,12 @@ out = args.output.resolve()
 assert out.is_relative_to(ROOT / "work")
 out.mkdir(parents=True, exist_ok=True)
 helper = out / "probe/GameStartupProbe.exe"
-subprocess.run([str(ROOT / "work/dotnet/dotnet"), "publish",
-                str(ROOT / "Tests/GameStartupProbe/GameStartupProbe.csproj"),
-                "-c", "Release", "-o", str(helper.parent)], check=True)
+data = args.game_data.resolve(strict=True)
+for required in (data / "Managed/com.rlabrecque.steamworks.net.dll", data / "Managed/mscorlib.dll",
+                 data / "Plugins/x86_64/steam_api64.dll", data.parent / "MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll"):
+    if not required.is_file():
+        parser.error(f"Missing game test dependency: {required}")
+subprocess.run([str(ROOT / "Tests/GameStartupProbe/build.sh"), str(helper)], check=True)
 plan = json.loads(subprocess.check_output([str(ROOT / ".build/debug/MacSteamToolInspect"),
                   "--wine-plan", str(private), "4348910", str(helper)]))
 env = os.environ.copy()
@@ -45,15 +49,23 @@ for i in range(4):
                  NOTPROTON_OVERLAY_SHIM=str(overlay))
     target = out / f"startup-{i + 1}.json"
     if target.exists(): target.unlink()  # Never accept stale output as a successful run.
+    pending = out / f".startup-{uuid.uuid4()}.json"
     start = time.monotonic()
     try:
         p = subprocess.run([plan["executable"], r"C:\Program Files (x86)\Steam\steam.exe",
-                            win(helper), win(args.game_data / "Managed/com.rlabrecque.steamworks.net.dll"),
-                            win(args.game_data / "Plugins/x86_64/steam_api64.dll"), win(target)],
+                            win(helper), win(data), win(pending)],
                            env=e, capture_output=True, text=True, timeout=45)
         (out / f"startup-{i + 1}.log").write_text(p.stdout + p.stderr)
+        # steam.exe can detach before the probe finishes. Only this launch's
+        # atomically published report counts as evidence of initialization.
+        while p.returncode == 0 and not pending.exists() and time.monotonic() - start < 45:
+            time.sleep(0.1)
+        if not pending.exists():
+            raise RuntimeError(f"No startup report for run {i + 1} (launcher exit {p.returncode})")
+        pending.replace(target)
         report = json.loads(target.read_text())
-        ok = p.returncode == 0 and report.get("result") == "k_ESteamAPIInitResult_OK"
+        ok = (p.returncode == 0 and report.get("started") is True and report.get("writes") is False
+              and "exception" not in report and report.get("result") == "k_ESteamAPIInitResult_OK")
         rows.append(dict(run=i + 1, overlay=bool(i % 2), ok=ok, seconds=round(time.monotonic()-start, 2)))
         print(rows[-1], flush=True)
     finally:

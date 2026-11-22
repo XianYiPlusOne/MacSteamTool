@@ -77,7 +77,7 @@ import Testing
         #expect(calls == 0); #expect(try FileStore.fm.contentsOfDirectory(atPath: external.path).isEmpty)
         #expect(FileStore.fm.fileExists(atPath: plist(home).path))
     }
-    @Test func sharedWinePathConversionRetainedForSteamless() throws {
+    @Test func winePathConversionRejectsInvalidPathsAndPreservesUnicode() throws {
         #expect(throws: (any Error).self) { try WineLaunch.windowsPath("relative.exe") }
         #expect(throws: (any Error).self) { try WineLaunch.windowsPath("/tmp/a\\b.exe") }
         #expect(throws: (any Error).self) { try WineLaunch.windowsPath("/tmp/a\0.exe") }

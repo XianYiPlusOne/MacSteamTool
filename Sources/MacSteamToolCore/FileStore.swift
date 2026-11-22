@@ -126,29 +126,8 @@ public struct ImportFile: Sendable {
 }
 public enum ArchiveIO {
     public static let archiveExtensions: Set<String> = ["zip", "tar", "7z", "rar"]
-    public static func importFiles(_ urls: [URL], engine: URL) async throws -> [ImportFile] {
-        var all: [ImportFile] = []; var total = 0
-        for url in urls {
-            try Task.checkCancellation()
-            let files: [ImportFile]
-            if ["tar", "7z", "rar"].contains(url.pathExtension.lowercased()) {
-                let temp = FileStore.fm.temporaryDirectory.appendingPathComponent("FluentLibraryImport-\(UUID().uuidString)")
-                try FileStore.fm.createDirectory(at: temp, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                defer { try? FileStore.fm.removeItem(at: temp) }
-                let output = temp.appendingPathComponent("content")
-                var request = SteamEngineRequest("library-import")
-                request.archive = url.path; request.destination = output.path
-                let result = try await SteamEngine.run(request, executable: engine)
-                guard result.path == output.path, let names = result.patchFiles, names.count <= 4096 else { throw AppFailure("解压结果无效 / Invalid archive result") }
-                files = try importFiles(names.map { try GamePatches.target($0, root: output) })
-            } else { files = try importFiles([url]) }
-            for file in files {
-                total += file.data.count
-                guard total <= 256 * 1024 * 1024, all.count < 4096 else { throw AppFailure("导入超过限制 / Import exceeds 256 MB or 4096 files") }
-                all.append(file)
-            }
-        }
-        return try deduplicate(all)
+    public static func readImport(_ urls: [URL]) async throws -> [ImportFile] {
+        try importFiles(urls)
     }
     private static func deduplicate(_ files: [ImportFile]) throws -> [ImportFile] {
         guard !files.isEmpty else { throw AppFailure("没有可导入的 Lua、manifest 或 bin 文件 / No importable Lua, manifest or bin files") }
@@ -171,21 +150,9 @@ public enum ArchiveIO {
             files.append(ImportFile(name: base, data: data))
         }
         for url in urls {
-            if url.pathExtension.lowercased() == "zip" {
-                let archive = try Archive(url: url, accessMode: .read)
-                for entry in archive {
-                    guard entry.type != .symlink, !entry.path.hasPrefix("/"), !entry.path.contains("\\"),
-                          !entry.path.split(separator: "/").contains("..") else { throw AppFailure("压缩包包含不安全路径 / Archive contains an unsafe path：\(entry.path)") }
-                    if entry.type != .file { continue }
-                    guard ["lua", "manifest", "bin"].contains(URL(fileURLWithPath: entry.path).pathExtension.lowercased()) else { continue }
-                    guard entry.uncompressedSize <= 64 * 1024 * 1024 else { throw AppFailure("压缩包内单文件过大 / An archive entry exceeds the size limit") }
-                    var data = Data()
-                    let crc = try archive.extract(entry) { part in
-                        guard data.count + part.count <= 64 * 1024 * 1024 else { throw AppFailure("解压超出大小限制 / Extraction exceeded the size limit") }; data.append(part)
-                    }
-                    guard crc == entry.checksum else { throw AppFailure("压缩包 CRC 校验失败 / Archive CRC mismatch") }
-                    try append(entry.path, data)
-                }
+            try Task.checkCancellation()
+            if archiveExtensions.contains(url.pathExtension.lowercased()) {
+                try NativeArchive.read(url, library: true, visit: append)
             } else { try append(url.lastPathComponent, FileStore.read(url)) }
         }
         return try deduplicate(files)

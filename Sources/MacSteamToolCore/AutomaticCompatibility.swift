@@ -85,7 +85,10 @@ public enum AutomaticCompatibility {
     public static func preferredTool(_ tools: [SteamCompatibility.Tool], config: Data) throws -> String? {
         let available = tools.filter { $0.id.hasPrefix("notproton-") || $0.id == FreeRuntime.toolID }
         // Preserve the user's selected translation backend when it is installed.
-        if let global = try SteamCompatibility.globalTool(config), available.contains(where: { $0.id == global }) { return global }
+        if let global = try SteamCompatibility.globalTool(config) {
+            let candidates = global == LocalWine.toolID ? tools : available
+            if candidates.contains(where: { $0.id == global }) { return global }
+        }
         return available.sorted { $0.id.compare($1.id, options: [.numeric, .literal]) == .orderedDescending }.first?.id
     }
     private static func backupRoot(_ paths: AppPaths) throws -> URL {

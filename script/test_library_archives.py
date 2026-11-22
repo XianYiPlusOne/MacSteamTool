@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Real-format fixtures through the async helper, preview, transaction and rollback."""
+"""Real-format fixtures through the native archive reader, preview, transaction and rollback."""
 from pathlib import Path
 import hashlib, io, json, os, stat, struct, subprocess, sys, tarfile, tempfile, zlib
 root=Path(__file__).resolve().parents[1]
-engine=Path(sys.argv[1]) if len(sys.argv)>1 else root/'outputs/MacSteamTool.app/Contents/Resources/Helpers/SteamEngine/MacSteamToolEngine'
-inspect=root/'.build/debug/MacSteamToolInspect'
+inspect=Path(sys.argv[1]) if len(sys.argv)>1 else root/'.build/debug/MacSteamToolInspect'
 def header(kind,flags,body):
     data=struct.pack('<BHH',kind,flags,len(body)+7)+body
     return struct.pack('<H',zlib.crc32(data)&0xffff)+data
@@ -21,7 +20,7 @@ def vint(value):
     out.append(value);return bytes(out)
 def rar5(files):
     # Independent stored-format writer based on https://www.rarlab.com/technote.htm.
-    # Validate with macOS libarchive before exercising SharpCompress below.
+    # Validate with macOS libarchive before exercising the import transaction below.
     def block(data):
         data=vint(len(data))+data
         return struct.pack('<I',zlib.crc32(data)&0xffffffff)+data
@@ -42,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='FluentLibraryArchives-') as directory:
     expected=[dict(name=Path(n).name,sha256=hashlib.sha256(d).hexdigest()) for n,d in sorted(files.items()) if Path(n).suffix in ['.lua','.manifest','.bin']]
     expected.sort(key=lambda x:x['name'])
     def run(archive,ok=True,exercise=True):
-        p=subprocess.run([str(inspect),'--exercise-library-import' if exercise else '--verify-library-import',str(engine),str(archive)],capture_output=True,text=True,timeout=45)
+        p=subprocess.run([str(inspect),'--exercise-library-import' if exercise else '--verify-library-import',str(archive)],capture_output=True,text=True,timeout=45)
         assert (p.returncode==0)==ok,(archive.name,p.stderr,p.stdout)
         if ok: assert json.loads(p.stdout)==expected,(archive.name,p.stdout)
     for format,ext in [('ustar','tar'),('7zip','7z')]:

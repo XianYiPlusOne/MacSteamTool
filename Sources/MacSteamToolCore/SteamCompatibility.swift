@@ -38,6 +38,11 @@ public enum SteamCompatibility {
         guard matches.count <= 1, matches.isEmpty || matches[0].children != nil else { throw AppFailure("此 AppID 的兼容性设置重复或无效 / Duplicate or invalid app compatibility setting") }
         return matches.first?.children
     }
+    static func selectedTool(_ data: Data?, appID: Int) -> String? {
+        guard let data else { return nil }
+        if let mapping = try? mapping(data, appID: appID) { return mapping.string("name") }
+        return try? globalTool(data)
+    }
     public static func globalTool(_ bytes: Data) throws -> String? {
         _ = try mapping(bytes, appID: 1)
         var node = try VDF.parse(String(decoding: bytes, as: UTF8.self))

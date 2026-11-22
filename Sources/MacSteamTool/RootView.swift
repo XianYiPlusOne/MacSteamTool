@@ -45,7 +45,7 @@ struct RootView: View {
                         case .runtime: RuntimePage()
                         case .containers: ContainersPage()
                         case .settings: SettingsPage()
-                        case .guide: GettingStartedPage()
+                        case .guide: GettingStartedPage(flow: model.runtimePreparation)
                         }
                     }.padding(30).frame(maxWidth: 1450, alignment: .topLeading).frame(maxWidth: .infinity)
                 }.scrollIndicators(.hidden).id(model.page)
@@ -94,8 +94,12 @@ struct RootView: View {
                     Text("MacSteamTool").font(.system(size: 13, weight: .bold))
                     Text("MAC EDITION").font(.system(size: 8, weight: .semibold)).tracking(2).foregroundStyle(.secondary)
                 }
-            }.padding(.leading, windowControlsInset).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                .background(WindowHeaderBackground()).padding(.bottom, 24)
+            }
+            .padding(.horizontal, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 32)
+            .padding(.bottom, 20)
+            .background(WindowHeaderBackground())
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(model.tr("游戏与内容", "GAMES & CONTENT")).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).padding(.horizontal, 25).padding(.bottom, 10)
