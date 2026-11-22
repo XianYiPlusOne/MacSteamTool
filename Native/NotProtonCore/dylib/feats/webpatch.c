@@ -1149,7 +1149,7 @@ static int out_expand(np_out_t *o, const char *replace, const np_cap_t *caps) {
 #define NP_PREFIX_DONE_BACKUP NP_WEB_TEXT("Prefix rebuilt. A backup of the original is in NotProton's Prefixes view.", "Prefix rebuilt. A backup of the original is in NotProton's Prefixes view.", "Prefisso ricostruito. Il backup dell'originale \\u00e8 nella sezione Prefissi di NotProton.")
 #define NP_PREFIX_FAILED NP_WEB_TEXT("Prefix rebuild failed!", "Prefix rebuild failed!", "Ricostruzione del prefisso non riuscita.")
 #define NP_PREFIX_LOG NP_WEB_TEXT("Open Log", "Open Log", "Apri registro")
-#define NP_PREFIX_APP NP_WEB_TEXT("Fluent Steam Mac helper missing. Open Fluent Steam Mac to repair the environment automatically.", "Fluent Steam Mac helper missing. Open Fluent Steam Mac to repair the environment automatically.", "Apri Fluent Steam Mac per ripristinare automaticamente l'ambiente.")
+#define NP_PREFIX_APP NP_WEB_TEXT("MacSteamTool helper missing. Open MacSteamTool to repair the environment automatically.", "MacSteamTool helper missing. Open MacSteamTool to repair the environment automatically.", "Apri MacSteamTool per ripristinare automaticamente l'ambiente.")
 
 #define NP_CX_PREFIX_ROW \
     "globalThis.MSCXPrefixRow=(e,id)=>{if(e.npApp===id)return;e.npStop&&e.npStop();e.npApp=id;let ter" \
@@ -1469,7 +1469,7 @@ static int out_expand(np_out_t *o, const char *replace, const np_cap_t *caps) {
     "G=k=>\"DXMT_CONFIG\"===k?mergedDxmt:has(k)?g(k):defaultValue(k);" \
     "if(t.unAppID<2147483648&&(t.vecPlatforms||[]).indexOf(\"osx\")>=0" \
     "&&!t.strCompatToolName)return null;" \
-    "if(wine&&(" NP_WINE_STATUS ")<0)return(0," RT ".jsx)(\"div\",{children:" NP_WEB_TEXT("Select Use Wine in Fluent to update this runtime.", "请在 Fluent 的运行环境中选择「使用 Wine」以更新图形组件。", "Aggiorna Wine in Fluent.") "});" \
+    "if(wine&&(" NP_WINE_STATUS ")<0)return(0," RT ".jsx)(\"div\",{children:" NP_WEB_TEXT("Select Use Wine in MacSteamTool to update this runtime.", "请在 MacSteamTool 的运行环境中选择「使用 Wine」以更新图形组件。", "Aggiorna Wine in MacSteamTool.") "});" \
     "return MSCXPanel({fex,get:G,saved:g,set:L.s,clearUnused:1,dev:!wine,tool:tn," \
     "ours:wine||tn===\"" NP_FALLBACK_TOOL "\"||" NP_OUR_TOOLS ".indexOf(tn)>=0," \
     "dflt:lost?null:defaultValue,target:(" NP_CX_TARGET ")(o,t.unAppID,t.strInstallFolder||\"\"),head:" \

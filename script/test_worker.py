@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-subprocess.run(["swift", "build", "--product", "FluentSteamWorker"], cwd=ROOT, check=True)
+subprocess.run(["swift", "build", "--product", "MacSteamToolWorker"], cwd=ROOT, check=True)
 bin_dir = pathlib.Path(subprocess.check_output(["swift", "build", "--show-bin-path"], cwd=ROOT, text=True).strip())
 (ROOT / "work").mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="worker-test-", dir=ROOT / "work") as temp:
@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="worker-test-", dir=ROOT / "work") as te
         source, output = folder / "request.json", folder / "response.json"
         output.unlink(missing_ok=True)
         source.write_text(json.dumps({"appID": app, "library": str(library), "changes": changes or [], "operation": operation, "schemaSourceSteamID": source_id}))
-        completed = subprocess.run([str(bin_dir / "FluentSteamWorker"), str(source), str(output)], capture_output=True, timeout=8)
+        completed = subprocess.run([str(bin_dir / "MacSteamToolWorker"), str(source), str(output)], capture_output=True, timeout=8)
         response = json.loads(output.read_text())
         assert (completed.returncode == 0) == response["ok"]
         return response

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package only Fluent-built integrations, source assets and bridge artifacts."""
+"""Package only MacSteamTool-built integrations, source assets and bridge artifacts."""
 from pathlib import Path
 import hashlib
 import json
@@ -23,7 +23,7 @@ def copy(source, target):
 def seal(folder, provider, version):
     files = {str(p.relative_to(folder)): hashlib.sha256(p.read_bytes()).hexdigest()
              for p in sorted(folder.rglob("*")) if p.is_file()}
-    receipt = dict(provider=provider, version=version, source="Fluent maintained source: Native/" +
+    receipt = dict(provider=provider, version=version, source="MacSteamTool maintained source: Native/" +
                    ("MacSteam" if provider == "macsteam" else "NotProtonCore"), files=files, root="file:///")
     (folder / "component.json").write_text(json.dumps(receipt, indent=2) + "\n")
 
@@ -39,8 +39,8 @@ def package(resources):
     bundle = np / "NotProtonRuntime.bundle/Contents"
     bundle.mkdir(parents=True)
     (bundle / "Info.plist").write_bytes(plistlib.dumps(dict(
-        CFBundleIdentifier="dev.fluentsteam.integration.resources", CFBundlePackageType="BNDL",
-        CFBundleName="Fluent Steam Integration", CFBundleVersion="1.2.3")))
+        CFBundleIdentifier="dev.macsteamtool.integration.resources", CFBundlePackageType="BNDL",
+        CFBundleName="MacSteamTool Integration", CFBundleVersion="1.2.3")))
     payload = bundle / "Resources/payload"
     copy(BUILD / "notproton.dylib", payload / "notproton.dylib")
     for name in ["overlay-shim.dylib", "iconmaker", "appinfo"]:
@@ -76,7 +76,7 @@ def package(resources):
                 copy(family / name, backend_resources / "payload/fonts/licenses" / family.name / name)
     for folder, provider, version in [(mac, "macsteam", "0.8.2"), (np, "notproton", "1.2.3"), (backend, "notproton", "1.2.3")]:
         seal(folder, provider, version)
-    print("Packaged Fluent source-built native integrations and CrossOver bridge; no manager app extraction")
+    print("Packaged MacSteamTool source-built native integrations and CrossOver bridge; no manager app extraction")
 
 if __name__ == "__main__":
     package(Path(sys.argv[1]))

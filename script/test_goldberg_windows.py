@@ -5,7 +5,7 @@ with tempfile.TemporaryDirectory(prefix='FluentGoldberg-') as directory:
     overlay=source.parent.parent.name=='experimental'
     settings=root/'steam_settings';settings.mkdir()
     (settings/'steam_appid.txt').write_text('480\n')
-    (settings/'configs.user.ini').write_text('[user::general]\naccount_name=Fluent Fixture\nlanguage=english\n[user::saves]\nlocal_save_path=./steam_settings/FluentOfflineSaves\n')
+    (settings/'configs.user.ini').write_text('[user::general]\naccount_name=MacSteamTool Fixture\nlanguage=english\n[user::saves]\nlocal_save_path=./steam_settings/FluentOfflineSaves\n')
     (settings/'configs.main.ini').write_text('[main::connectivity]\ndisable_networking=1\noffline=1\n')
     if overlay:
         (settings/'configs.overlay.ini').write_text('[overlay::general]\nenable_experimental_overlay=1\ndisable_achievement_notification=0\n')

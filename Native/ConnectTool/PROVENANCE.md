@@ -2,13 +2,13 @@
 
 Based on [moeleak/connecttool-qt 1.6.0](https://github.com/moeleak/connecttool-qt/tree/7a2d7aae95010a38badb6f6cc501a685601d9cfa), commit `7a2d7aae95010a38badb6f6cc501a685601d9cfa`, MIT, copyright 2025 Ji Fuyao. The included `upstream/` source retains its network, Steam lobby/chat, TCP forwarding, virtual network, TUN helper and update implementations. Full original license: `upstream/LICENSE`.
 
-Fluent changes:
+MacSteamTool changes:
 
 - `Bridge.cpp` runs `ApplicationRuntime` with **QCoreApplication**, no window, QML engine, tray or standalone application. Bounded newline-delimited JSON over inherited pipes exposes state and commands to the SwiftUI multiplayer page. Steam diagnostics go to stderr. EOF or parent death leaves the lobby and stops the service.
 - Model headers omit QML registration macros. Runtime omits the unused QQmlEngine include. The host implements clipboard, reminders, friend-profile links, navigation and all visible controls. No Steam network payload, room metadata or protocol format is changed.
 - TUN setup is managed by the native `TunHelperController` and `TunHelperSetup` transaction. Explicit system authorization installs signature/hash-verified, root-owned assets; launchd failures are propagated and old assets restored on failure. Both root and the signed-in user must pass a real, transient utun creation test before success is reported. The old error-swallowing installer is removed. The helper is universal arm64/x86_64, has a `--probe` client mode, bounded socket I/O and complete stream/descriptor framing. No third-party driver is installed; macOS provides utun (https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c).
 - `sendChatMessage` returns the actual send result so the host only clears a successfully submitted message.
-- CMake builds the service, TUN daemon and upstream protocol tests without Qt Quick. Swift IPC and controller are in `Sources/FluentCore/ConnectTool.swift` and `Sources/FluentSteam/MultiplayerController.swift`.
+- CMake builds the service, TUN daemon and upstream protocol tests without Qt Quick. Swift IPC and controller are in `Sources/MacSteamToolCore/ConnectTool.swift` and `Sources/MacSteamTool/MultiplayerController.swift`.
 
 ## Dependencies and rebuilding
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prepare an isolated release directory. Registration is committed by FluentCore.
+# Prepare an isolated release directory. Registration is committed by MacSteamToolCore.
 set -euo pipefail
 archive="$1"; stage="$2"; cache="$3"
 resources="$(cd "$(dirname "$0")" && pwd)"

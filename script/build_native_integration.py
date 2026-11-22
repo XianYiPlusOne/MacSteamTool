@@ -33,7 +33,7 @@ def build():
     receipt = dict(upstream="692b470e73d0d497ee9e474038efda819a037772", repair="webui-capacity-1",
                    patchSHA256=hashlib.sha256((ROOT / "Native/NotProton/webui-capacity.patch").read_bytes()).hexdigest(),
                    sha256=hashlib.sha256((OUT / "notproton.dylib").read_bytes()).hexdigest())
-    (OUT / "fluent-notproton-repair.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    (OUT / "repair-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print("Built native Steam integrations entirely from Native/ source")
 
 if __name__ == "__main__":

@@ -190,7 +190,7 @@ try:
     record('steam_networking_real_udp_loopback', messages=32, bytes=total, bidirectional=True, exactPayloadMatch=True, internetPeer=False)
     close = fn('SteamAPI_ISteamNetworkingSockets_CloseConnection', c.c_bool, c.c_void_p, c.c_uint32, c.c_int, c.c_char_p, c.c_bool)
     for connection in connections:
-        assert close(sockets, connection, 1000, b'Fluent probe complete', False)
+        assert close(sockets, connection, 1000, b'MacSteamTool probe complete', False)
     connections.clear()
     status = send(sockets, left.value, b'x', 1, 9, None)
     assert status != 1
@@ -203,7 +203,7 @@ except Exception as error:
 finally:
     if sockets:
         for connection in connections:
-            fn('SteamAPI_ISteamNetworkingSockets_CloseConnection', c.c_bool, c.c_void_p, c.c_uint32, c.c_int, c.c_char_p, c.c_bool)(sockets, connection, 1000, b'Fluent probe cleanup', False)
+            fn('SteamAPI_ISteamNetworkingSockets_CloseConnection', c.c_bool, c.c_void_p, c.c_uint32, c.c_int, c.c_char_p, c.c_bool)(sockets, connection, 1000, b'MacSteamTool probe cleanup', False)
     if lobby:
         events.clear()
         fn('SteamAPI_ISteamMatchmaking_LeaveLobby', None, c.c_void_p, c.c_uint64)(mm, lobby)

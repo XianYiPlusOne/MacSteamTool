@@ -31,7 +31,7 @@ uint64_t fetch(const std::string& url){
     curl_easy_setopt(c,CURLOPT_FOLLOWLOCATION,0L);curl_easy_setopt(c,CURLOPT_NOSIGNAL,1L);
     curl_easy_setopt(c,CURLOPT_CONNECTTIMEOUT_MS,2000L);curl_easy_setopt(c,CURLOPT_TIMEOUT_MS,5000L);
     curl_easy_setopt(c,CURLOPT_SSL_VERIFYPEER,1L);curl_easy_setopt(c,CURLOPT_SSL_VERIFYHOST,2L);
-    curl_easy_setopt(c,CURLOPT_USERAGENT,"FluentSteamMac/0.1");curl_easy_setopt(c,CURLOPT_WRITEFUNCTION,append);curl_easy_setopt(c,CURLOPT_WRITEDATA,&body);
+    curl_easy_setopt(c,CURLOPT_USERAGENT,"MacSteamTool/0.1");curl_easy_setopt(c,CURLOPT_WRITEFUNCTION,append);curl_easy_setopt(c,CURLOPT_WRITEDATA,&body);
     auto result=curl_easy_perform(c);long status=0;curl_easy_getinfo(c,CURLINFO_RESPONSE_CODE,&status);curl_easy_cleanup(c);
     return result==CURLE_OK&&status==200?ParseCode(body):0;
 }

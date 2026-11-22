@@ -1240,7 +1240,7 @@ APPLESCRIPT
   esac
   executable=$(cat "$np_support/app-executable" 2>/dev/null) || executable=""
   if [ ! -x "$executable" ]; then
-    show_alert "Fluent Steam Mac needs repair" "The Fluent Steam Mac helper is unavailable. Open Fluent Steam Mac to repair the game environment automatically, then launch the game again."
+    show_alert "MacSteamTool needs repair" "The MacSteamTool helper is unavailable. Open MacSteamTool to repair the game environment automatically, then launch the game again."
     exit 1
   fi
   if ! run_rebuild "$executable" "$backup"; then

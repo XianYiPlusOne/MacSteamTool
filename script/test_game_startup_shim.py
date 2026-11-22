@@ -27,7 +27,7 @@ helper = out / "probe/GameStartupProbe.exe"
 subprocess.run([str(ROOT / "work/dotnet/dotnet"), "publish",
                 str(ROOT / "Tests/GameStartupProbe/GameStartupProbe.csproj"),
                 "-c", "Release", "-o", str(helper.parent)], check=True)
-plan = json.loads(subprocess.check_output([str(ROOT / ".build/debug/FluentInspect"),
+plan = json.loads(subprocess.check_output([str(ROOT / ".build/debug/MacSteamToolInspect"),
                   "--wine-plan", str(private), "4348910", str(helper)]))
 env = os.environ.copy()
 env.update(plan["environment"])

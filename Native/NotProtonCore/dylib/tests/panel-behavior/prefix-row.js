@@ -139,7 +139,7 @@ const need = { needsRebuild: true, app: true, running: false, rebuild: '' };
   {
     const w = world([{ ...need, app: false }]);
     w.g.MSCXPrefixRow(w.row, 480); await w.settle(); await w.settle();
-    assert.deepEqual(w.texts(), ["Fluent Steam Mac helper missing. Open Fluent Steam Mac to repair the environment automatically."]);
+    assert.deepEqual(w.texts(), ["MacSteamTool helper missing. Open MacSteamTool to repair the environment automatically."]);
     assert.equal(w.buttons().length, 0);
   }
   {

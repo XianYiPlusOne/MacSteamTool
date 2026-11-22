@@ -30,8 +30,8 @@ def idle():
     rows = subprocess.check_output(["/bin/ps", "-axo", "pid,comm"], text=True)
     for row in rows.splitlines()[1:]:
         fields = row.strip().split(maxsplit=1)
-        if len(fields) == 2 and fields[1].endswith(("/steam_osx", "/FluentSteam")):
-            raise RuntimeError("Quit Steam and Fluent Steam before moving their files")
+        if len(fields) == 2 and fields[1].endswith(("/steam_osx", "/MacSteamTool", "/FluentSteam")):
+            raise RuntimeError("Quit Steam and MacSteamTool before moving their files")
 
 def sha(path):
     h = hashlib.sha256()
@@ -40,8 +40,12 @@ def sha(path):
             h.update(chunk)
     return h.hexdigest()
 
+def app_data():
+    current, legacy = SUPPORT / "MacSteamTool", SUPPORT / "FluentSteamMac"
+    return legacy if not current.exists() and legacy.exists() else current
+
 def protected_files():
-    files = [SUPPORT / "macsteam/config.yaml", SUPPORT / "FluentSteamMac/settings.json",
+    files = [SUPPORT / "macsteam/config.yaml", app_data() / "settings.json",
              SUPPORT / "Steam/config/config.vdf", Path("/Applications/Steam.app/Contents/Info.plist")]
     for prefix in ["pfx", "fluent-free/pfx"]:
         root = SUPPORT / f"Steam/steamapps/compatdata/{APP_ID}/{prefix}/drive_c/users/steamuser/AppData/LocalLow"
@@ -62,12 +66,12 @@ def stage():
     game = SUPPORT / "Steam/steamapps/common/ForgeTax"
     subprocess.run(["/bin/cp", "-cR", str(game), str(assets / "ForgeTax")], check=True)
     for source, name in [(SUPPORT / f"Steam/steamapps/appmanifest_{APP_ID}.acf", f"appmanifest_{APP_ID}.acf"),
-                         (SUPPORT / f"FluentSteamMac/Lua/{APP_ID}.lua", f"{APP_ID}.lua")]:
+                         (app_data() / f"Lua/{APP_ID}.lua", f"{APP_ID}.lua")]:
         shutil.copy2(source, assets / name)
         (assets / name).chmod(0o600)
     paths = [Path("/Applications") / name for name in
              ("Steam.app", "macSteam Config.app", "NotProton.app", "CrossOver.app")]
-    paths += [SUPPORT / name for name in ("Steam", "macsteam", "notproton", "FluentSteamMac", "CrossOver")]
+    paths += [SUPPORT / name for name in ("Steam", "macsteam", "notproton", "FluentSteamMac", "MacSteamTool", "CrossOver")]
     entries = [{"source": str(p), "stored": str(vault / str(i)), "moved": False,
                 "existed": p.exists()} for i, p in enumerate(paths)]
     state = {"phase": "staged", "created": time.time(), "vault": str(vault),
@@ -100,6 +104,9 @@ def restore():
     generated.mkdir(exist_ok=True, mode=0o700)
     for i, entry in reversed(list(enumerate(state["entries"]))):
         source, stored = Path(entry["source"]), Path(entry["stored"])
+        # Keep any data created under the new product name during a legacy trial.
+        if source == SUPPORT / "MacSteamTool" and not entry["existed"] and source.exists():
+            source.rename(generated / str(i))
         # Recover the small rename-to-journal window as well.
         if not entry["moved"] and not stored.exists():
             continue

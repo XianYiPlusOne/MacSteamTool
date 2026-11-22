@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Fluent's CrossOver bridge from repository source and pinned Wine/Valve source.
+"""Build MacSteamTool's CrossOver bridge from repository source and pinned Wine/Valve source.
 
 Build dependencies are developer-only. No upstream app, runner clone or paid
 CrossOver installation is used to build these artifacts.

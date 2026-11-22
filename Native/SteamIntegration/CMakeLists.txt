@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FluentSteamIntegration LANGUAGES C CXX)
+project(MacSteamToolIntegration LANGUAGES C CXX)
 set(CMAKE_OSX_ARCHITECTURES arm64)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0)
 set(CMAKE_C_STANDARD 17)

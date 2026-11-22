@@ -82,10 +82,10 @@ Fluent Steam Mac
 
 | 位置 | 当前绑定 | 所需改动 |
 | --- | --- | --- |
-| `Sources/FluentCore/Runtime.swift` | 只枚举 `runners/*/CrossOver`；`WineLaunch` 根据 `notproton-build` 找 CrossOver | 引入运行器描述：类型、版本、loader、server、架构、后端、bridge、prefix 格式；按描述启动 |
+| `Sources/MacSteamToolCore/Runtime.swift` | 只枚举 `runners/*/CrossOver`；`WineLaunch` 根据 `notproton-build` 找 CrossOver | 引入运行器描述：类型、版本、loader、server、架构、后端、bridge、prefix 格式；按描述启动 |
 | `Engine/NotProtonInstaller/.../InstallSession.swift`、`Adapter.swift` | 校验官方 companion app，并将其登记为 prefix 重建入口 | 从我们自己的 payload 获取组件；由自带助手负责重建和修复 |
 | `Engine/NotProtonInstaller/.../KernelSession.swift` | macSteam 资源来自外部 companion app | 增加已校验的内部资源入口，沿用现有部署事务 |
-| `Sources/FluentCore/OfficialRuntimeUpdates.swift` | 仅支持现有两种官方 app 发布包 | 增加独立的运行器版本清单、摘要、兼容范围及更新回滚 |
+| `Sources/MacSteamToolCore/OfficialRuntimeUpdates.swift` | 仅支持现有两种官方 app 发布包 | 增加独立的运行器版本清单、摘要、兼容范围及更新回滚 |
 | `Native/NotProton` / 现用 NotProton 分支 | 已有当前版本修复及多个运行器功能 | 优先把 self-built runner 的支持移入现用分支，保留本机已有修复；不要整体降级为 10 月旧 fork |
 | 游戏 prefix | 各运行器的 Wine/桥接内容不同 | 初次验证使用独立 prefix；迁移时显式备份存档，不能直接用新 Wine 重写现用 prefix |
 

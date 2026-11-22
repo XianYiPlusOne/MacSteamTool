@@ -1,6 +1,6 @@
 #!/bin/sh
-# Shared by the CrossOver and Fluent Wine launchers.
-# Helpers launched by Steam or Fluent should inherit the last game session.
+# Shared by the CrossOver and MacSteamTool Wine launchers.
+# Helpers launched by Steam or MacSteamTool should inherit the last game session.
 # Persist only portable preferences. Runner paths must be rebuilt after upgrades.
 session_keys="CX_GRAPHICS_BACKEND D3DM_ENABLE_METALFX DXMT_ENABLE_NVEXT DXMT_METALFX_SPATIAL_SWAPCHAIN DXMT_CONFIG MTL_HUD_ENABLED ROSETTA_ADVERTISE_AVX WINEMSYNC NOTPROTON_RETINA NOTPROTON_RAW_CONTROLLERS NOTPROTON_DISABLE_HIDRAW FEX_X87REDUCEDPRECISION"
 remember_compat_settings() (

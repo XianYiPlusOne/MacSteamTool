@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the app's real WineLaunch adapter inside an existing, isolated test prefix.
-Usage: test_wine_adapter.py FluentInspect test-prefix/pfx bundled-Windows-helper-directory
+Usage: test_wine_adapter.py MacSteamToolInspect test-prefix/pfx bundled-Windows-helper-directory
 No installed game prefix is accepted. No keys or achievement writes are issued.
 """
 import base64, json, os, pathlib, shutil, subprocess, sys, tempfile

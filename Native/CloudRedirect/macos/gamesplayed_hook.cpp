@@ -1,4 +1,5 @@
 #include "gamesplayed_hook.h"
+#include "multiplayer_presence.h"
 #include "runtime_profile.h"
 #include "runtime_settings.h"
 #include "stats_handlers.h"
@@ -66,10 +67,17 @@ bool ApplyAccessTokens(uint32_t message,const std::vector<uint8_t>& input,std::v
     }
     if(changed)output=out.Data();return changed;
 }
-bool FilterPresence(uint32_t message,const std::vector<uint8_t>& input,std::vector<uint8_t>& output){
-    auto c=RuntimeSettings::Current();if(c->presence=="unchanged"||c->presenceApps.empty())return false;
-    auto fields=PB::Parse(input.data(),input.size());
-    if(message!=742&&message!=5410&&message!=715)return false;
+static bool filterGameList(std::vector<PB::Field>& fields,std::vector<uint8_t>& output){
+    bool changed=MultiplayerPresence::PreferGames(fields);
+    auto c=RuntimeSettings::Current();
+    if(c->presence=="unchanged"||c->presenceApps.empty()){
+        if(changed){
+            PB::Writer out;
+            for(const auto& field:fields)copy(out,field);
+            output=out.Data();
+        }
+        return changed;
+    }
     size_t top=fields.size();std::unordered_set<uint64_t> running;
     for(size_t i=0;i<fields.size();i++)if(fields[i].fieldNum==1&&fields[i].wireType==PB::LengthDelimited){
         top=i;auto gameFields=PB::Parse(fields[i].data,fields[i].dataLen);auto id=PB::FindField(gameFields,2);
@@ -80,7 +88,7 @@ bool FilterPresence(uint32_t message,const std::vector<uint8_t>& input,std::vect
     uint64_t alias=0;
     if(c->presenceAccount==CloudIntercept::GetAccountId())for(auto id:c->presenceShortcuts)if(!running.count(id)){alias=id;break;}
     if(!alias&&!running.count(480))alias=480;
-    PB::Writer out;bool changed=false;
+    PB::Writer out;
     for(size_t i=0;i<fields.size();i++){
         auto& f=fields[i];
         if(f.fieldNum!=1||f.wireType!=PB::LengthDelimited){copy(out,f);continue;}
@@ -102,6 +110,11 @@ bool FilterPresence(uint32_t message,const std::vector<uint8_t>& input,std::vect
     }
     if(changed)output=out.Data();return changed;
 }
+bool FilterPresence(uint32_t message,const std::vector<uint8_t>& input,std::vector<uint8_t>& output){
+    if(message!=742&&message!=5410&&message!=715)return false;
+    auto fields=PB::Parse(input.data(),input.size());
+    return filterGameList(fields,output);
+}
 bool SuppressRichPresence(uint32_t appID){
     auto c=RuntimeSettings::Current();return c->presence=="none"&&c->presenceApps.count(appID);
 }
@@ -122,7 +135,13 @@ static bool send(void* cm,void* wrapper){
         if(!ended.empty())LivePlaytime::Queue(StatsHandlers::BuildLastPlayedNotificationBody(ended).Data());
     }
     // Read native stats after Steam has committed its local file (post-send path).
-    std::vector<uint8_t> filtered;bool changed=FilterPresence(message,input,filtered);
+    std::vector<PB::Field> gameList;
+    std::vector<uint8_t> filtered;
+    bool changed=false;
+    if(games){
+        gameList=PB::Parse(input.data(),input.size());
+        changed=filterGameList(gameList,filtered);
+    }
     if(message==7501){
         void* header=nullptr;memcpy(&header,(char*)wrapper+48,8);size_t headerLen=0;auto raw=header?serialize(header,&headerLen):nullptr;
         auto fields=PB::Parse(raw,headerLen);auto route=PB::FindField(fields,3);
@@ -140,11 +159,12 @@ static bool send(void* cm,void* wrapper){
     uint32_t sourceApp=0;uint64_t outgoingGameID=0;
     if(games&&clone){
         auto config=RuntimeSettings::Current();size_t sourceIndex=0,inputCount=0;
-        for(auto& f:PB::Parse(input.data(),input.size()))if(f.fieldNum==1&&f.wireType==PB::LengthDelimited){
+        for(auto& f:gameList)if(f.fieldNum==1&&f.wireType==PB::LengthDelimited){
             auto fields=PB::Parse(f.data,f.dataLen);auto id=PB::FindField(fields,2);
             if(id&&id->wireType==PB::Fixed64&&id->varintVal<=0xffffff&&config->presenceApps.count((uint32_t)id->varintVal)){sourceApp=(uint32_t)id->varintVal;sourceIndex=inputCount;}
             inputCount++;
         }
+        if(!sourceApp && inputCount)sourceIndex=inputCount-1;
         // Read back the typed protobuf being handed to Steam, not the original
         // AppID or our intended title. Zero denotes a removed (hidden) entry.
         size_t size=0,outputCount=0;auto data=serialize(clone,&size);

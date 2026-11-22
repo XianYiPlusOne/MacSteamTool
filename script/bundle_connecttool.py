@@ -93,7 +93,7 @@ def dependencies():
         # generator. Restore the SDK C++ spelling without changing binary layouts.
         for name in ['steamnetworkingtypes.h', 'isteamnetworkingutils.h']:
             path = steam / name
-            source = path.read_text().replace('#if 0\n', '#if 1 // Fluent: restore SDK C++ inline helpers\n')
+            source = path.read_text().replace('#if 0\n', '#if 1 // MacSteamTool: restore SDK C++ inline helpers\n')
             if name == 'steamnetworkingtypes.h':
                 assert source.count('\t} data;') == 2
                 source = source.replace('\t} data;', '\t};')
@@ -132,7 +132,7 @@ def machos(root):
 
 
 def verify(destination):
-    for relative in ['MacOS/FluentConnect', 'Resources/connecttool-tun-daemon',
+    for relative in ['MacOS/MacSteamToolConnect', 'Resources/connecttool-tun-daemon',
                      'Resources/com.connecttool.tunhelper.plist', 'MacOS/qt.conf',
                      'Frameworks/libsteam_api.dylib', 'Frameworks/libsteamwebrtc.dylib',
                      'PlugIns/tls/libqsecuretransportbackend.dylib']:
@@ -184,7 +184,7 @@ def bundle(destination):
     shutil.copytree(runtime, destination, symlinks=True)
     (destination / 'MacOS').mkdir()
     (destination / 'Resources/licenses').mkdir(parents=True)
-    shutil.copy2(build / 'FluentConnect', destination / 'MacOS')
+    shutil.copy2(build / 'MacSteamToolConnect', destination / 'MacOS')
     shutil.copy2(build / 'connecttool-tun-daemon', destination / 'Resources')
     shutil.copy2(ROOT / 'Native/ConnectTool/Resources/com.connecttool.tunhelper.plist', destination / 'Resources')
     (destination / 'MacOS/qt.conf').write_text('[Paths]\nPrefix=..\nPlugins=PlugIns\n')

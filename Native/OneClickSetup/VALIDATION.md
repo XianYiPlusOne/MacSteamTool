@@ -63,7 +63,7 @@ hooks or a game have loaded successfully on that machine.
 
 ## Native core separation validation (2026-11-12)
 
-Reproduction: `APP/Contents/Helpers/NotProton/FluentNotProton --test-core APP`.
+Reproduction: `APP/Contents/Helpers/NotProton/MacSteamToolNotProton --test-core APP`.
 The fixture is created under a fresh temporary root with the real bundled native
 libraries. It does not launch Steam, access external managers, or deploy a backend.
 It verifies both launch inserts and signatures, the bundled rebuild-helper record,
@@ -113,7 +113,7 @@ running. The integration exercise used real binaries, not substitute kernels.
 
 Evidence: `work/oneclick-validation/integration.log` and
 `work/oneclick-validation/runtime-completion.log`.
-Reproduction: `FluentRuntime validate-setup APP_BUNDLE - - STEAM_DMG FREE_DMG`.
+Reproduction: `MacSteamToolRuntime validate-setup APP_BUNDLE - - STEAM_DMG FREE_DMG`.
 The two `-` arguments now select Fluent-owned source-built components;
 `STEAM_DMG` may also be `-` for a fresh Valve download.
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import json, os, plistlib, subprocess, tempfile, uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-INSPECT = ROOT / '.build/debug/FluentInspect'
+INSPECT = ROOT / '.build/debug/MacSteamToolInspect'
 DOMAIN = f'gui/{os.getuid()}'
 OLD_LABEL = 'dev.fluentsteam.mac.trainer-agent'
 

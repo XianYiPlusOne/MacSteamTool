@@ -14,7 +14,7 @@ p=argparse.ArgumentParser();p.add_argument('--prefix',required=True,type=Path);p
 prefix=args.prefix.resolve();assert prefix.is_relative_to(root/'work') and prefix.name=='pfx' and prefix.parent.name=='480' and (prefix/'user.reg').is_file()
 assert 0<=args.hold<=90
 expected=json.loads(args.tickets.read_text());ownership=base64.b64decode(expected['ownershipTicket']);assert int.from_bytes(ownership[16:20],'little')==480
-inspect=root/'.build/out/Products/Debug/FluentInspect';assert inspect.is_file(),'Build with script/build_and_run.sh first'
+inspect=root/'.build/out/Products/Debug/MacSteamToolInspect';assert inspect.is_file(),'Build with script/build_and_run.sh first'
 helper=root/'work/windows-test-runtime/python.exe';assert helper.is_file(), 'Run script/build_windows_test_runtime.sh first'
 windows=lambda q:'Z:'+str(q).replace('/','\\')
 with tempfile.TemporaryDirectory(dir=root/'work',prefix='LiveRuntimeWine-') as tmp:

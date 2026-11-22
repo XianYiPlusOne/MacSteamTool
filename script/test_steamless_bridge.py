@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix='SteamlessTest-',dir=root/'work') as tmp
     (game/'pfx').symlink_to(prefix,target_is_directory=True)
     for name in ['notproton-build','notproton-msync']:
         if (prefix.parent/name).exists(): shutil.copy2(prefix.parent/name,game/name)
-    plan=json.loads(subprocess.check_output([str(inspect),'--wine-plan',str(steam),'480',str(root/'outputs/Fluent Steam Mac.app/Contents/Resources/Helpers/SteamlessBridge/SteamlessBridge.exe')]))
+    plan=json.loads(subprocess.check_output([str(inspect),'--wine-plan',str(steam),'480',str(root/'outputs/MacSteamTool.app/Contents/Resources/Helpers/SteamlessBridge/SteamlessBridge.exe')]))
     env=os.environ.copy();env.update(plan['environment']);env['WINEDEBUG']='-all';env['DOTNET_EnableWriteXorExecute']='0'
     request=temp/'request.json';response=temp/'response.json'
     def run(operation,file=''):

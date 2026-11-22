@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
 args = parser.parse_args()
 sdk = args.sdk.resolve(strict=True)
-inspect = ROOT / '.build/debug/FluentInspect'
+inspect = ROOT / '.build/debug/MacSteamToolInspect'
 template = (ROOT / 'work/notproton-test/compatdata/480/pfx').resolve(strict=True)
 python = ROOT / 'work/windows-test-runtime/python.exe'
 assert template.is_relative_to(ROOT / 'work') and (template / 'user.reg').is_file()

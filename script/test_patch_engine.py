@@ -4,7 +4,7 @@ from pathlib import Path
 import json, os, stat, struct, subprocess, tempfile, zipfile
 
 root=Path(__file__).resolve().parents[1]
-engine=root/'outputs/Fluent Steam Mac.app/Contents/Resources/Helpers/SteamEngine/FluentSteamEngine'
+engine=root/'outputs/MacSteamTool.app/Contents/Resources/Helpers/SteamEngine/MacSteamToolEngine'
 with tempfile.TemporaryDirectory(prefix='FluentPatchTests-') as folder:
     temp=Path(folder)
     def extract(archive,success=True,password=''):

@@ -3,7 +3,7 @@
 from pathlib import Path
 import json, os, shutil, subprocess, tempfile, time
 ROOT=Path(__file__).resolve().parents[1]
-INSPECT=ROOT/'.build/debug/FluentInspect'; HELPER=ROOT/'work/patch-probe-publish/PatchProbe.exe'
+INSPECT=ROOT/'.build/debug/MacSteamToolInspect'; HELPER=ROOT/'work/patch-probe-publish/PatchProbe.exe'
 TEMPLATE=(ROOT/'work/notproton-test/compatdata/480/pfx').resolve(); PYTHON=ROOT/'work/windows-test-runtime'
 assert TEMPLATE.is_relative_to(ROOT/'work') and HELPER.is_file() and (PYTHON/'python.exe').is_file()
 win=lambda path:'Z:'+str(path.resolve()).replace('/','\\')

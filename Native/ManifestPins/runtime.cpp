@@ -1,4 +1,5 @@
 #include "pins.h"
+#include "../AppSupportDirectory.h"
 #include "../SteamIntegration/steam_profiles.h"
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -27,7 +28,9 @@ Runtime& runtime(){static auto* value=new Runtime;return *value;}
 std::string path(const char* key,const char* fallback){const char* env=getenv(key);if(env && *env=='/')return env;const char* home=getenv("HOME");return std::string(home?home:"")+fallback;}
 void status(const std::string& value){
     try{
-        auto file=path("FLUENT_PINS_STATUS","/Library/Application Support/FluentSteamMac/manifest-pins.log");
+        const char* configured = getenv("FLUENT_PINS_STATUS");
+        const char* home = getenv("HOME");
+        auto file = configured && configured[0] == '/' ? std::string(configured) : MacSteamToolDataDirectory(home ? home : "") + "/manifest-pins.log";
         std::filesystem::create_directories(std::filesystem::path(file).parent_path());
         std::ofstream(file,std::ios::app)<<"PID "<<getpid()<<" · "<<value<<'\n';
     }catch(...){}

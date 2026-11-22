@@ -1,6 +1,6 @@
 # NotProton WebUI repair
 
-Independent Fluent Steam Mac modification of NotProton commit
+Independent MacSteamTool modification of NotProton commit
 `692b470e73d0d497ee9e474038efda819a037772` (1.2.3), GPL-3.0.
 Original project: https://github.com/NotProtonNot/NotProton
 License: ../../Licenses/NotProton.txt

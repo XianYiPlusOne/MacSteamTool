@@ -3,8 +3,8 @@
 from pathlib import Path
 import hashlib, io, json, os, stat, struct, subprocess, sys, tarfile, tempfile, zlib
 root=Path(__file__).resolve().parents[1]
-engine=Path(sys.argv[1]) if len(sys.argv)>1 else root/'outputs/Fluent Steam Mac.app/Contents/Resources/Helpers/SteamEngine/FluentSteamEngine'
-inspect=root/'.build/debug/FluentInspect'
+engine=Path(sys.argv[1]) if len(sys.argv)>1 else root/'outputs/MacSteamTool.app/Contents/Resources/Helpers/SteamEngine/MacSteamToolEngine'
+inspect=root/'.build/debug/MacSteamToolInspect'
 def header(kind,flags,body):
     data=struct.pack('<BHH',kind,flags,len(body)+7)+body
     return struct.pack('<H',zlib.crc32(data)&0xffff)+data

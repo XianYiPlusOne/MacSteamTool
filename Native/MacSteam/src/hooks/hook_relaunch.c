@@ -22,7 +22,7 @@ static fn_execv        orig_execv        = NULL;
 static fn_execve       orig_execve       = NULL;
 static fn_posix_spawn  orig_posix_spawn  = NULL;
 
-// Fluent deploys into the native Steam bundle and manages its LSEnvironment.
+// MacSteamTool deploys into the native Steam bundle and manages its LSEnvironment.
 // Native Steam relaunches must stay native; no companion launcher is required.
 static int target_keeps_insert(const char *path) {
     if (!path)

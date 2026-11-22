@@ -240,7 +240,7 @@ is "and says another launch has the prefix" "Prefix rebuilt" "$(cat "$data/alert
 printf '%s' "$work/missing" > "$np_support/app-executable"
 rebuild_case 'Rebuild Prefix' 0 waitforexitandrun
 is "a moved or missing app stops the launch" 1 "$status"
-is "a missing helper explains Fluent automatic repair" "Fluent Steam Mac needs repair" "$(cat "$data/alerts")"
+is "a missing helper explains MacSteamTool automatic repair" "MacSteamTool needs repair" "$(cat "$data/alerts")"
 
 data=$(mktemp -d "$work/stopped.XXXXXX")
 printf 0 > "$data/status"

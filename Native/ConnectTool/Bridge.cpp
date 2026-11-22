@@ -41,8 +41,8 @@ int main(int argc, char **argv) {
     dup2(STDERR_FILENO, STDOUT_FILENO);
     signal(SIGPIPE, SIG_IGN);
     QCoreApplication app(argc, argv);
-    QCoreApplication::setOrganizationName("FluentSteam");
-    QCoreApplication::setApplicationName("FluentConnect");
+    QCoreApplication::setOrganizationName("MacSteamTool");
+    QCoreApplication::setApplicationName("MacSteamToolConnect");
     QFile channel; if (!channel.open(output, QIODevice::WriteOnly, QFile::AutoCloseHandle)) return 2;
     auto sendEvent = [&](const QJsonObject &value) {
         auto bytes = QJsonDocument(value).toJson(QJsonDocument::Compact) + '\n';

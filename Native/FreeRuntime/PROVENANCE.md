@@ -1,4 +1,4 @@
-# Fluent free runtime (experimental)
+# MacSteamTool free runtime (experimental)
 
 The app registers `fluent-proton-free` with native Mac Steam. The existing NotProton kernel enables compatibility tool discovery; this integration does not replace it or change the commercial CrossOver backend's license checks.
 
@@ -16,6 +16,6 @@ If CloudRedirect is installed, setup first updates it through the existing backe
 
 Current limits: Apple Silicon + Rosetta; renderer support depends on the game and API; existing NotProton kernel required. A fresh-machine installer for macSteam/NotProton kernels, complete runtime rebuild, formal signing/notarization and distribution review remain separate work. Automatic installscript processing for games needing absent native-client `legacycompat` components is not claimed by this MVP.
 
-DXVK comes from Gcenx’s macOS v1.10.3-20230507-repack builtin package. The pinned SHA-256 is `810b1e5caf8ce975b784fae866a130ad23fa0ea233b0e5609cbc4a45f3ef6f00`. The package provides 32-bit and 64-bit D3D10/11 modules and uses the runner’s MoltenVK. Fluent selects the module directory at launch. [DXVK release](https://github.com/Gcenx/DXVK-macOS/releases/tag/v1.10.3-20230507-repack)
+DXVK comes from Gcenx’s macOS v1.10.3-20230507-repack builtin package. The pinned SHA-256 is `810b1e5caf8ce975b784fae866a130ad23fa0ea233b0e5609cbc4a45f3ef6f00`. The package provides 32-bit and 64-bit D3D10/11 modules and uses the runner’s MoltenVK. MacSteamTool selects the module directory at launch. [DXVK release](https://github.com/Gcenx/DXVK-macOS/releases/tag/v1.10.3-20230507-repack)
 
 The Wine and CrossOver launchers share their defaults parser and prefix settings implementation under `Native/NotProtonCore/dylib/feats`. Packaging embeds these modules in the standalone CrossOver launcher and copies them into the Wine runtime. Wine’s Automatic mode inspects game binaries. CrossOver uses its own compatibility database. [CrossOver advanced settings](https://support.codeweavers.com/en_US/advanced-settings-in-crossover-mac-26)

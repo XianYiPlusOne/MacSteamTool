@@ -1,11 +1,11 @@
 #!/bin/sh
-# Fluent free Wine compatibility tool, adapted from Drustburn/NotProton.
+# MacSteamTool free Wine compatibility tool, adapted from Drustburn/NotProton.
 # GPL-3.0; pinned provenance and changes: Native/FreeRuntime/PROVENANCE.md
 set -e
 
 tool_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 runtime_root=$(cat "$tool_dir/runtime-root")
-[ -d "$runtime_root/runner" ] || { echo "Free runtime missing; repair it in Fluent Steam" >&2; exit 1; }
+[ -d "$runtime_root/runner" ] || { echo "Free runtime missing; repair it in MacSteamTool" >&2; exit 1; }
 original_compat_path="$STEAM_COMPAT_DATA_PATH"
 case "$STEAM_COMPAT_DATA_PATH" in
   /*/fluent-free) ;;
@@ -44,7 +44,7 @@ case "$verb" in
 esac
 
 if [ ! -f "$tool_dir/prefix-support-ready" ]; then
-  echo "Free runtime needs repair in Fluent Steam after quitting Steam (separate cloud-save prefix support)." >&2
+  echo "Free runtime needs repair in MacSteamTool after quitting Steam (separate cloud-save prefix support)." >&2
   exit 1
 fi
 
@@ -561,7 +561,7 @@ if [ "$runner_kind" = selfbuilt ]; then
   case "$backend" in
     d3dmetal)
       if [ ! -f "$d3dm_lib" ] || [ ! -f "$CX_ROOT/lib/renderers/$d3dm/x86_64-windows/d3d12.dll" ]; then
-        echo "D3DMetal is incomplete. Repair Wine in Fluent." | tee -a "$log" >&2
+        echo "D3DMetal is incomplete. Repair Wine in MacSteamTool." | tee -a "$log" >&2
         exit 1
       fi
       export WINEDLLPATH_PREPEND="$CX_ROOT/lib/renderers/$d3dm"
@@ -569,7 +569,7 @@ if [ "$runner_kind" = selfbuilt ]; then
       ;;
     dxmt|dxvk)
       if [ ! -f "$CX_ROOT/lib/renderers/$backend/x86_64-windows/d3d11.dll" ]; then
-        echo "$backend is incomplete. Repair Wine in Fluent." | tee -a "$log" >&2
+        echo "$backend is incomplete. Repair Wine in MacSteamTool." | tee -a "$log" >&2
         exit 1
       fi
       export WINEDLLPATH_PREPEND="$CX_ROOT/lib/renderers/$backend"
@@ -604,7 +604,7 @@ if [ "${MTL_HUD_ENABLED:-0}" = 1 ]; then
     wine_label="$(sed -n 's/.*"wine": "\(.*\)".*/\1/p' "$CX_ROOT/runner.json" 2>/dev/null) ($(readlink "$CX_ROOT" 2>/dev/null || echo runner))"
     "$syshud" --offset "${NOTPROTON_SYSHUD_OFFSET:-$((14 + rows * 14))}" \
       --label "Wine: $wine_label" --label "Graphics: ${backend_label:-${CX_ACTIVE_GRAPHICS_BACKEND:-?}} (Rosetta)" \
-      --pid $$ --app "dev.fluentsteam.freegame.$app_id" >> "$log" 2>&1 &
+      --pid $$ --app "dev.macsteamtool.freegame.$app_id" >> "$log" 2>&1 &
     syshud_pid=$!
   fi
 fi
@@ -753,7 +753,7 @@ cat > "$loader_contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>$game_name_xml</string>
   <key>CFBundleDisplayName</key><string>$game_name_xml</string>
-  <key>CFBundleIdentifier</key><string>dev.fluentsteam.freegame.$app_id</string>
+  <key>CFBundleIdentifier</key><string>dev.macsteamtool.freegame.$app_id</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>

@@ -22,6 +22,20 @@ constexpr const char *kPingPrefix = "PING|";
 constexpr const char *kLobbyModeTun = "tun";
 constexpr const char *kLobbyModeTcp = "tcp";
 constexpr int kLobbyMaxMembers = 250; // Allow more than the default 4 slots
+
+// App 480 is shared. Advertise the room only while its join key is free,
+// and remove it only if it still belongs to this lobby.
+void updateRoomJoinKey(CSteamID lobby, bool joining) {
+  auto *friends = SteamFriends();
+  auto *user = SteamUser();
+  if (!friends || !user) return;
+  const auto room = std::to_string(lobby.ConvertToUint64());
+  const char *current = friends->GetFriendRichPresence(user->GetSteamID(), "connect");
+  if (joining && (!current || !*current))
+    friends->SetRichPresence("connect", room.c_str());
+  else if (!joining && current && room == current)
+    friends->SetRichPresence("connect", nullptr);
+}
 } // namespace
 
 SteamFriendsCallbacks::SteamFriendsCallbacks(SteamNetworkingManager *manager,
@@ -99,10 +113,7 @@ void SteamMatchmakingCallbacks::OnLobbyCreated(LobbyCreated_t *pCallback,
     qInfo() << "[Session] Steam lobby created:"
             << roomManager_->getCurrentLobby().ConvertToUint64();
 
-    // Set Rich Presence to enable invite functionality
-    SteamFriends()->SetRichPresence("steam_display", "#Status_InLobby");
-    SteamFriends()->SetRichPresence(
-        "connect", std::to_string(pCallback->m_ulSteamIDLobby).c_str());
+    updateRoomJoinKey(roomManager_->getCurrentLobby(), true);
     roomManager_->refreshLobbyMetadata();
   } else {
     qWarning() << "[Session] Steam rejected lobby creation with result"
@@ -273,10 +284,7 @@ void SteamMatchmakingCallbacks::OnLobbyEntered(LobbyEnter_t *pCallback) {
                                               roomManager_->getCurrentLobby());
     }
 
-    // Set Rich Presence to enable invite functionality
-    SteamFriends()->SetRichPresence("steam_display", "#Status_InLobby");
-    SteamFriends()->SetRichPresence(
-        "connect", std::to_string(pCallback->m_ulSteamIDLobby).c_str());
+    updateRoomJoinKey(roomManager_->getCurrentLobby(), true);
 
     roomManager_->notifyPinnedMessageChanged(
         roomManager_->getCurrentLobby());
@@ -388,12 +396,6 @@ SteamRoomManager::SteamRoomManager(SteamNetworkingManager *networkingManager)
   steamFriendsCallbacks = new SteamFriendsCallbacks(networkingManager_, this);
   steamMatchmakingCallbacks =
       new SteamMatchmakingCallbacks(networkingManager_, this);
-
-  // Clear Rich Presence on initialization to prevent "Invite to game" showing
-  // when not in a lobby
-  if (ISteamFriends *friends = SteamFriends()) {
-    friends->ClearRichPresence();
-  }
 }
 
 void SteamRoomManager::setVpnMode(bool enabled,
@@ -453,6 +455,7 @@ bool SteamRoomManager::createLobby() {
 
 void SteamRoomManager::leaveLobby() {
   if (currentLobby != k_steamIDNil) {
+    updateRoomJoinKey(currentLobby, false);
     SteamMatchmaking()->LeaveLobby(currentLobby);
     currentLobby = k_steamIDNil;
     if (networkingManager_) {
@@ -462,11 +465,6 @@ void SteamRoomManager::leaveLobby() {
       vpnNetworkingManager_->clearPeers();
     }
     remotePings_.clear();
-
-    // Clear Rich Presence when leaving lobby
-    if (ISteamFriends *friends = SteamFriends()) {
-      friends->ClearRichPresence();
-    }
   }
 }
 

@@ -1,12 +1,14 @@
-# Fluent Steam Mac
+# MacSteamTool
 
 原生 macOS Steam Lua 管理器，适配 **macSteam 0.8.2 配置格式**及 **NotProton 的原生 Steam / CrossOver 前缀布局**。SwiftUI + C++ 原生桥接 + Swift Package Manager，macOS 14+，本次产物为 Apple Silicon。
 
 [查看功能对照与移植进度](#功能对照与移植进度)
 
-Fluent 已移除自建云存档。可在“存档与备份”中备份和恢复本地文件。支持 Steam 云的游戏由 Steam 按原有设置同步。
+MacSteamTool 已移除自建云存档。可在“存档与备份”中备份和恢复本地文件。支持 Steam 云的游戏由 Steam 按原有设置同步。
 
-**当前是 0.2.34（build 36）。** 点击入库立即打开进度弹窗，实时显示检查与补齐过程；检查完成统一进入预览，展示主游戏/DLC 名称、AppID、Depot 状态和可复制完整日志，确认后再写入。 搜索和切换 DLC 不再预检密钥；仅点击“一键入库”后检查，缺项依次尝试缓存刷新、原有备用源与 GitHub 后备源。 本版适配 Steam 1794536281，修复客户端更新后入库内容不显示；已清理历史发布包并从当前源码重新构建。 新增“容器管理”：为单个游戏提前创建 Wine / CrossOver 独立环境，打开 Windows 工具或 EXE / MSI，并备份、恢复、重置和移除容器；游戏详情和运行环境均有入口。 运行环境的高级页统一为内置 Steam 接入诊断与恢复，移除外置 macSteam / NotProton 的产品卡片、目录设置和旧更新界面；兼容层显示 Wine / CrossOver。 新增 Steam 1794424036 的原生入口、对象布局和扩展适配；macSteam / NotProton 功能由本程序的源码组件自动管理，兼容层可选择 Wine 或用户购买的 CrossOver。详细地址与校验规则见 [Steam 适配记录](Native/SteamIntegration/PROFILE-NOTES.md)。联机迁移见下文。 0.2.24 起， 小黑盒榜单保留左右滚动、隐藏滚动条，滚到接近末尾时自动请求下一批 30 条；去重追加并保留原有顺序、封面缓存和滚动位置。没有上一页/下一页按钮。隔离界面连续滚动已实际从 30 款追加到 60、90 款，并能向左返回；同时修复辅助滚动下的列表稳定性问题。详见 [滚动加载验证](outputs/0.2.24-榜单横向滚动加载与验证.md)。
+**当前是 0.2.35（build 37）。** 本版统一应用、辅助程序和发布包的名称，新安装使用 MacSteamTool 数据目录。
+
+0.2.34（build 36）的改动： 点击入库立即打开进度弹窗，实时显示检查与补齐过程；检查完成统一进入预览，展示主游戏/DLC 名称、AppID、Depot 状态和可复制完整日志，确认后再写入。 搜索和切换 DLC 不再预检密钥；仅点击“一键入库”后检查，缺项依次尝试缓存刷新、原有备用源与 GitHub 后备源。 本版适配 Steam 1794536281，修复客户端更新后入库内容不显示；已清理历史发布包并从当前源码重新构建。 新增“容器管理”：为单个游戏提前创建 Wine / CrossOver 独立环境，打开 Windows 工具或 EXE / MSI，并备份、恢复、重置和移除容器；游戏详情和运行环境均有入口。 运行环境的高级页统一为内置 Steam 接入诊断与恢复，移除外置 macSteam / NotProton 的产品卡片、目录设置和旧更新界面；兼容层显示 Wine / CrossOver。 新增 Steam 1794424036 的原生入口、对象布局和扩展适配；macSteam / NotProton 功能由本程序的源码组件自动管理，兼容层可选择 Wine 或用户购买的 CrossOver。详细地址与校验规则见 [Steam 适配记录](Native/SteamIntegration/PROFILE-NOTES.md)。联机迁移见下文。 0.2.24 起， 小黑盒榜单保留左右滚动、隐藏滚动条，滚到接近末尾时自动请求下一批 30 条；去重追加并保留原有顺序、封面缓存和滚动位置。没有上一页/下一页按钮。隔离界面连续滚动已实际从 30 款追加到 60、90 款，并能向左返回；同时修复辅助滚动下的列表稳定性问题。详见 [滚动加载验证](outputs/0.2.24-榜单横向滚动加载与验证.md)。
 
 0.2.23 的搜索入库移除手动来源选择，改为“一键入库”：先检查本地密钥，缺项时自动更新一次缓存，再尝试远程 Lua 补齐。按查询到的主游戏、所选 DLC（含子 DLC）与共享 depot 检查完整性；资料无法核实、密钥冲突、仍有缺项或兼容性提示时保留预览，不自动写入。完整的新游戏直接通过已有备份事务入库；已有 Lua 的替换仍需预览。自定义备用地址移至“设置 → 内容数据源 → 备用入库源（高级）”。完整性检查不代表已验证游戏下载或启动。
 
@@ -26,7 +28,7 @@ Fluent 已移除自建云存档。可在“存档与备份”中备份和恢复�
 
 ## Steam 接入的内部实现（2026-11-12）
 
-macSteam 与 NotProton 的原生功能现由仓库内源码构建，入口分别是 `Native/MacSteam`、`Native/NotProtonCore` 和 `Engine/NotProtonInstaller`。这是保留上游许可与署名的源码移植及维护，不是从零独立重写。构建和默认运行流程不再提取或下载两个 App 的安装包。原生 Steam 继续保留，游戏兼容层由用户选择 Wine 或自己购买并激活的 CrossOver；初始化与修复由 Fluent 自动处理。
+macSteam 与 NotProton 的原生功能现由仓库内源码构建，入口分别是 `Native/MacSteam`、`Native/NotProtonCore` 和 `Engine/NotProtonInstaller`。这是保留上游许可与署名的源码移植及维护，不是从零独立重写。构建和默认运行流程不再提取或下载两个 App 的安装包。原生 Steam 继续保留，游戏兼容层由用户选择 Wine 或自己购买并激活的 CrossOver；初始化与修复由 MacSteamTool 自动处理。
 
 CrossOver 桥接代码从本仓库和固定版本的 Wine/Valve 源码编译，不包含付费 CrossOver。开发机首次构建需 mingw-w64、bison 3+、autoconf 等工具；用户机器不需要编译工具。与旧版互通的数据目录、工具 ID、前缀布局继续保留。独立管理器 App 不参与默认安装、修复或前缀重建。
 
@@ -44,7 +46,7 @@ Hades 已用真实数据完成 macOS 一键入库与独立回读；Windows 路�
 
 ## 运行
 
-打开 `outputs/Fluent Steam Mac.app`。开发时执行：
+在 Finder 中打开 `outputs/MacSteamTool.app`。使用 ARM64 发布 ZIP 时，先解压再打开应用。当前包内的 Qt 框架使用符号链接，内置更新器会拒绝这份 ZIP。从旧版升级时请先退出旧应用，已有设置、游戏库与备份会由新应用继续使用。开发时执行：
 
 ```sh
 ./script/build_and_run.sh --verify
@@ -61,11 +63,11 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 3. 完整的新游戏直接入库；手动导入、内容缺项或替换已有 Lua 时显示预览，核对后点击“导入并启用”。支持的内容转换为 macSteam `config.yaml`。入库后优先热刷新并打开 Steam 游戏详情；失败时提示重启。Steam 未运行时在下次启动加载。
 
 入库热刷新已在 Steam 1794536281 的同一进程中验证新增条目进入游戏库缓存，失败回退与原配置恢复也已验证。界面截图受系统捕获错误阻挡，详见 [热刷新实测记录](outputs/2026-11-15-入库热刷新实测.md)。
-4. Windows 游戏由 Steam 中所选的兼容工具运行。详情页可打开对应前缀、Wine 配置和日志。已有 NotProton 内核时，也可在“运行环境”安装 **Fluent Wine 免费运行器（实验）**：保留原生 Mac Steam，免费 Wine 与 CrossOver 共用兼容性设置。可在“运行环境”的“默认兼容性设置”选择自动、DXMT、DXVK、WineD3D 或 D3DMetal，并配置高分辨率、MSync、Metal HUD、超分辨率和控制器。Steam 游戏的“属性 → 兼容性”可以单独覆盖这些默认值。旧版 Wine 选择“使用 Wine”后会分阶段安装新版图形组件。首次启动会创建独立前缀，可能需要约一分钟，请保持 Steam 运行。ForgeTax 已通过原生 Steam 启动并人工确认正常画面；旧前缀和存档保留。内置内核与兼容层已分开，隔离安装验证见 `Native/OneClickSetup/VALIDATION.md`；DX12 游戏实测、全新硬件首次登录后的加载与完整云同步仍需单独验收。运行器实测见 `Native/FreeRuntime/VALIDATION.md`。
+4. Windows 游戏由 Steam 中所选的兼容工具运行。详情页可打开对应前缀、Wine 配置和日志。已有 NotProton 内核时，也可在“运行环境”安装 **MacSteamTool Wine 免费运行器（实验）**：保留原生 Mac Steam，免费 Wine 与 CrossOver 共用兼容性设置。可在“运行环境”的“默认兼容性设置”选择自动、DXMT、DXVK、WineD3D 或 D3DMetal，并配置高分辨率、MSync、Metal HUD、超分辨率和控制器。Steam 游戏的“属性 → 兼容性”可以单独覆盖这些默认值。旧版 Wine 选择“使用 Wine”后会分阶段安装新版图形组件。首次启动会创建独立前缀，可能需要约一分钟，请保持 Steam 运行。ForgeTax 已通过原生 Steam 启动并人工确认正常画面；旧前缀和存档保留。内置内核与兼容层已分开，隔离安装验证见 `Native/OneClickSetup/VALIDATION.md`；DX12 游戏实测、全新硬件首次登录后的加载与完整云同步仍需单独验收。运行器实测见 `Native/FreeRuntime/VALIDATION.md`。
 
 ## 功能对照与移植进度
 
-对照版本为 Fluent-Steam-Lua 1.5.4.3（`f5afbc8`）。Windows 原版使用 OpenSteamTool，macOS 版使用 macSteam。表中列出各项功能的实现状态、已验证的场景和待验证的范围。
+表中列出各项功能的实现状态、已验证的场景和待验证的范围。
 
 | 功能 | macOS 版状态 | 实现与验证范围 |
 | --- | --- | --- |
@@ -83,7 +85,7 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 | Steam 启动/重启、本地账号切换 | 已实现 | 账号切换要求 Steam 退出并已保存登录 |
 | 修改器 | 已移除 | 自 0.2.18 起移出产品范围。 |
 | 手动 / 自动监听 Manifest 下载 | 已实现 | 新日志请求去重、日志轮转、多个 HTTPS 源与 Steam CDN 切换，验证分段 / DepotID / ManifestID / CRC |
-| 版本锁定 | 部分实现 | 新增 Fluent Manifest 原生扩展；真实 ARM64 Steam 函数隔离验证通过，支持 build 1792618285 的 public 分支、有效缓存和热加载；实际 Steam 下载/更新待测试 |
+| 版本锁定 | 部分实现 | 新增 MacSteamTool Manifest 原生扩展；真实 ARM64 Steam 函数隔离验证通过，支持 build 1792618285 的 public 分支、有效缓存和热加载；实际 Steam 下载/更新待测试 |
 | 内核安装/更新/卸载 | 已实现 | 内置组件的备份部署、修复、内核卸载、校验恢复及中断恢复（先保留当前完整状态）；兼容已有外置资源导入；macSteam / NotProton 实机安装、更新、卸载、运行器清理和完整恢复通过；保留游戏前缀 |
 | 本地存档和配置备份 / 恢复 / 清空 | 已实现 | 恢复或清空前另建经过校验的当前存档副本 |
 | SteamKit 在线登录并提取正版 Lua/密钥 | 部分实现 | 支持扫码、密码＋验证码和 macOS 本机缓存凭证；钥匙串、账号库、DLC 子仓库及批量 Lua/Manifest/schema Bin；登录方式隔离回归通过，真实账号仍待验证 |
@@ -106,12 +108,14 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 
 ## ConnectTool 联机
 
-1. 双方登录 Steam。Mac 打开“联机”页，服务会自动连接 Steam，Windows 使用同版本 connecttool-qt。
+1. 双方登录 Steam。Mac 在游戏库首页或“联机”页手动打开联机开关，每次启动 MacSteamTool 时开关默认为关闭。Windows 使用同版本 connecttool-qt。
 2. 双方选择同一模式，创建房间后分享房间 ID，或使用好友邀请。
 3. TUN 模式下在游戏内连接房主的虚拟 IP；TCP 模式填写游戏监听端口，由加入方通过本地映射端口连接。
 4. Mac 内置 x86_64 无窗口网络服务以保留 Steam ICE 直连支持，Apple Silicon 需要 Rosetta 2。首次使用 TUN 时，点击“启用 / 修复虚拟网卡”后通过系统管理员授权安装网络助手，随后自动进行网卡创建测试；macOS 使用系统自带 utun，无需另外下载驱动。助手为 ARM64/x86_64 通用程序，安装失败会还原原文件。TCP 模式无需此授权。
-5. 切换页面/关闭主窗口保持联机；退出 Fluent Steam 会断开房间并关闭后台网络服务。独立安装的 ConnectTool 不受影响。
+5. 切换页面或关闭主窗口时连接继续保持。游戏库首页显示连接状态、当前房间、人数和模式，可复制房间 ID 及游戏连接地址。在任一页面关闭开关或退出 MacSteamTool 即可结束联机。
 6. 已安装的旧补丁可在“离线工具”按原备份校验还原。移除旧版 Steam 进程中的联机钩子需要更新运行环境扩展并重启 Steam；请删除过去手动设置的 `-onlinefix` 启动参数。
+
+内置联机服务使用与 Spacewar 相同的 AppID 480。Steam 同时上报游戏和可确认属于内置联机进程的条目时，MacSteamTool 优先显示游戏，并继续应用原有好友状态和隐私设置。联机服务仅发布房间加入信息。
 
 打包锁定清单见 `Resources/ConnectTool/release.json`。`script/bundle_connecttool.py` 从 `Native/ConnectTool` 构建无窗口服务及 TUN 助手，校验上游 DMG 的 SHA-256，并仅提取所需 Qt/Steam 运行依赖；不打包原 GUI、QML 或嵌套 .app。构建依赖和改动详见 `Native/ConnectTool/PROVENANCE.md`；首次构建需下载 Qt Base SDK、Boost 及 Valve 头文件，缓存校验后可复用。房间、好友、聊天/置顶、公开大厅、网络状态以及上游版本检查/下载均在原生联机页操作；下载不会替换内嵌服务，其版本由主程序更新管理。当前为本机临时签名，未公证。
 
@@ -121,7 +125,7 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 
 新版首次启动时会关闭旧扩展的存档接管。退出并重新启动 Steam 后，新版扩展生效。原有本地存档、独立存储目录和第三方服务商里的副本都保留。旧云端副本不会自动迁入 Steam 云。
 
-使用默认目录的旧版本地副本可在 `~/Library/Application Support/FluentSteamMac/CloudSaves/` 或 `CloudRedirect/storage/` 找到。自定义文件夹仍在原路径，旧版云端删除操作生成的备份仍在 `CloudDeleteBackups/`。这些相对路径均位于 FluentSteamMac 数据目录下。
+旧版本地副本可在应用数据目录下的 `CloudSaves/` 或 `CloudRedirect/storage/` 找到。自定义文件夹仍在原路径，旧版云端删除操作生成的备份仍在 `CloudDeleteBackups/`。
 
 ## 0.2.15 新入口
 
@@ -133,11 +137,11 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 
 ## 数据位置和写入方式
 
-- 配置、Lua、缓存和事务备份：`~/Library/Application Support/FluentSteamMac/`
+- 新安装的配置、Lua、缓存和事务备份位于 `~/Library/Application Support/MacSteamTool/`。从旧版升级时直接使用原数据目录，以保留备份记录中的绝对路径。
 - macSteam：`~/Library/Application Support/macsteam/config.yaml`
 - Steam：`~/Library/Application Support/Steam/`
 - NotProton：`~/Library/Application Support/notproton/`
-- 免费运行器：`~/Library/Application Support/FluentSteamMac/FreeRuntime/`；各 Steam 库中的独立前缀：`steamapps/compatdata/<AppID>/fluent-free/pfx/`
+- 免费运行器位于应用数据目录的 `FreeRuntime/`；各 Steam 库中的独立前缀：`steamapps/compatdata/<AppID>/fluent-free/pfx/`
 - Lua 设置提供迁移开关。同名冲突不会覆盖，原目录保留。其他路径设置不自动搬迁内容。
 
 启动应用读取现有 Steam/macSteam 文件，并可获取名称缓存；自动广播模式还会备份并同步已启用主游戏的名称注释。实际导入、禁用、账号切换等由用户在界面中发起。所有受管文件修改先保存备份及 SHA-256，再原子替换；批次失败回滚。写入 macSteam 配置前检查文件是否被其他应用修改。现有 macSteam 内核限制 256 个 depot key 组、每组 64 个 depot，超限会拒绝写入而不是静默截断。
@@ -146,7 +150,7 @@ Codex 的 Run 按钮也已配置。`--build` 仅打包，`--debug` 启动 lldb�
 
 ## 测试
 
-使用 Swift Testing（`./script/test.sh` 自动适配 Command Line Tools 的宏插件路径）。`Tests/FluentCoreTests` 覆盖 Lua 注释/密钥/归属、VDF、未知配置保留、导入→禁用→启用→ZIP 导出→恢复、并发配置冲突、批次失败回滚、恶意 ZIP、备份篡改、外置 Steam 库、存档备份、账号切换。测试只使用临时目录。
+使用 Swift Testing（`./script/test.sh` 自动适配 Command Line Tools 的宏插件路径）。`Tests/MacSteamToolCoreTests` 覆盖 Lua 注释/密钥/归属、VDF、未知配置保留、导入→禁用→启用→ZIP 导出→恢复、并发配置冲突、批次失败回滚、恶意 ZIP、备份篡改、外置 Steam 库、存档备份、账号切换。测试只使用临时目录。
 
 当前核心测试涵盖新增补丁事务、Wine 注册表与离线工具流程，包括 Manifest 二进制格式 / 身份 / CRC、日志半行 / 去重 / 轮转、存档恢复 / 清空与备份完整性、配置恢复路径中的符号链接逃逸。
 
@@ -178,14 +182,14 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 ### 新增工具与安装回归
 
 - 开发者可用 `./script/build_windows_test_runtime.sh` 准备仅供隔离测试的 Windows Python；该运行时不打入应用。`script/test_wine_adapter.py` 实际使用应用的 `WineLaunch.prepare` 启动已安装 NotProton 26.3.0.39832；隔离前缀内的 DLL 注册表配置通过。
-- `FluentNotProton --self-test` 验证共存加载配置、备份完整性、冲突拒绝、回滚和共享安装锁；`--test-kernel` 将真实 macSteam 资源部署到合成 Steam.app，再完整恢复。真实 Steam 运行时拒绝安装，现有 Steam 和游戏未被退出。
+- `MacSteamToolNotProton --self-test` 验证共存加载配置、备份完整性、冲突拒绝、回滚和共享安装锁；`--test-kernel` 将真实 macSteam 资源部署到合成 Steam.app，再完整恢复。真实 Steam 运行时拒绝安装，现有 Steam 和游戏未被退出。
 - `script/test_steamless_bridge.py` 在 NotProton 下加载官方未修改的 7 个 Steamless 插件，解包自建 SteamStub 3.1 x64 PE：恢复原入口、删除 .bind、保留代码；没有执行这个合成 PE。未加壳 PE 正确拒绝。
 - `script/test_goldberg_windows.py` 在隔离前缀的 AppID 480 下用真实 Goldberg x64 DLL 验证成就读取、解锁和回锁，使用实验版时还检查覆盖层是否已配置。另用应用生成的无 Key 部署和已有成就定义，在 NotProton 的 Direct3D 9 测试窗口中捕获了实际解锁通知。本机 Direct3D 11 和 OpenGL 测试窗口中覆盖层未就绪，真实游戏的渲染兼容性仍待验收。
 - 离线工具包先尝试首选下载源，传输或 SHA-256 校验失败后按直连和其余镜像的顺序重试，每个源最多一次。Steamless 使用固定 SHA-256，Goldberg 从 GitHub 官方获取版本和校验值。版本查询不可用时，界面提示使用上次取得的版本；首次下载使用内置校验值对应的版本。原始工具压缩包保留在用户缓存中，未加入本应用分发包。
 
 ### Manifest 原生扩展
 
-运行环境可安装 `Fluent Manifest`。启用 Lua 的 `setManifestid` 同步为 macSteam YAML 中的 `FluentManifestPins`，禁用/移除游戏时一并移除；旧 Lua 可点击“同步已有 Lua 锁定与令牌”。扩展约每秒刷新，经分段、身份及 CRC 校验的缓存 Manifest 才参与 public 分支版本选择。请先在清单管理下载对应版本。只支持 Steam ARM64 build `1792618285`；未知 Mach-O UUID、改动过的入口、Beta 分支和其他 depot 均不覆盖。正在进行的下载需要停止后重试。
+运行环境可安装 `MacSteamTool Manifest`。启用 Lua 的 `setManifestid` 同步为 macSteam YAML 中的 `FluentManifestPins`，禁用/移除游戏时一并移除；旧 Lua 可点击“同步已有 Lua 锁定与令牌”。扩展约每秒刷新，经分段、身份及 CRC 校验的缓存 Manifest 才参与 public 分支版本选择。请先在清单管理下载对应版本。只支持 Steam ARM64 build `1792618285`；未知 Mach-O UUID、改动过的入口、Beta 分支和其他 depot 均不覆盖。正在进行的下载需要停止后重试。
 
 原生验证命令：`python3 script/test_manifest_native.py --steam-client /absolute/path/steamclient.dylib --manifest /absolute/path/621_9044256803759256265.manifest`。测试使用独立进程和临时数据；包括真实函数锁定/取消、缓存损坏/修复、未知版本拒绝及 hook 移除。该扩展现已在真实 Steam 中与 macSteam、NotProton、CloudRedirect 同时加载；实际版本锁定下载仍待验证。
 
@@ -212,9 +216,9 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 ### 配置更新和发布
 
-设置页可填写此移植版自己的 HTTPS `release.json`，开启启动检查，或先导入本地签名 JSON 再选择匹配 ZIP。更新只重启 Fluent Steam；旧应用保留在同目录 `Fluent Steam Mac.before-*.app`，可退出应用后通过 Finder 恢复。此构建尚无公共更新服务器，不会向原作者仓库发布。
+设置页可填写此移植版自己的 HTTPS `release.json`，开启启动检查，或先导入本地签名 JSON 再选择匹配 ZIP。更新只重启 MacSteamTool；旧应用保留在同目录 `MacSteamTool.before-*.app`，可退出应用后通过 Finder 恢复。此构建尚无公共更新服务器，不会向原作者仓库发布。
 
-`script/package_release.py --download-url https://YOUR-HOST/FluentSteamMac-0.2.12-arm64.zip` 生成应用/源码 ZIP、SHA-256 与 Ed25519 签名 `release.json`。空下载地址表示仅支持本地导入。更新公钥在 `Resources/UpdatePublicKey.txt`，私钥留在本机 `work/update-signing/private-key`，不进入源码或应用分发包；后续发布需保留同一私钥并增加 build。若要换钥匙，需要先通过旧钥匙签署包含新公钥的过渡版。
+`script/package_release.py --download-url https://YOUR-HOST/MacSteamTool-0.2.35-arm64.zip` 生成应用/源码 ZIP、SHA-256 与 Ed25519 签名 `release.json`。空下载地址表示仅支持本地导入。更新公钥在 `Resources/UpdatePublicKey.txt`，私钥留在本机 `work/update-signing/private-key`，不进入源码或应用分发包；后续发布需保留同一私钥并增加 build。若要换钥匙，需要先通过旧钥匙签署包含新公钥的过渡版。
 
 打包时 Windows PE/.NET 载荷位于 `Contents/Resources/Helpers`，作为资源封存；原生 Mach-O 单独签名。这样本地更新无需依赖容易在 ZIP 解压时丢失的扩展属性签名。分发包仍为本机临时签名，未公证。
 
@@ -226,7 +230,7 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 “添加到游戏库”和“补全 DLC”在已登录 SteamKit 账号时，会把 Steam 为相应 AppID 签发的访问令牌写入生成的 Lua。公开资料缺少 depot 或查询失败时，生成器会用对应令牌向 Steam 补查仓库、分支清单和 DLC。没有登录或 Steam 没有签发令牌时，仍可使用公开资料生成清单。“补全 DLC”会保留已有 Lua 中的令牌。
 
-导入和启用 Lua 时，`addtoken` 同步为 `FluentAccessTokens`，禁用时随 AppID 移除。已有 Lua 使用“同步已有 Lua 锁定与令牌”；需要运行环境中的 Fluent 原生运行时扩展。令牌约每秒热加载，只注入已启用 AppID 的 PICS 请求；UInt64 使用十进制文本保存，不经过浮点转换。原生隔离测试验证真实 Steam protobuf、发送钩子和调用者数据恢复，没有发送虚构令牌到网络。
+导入和启用 Lua 时，`addtoken` 同步为 `FluentAccessTokens`，禁用时随 AppID 移除。已有 Lua 使用“同步已有 Lua 锁定与令牌”；需要运行环境中的 MacSteamTool 原生运行时扩展。令牌约每秒热加载，只注入已启用 AppID 的 PICS 请求；UInt64 使用十进制文本保存，不经过浮点转换。原生隔离测试验证真实 Steam protobuf、发送钩子和调用者数据恢复，没有发送虚构令牌到网络。
 
 ### 0.2.1：按 AppID 选择 Steam Play 运行器
 
@@ -242,7 +246,7 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 ### 0.2.3：广播游戏名跟随应用语言
 
-自动广播使用 Fluent Steam Mac 当前界面语言的同一份游戏资料；在设置页切换语言并保存后，同步更新广播标题，不固定为中文，也不使用 Steam 客户端语言覆盖应用选择。仅修改已启用主游戏的名称注释，写入前检查摘要并自动备份；DLC、密钥、开关及其他配置保留。中文与英文缓存分开读取，取消的旧请求不能覆盖新语言。关闭自动联网获取名称时仍可使用对应语言缓存；该语言资料缺失时保留游戏库当前回退名称，等待后续获取。
+自动广播使用 MacSteamTool 当前界面语言的同一份游戏资料；在设置页切换语言并保存后，同步更新广播标题，不固定为中文，也不使用 Steam 客户端语言覆盖应用选择。仅修改已启用主游戏的名称注释，写入前检查摘要并自动备份；DLC、密钥、开关及其他配置保留。中文与英文缓存分开读取，取消的旧请求不能覆盖新语言。关闭自动联网获取名称时仍可使用对应语言缓存；该语言资料缺失时保留游戏库当前回退名称，等待后续获取。
 
 已加载的 0.2.2 扩展可热读取标题，无需重启 Steam。正在运行游戏的状态名在下一条真实游戏状态消息时更新，通常是下次启动/退出；不会伪造退出重进来刷新名称。好友客户端的显示、通知开关和送达延迟不由本应用控制，本机显示成功不能替代好友端通知验收。
 
@@ -269,7 +273,7 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 ### 0.2.6：参照原版的兼容广播
 
-按用户确认恢复兼容广播路线。自动/所选模式只处理最近启动的目标游戏，优先使用当前账号已注册的非Steam快捷方式GameID，并附上Fluent当前语言的实际游戏名；没有可用快捷方式时回退480。只改写目标条目的身份、标题与其owner字段，其他游戏的owner与内容不变。若可用身份已经被实际运行的其他游戏占用，不冒用其身份、不合并游戏条目。丰富状态上传保留Steam原始处理；隐藏所选仍是独立功能，跟随Steam则完全透传。
+按用户确认恢复兼容广播路线。自动/所选模式只处理最近启动的目标游戏，优先使用当前账号已注册的非Steam快捷方式GameID，并附上MacSteamTool当前语言的实际游戏名；没有可用快捷方式时回退480。只改写目标条目的身份、标题与其owner字段，其他游戏的owner与内容不变。若可用身份已经被实际运行的其他游戏占用，不冒用其身份、不合并游戏条目。丰富状态上传保留Steam原始处理；隐藏所选仍是独立功能，跟随Steam则完全透传。
 
 快捷方式解析读取当前账号shortcuts.vdf，完整解析有界二进制KV，不扫描任意字节模式，不跨账号借用快捷方式，拒绝符号链接、坏包、截断和重复ID；账号变更后旧快捷方式立即失效。没有快捷方式时不会替用户新增库条目。界面明确显示快捷方式数量、实际发送GameID及Spacewar回退会影响时长/通知的区别。
 
@@ -281,9 +285,9 @@ AGPL-3.0。此项目为独立修改/移植版本。原项目和依赖署名见 T
 
 导入Lua/ZIP、搜索生成入库、重新启用及编辑已启用Lua后，按最终写入的主游戏仓库与平台资料自动检查。仅有Windows可用内容时选择已安装的NotProton：优先已有全局NotProton选择，否则选版本号较新的已安装运行器。包含macOS内容、DLC单独内容或资料不完整时保留设置；不会仅凭商店macOS标签判断。
 
-Steam运行时只记录持久队列，不写config.vdf、不强制退出游戏。保持Fluent打开，Steam退出后自动备份应用；从Fluent启动/重启Steam前也会先处理。等待写入的游戏从Fluent启动时会提示先重启Steam，避免再次按错误平台启动。退出Fluent不会丢失队列，下次打开继续。离线、运行器未安装或资料不明时在运行环境页显示待处理原因，可重试。已下载的平台资料缓存24小时，未知判断约10分钟重试。
+Steam运行时只记录持久队列，不写config.vdf、不强制退出游戏。保持MacSteamTool打开，Steam退出后自动备份应用；从MacSteamTool启动/重启Steam前也会先处理。等待写入的游戏从MacSteamTool启动时会提示先重启Steam，避免再次按错误平台启动。退出MacSteamTool不会丢失队列，下次打开继续。离线、运行器未安装或资料不明时在运行环境页显示待处理原因，可重试。已下载的平台资料缓存24小时，未知判断约10分钟重试。
 
-保留Steam中已有逐游戏选择；在Fluent手动保存的“跟随Steam默认设置”也会被记住，重新入库不覆盖。队列随入库事务一起备份与回滚，禁用/移除会取消待应用项；应用前再次检查游戏内容、用户设置与Steam进程。配置写入不涉及游戏存档、成就、下载开关或其他游戏。
+保留Steam中已有逐游戏选择；在MacSteamTool手动保存的“跟随Steam默认设置”也会被记住，重新入库不覆盖。队列随入库事务一起备份与回滚，禁用/移除会取消待应用项；应用前再次检查游戏内容、用户设置与Steam进程。配置写入不涉及游戏存档、成就、下载开关或其他游戏。
 
 67项核心测试通过，涵盖完整隔离入库/延后应用/还原与竞争条件。实际新版界面已验证，更新期间Steam PID不变；没有为验收此自动功能新加实机游戏。此前荒岛求生的单项手动修复已取得正确Windows下载清单，实际下载完成/游戏启动仍未验收。原生扩展保持0.2.6相同内容，无需重新部署。
 
@@ -311,7 +315,7 @@ SteamKit 正版导出新增递归 DLC 子仓库、许可过滤、循环/重复�
 
 ### 0.2.10：自动成就准备与在线云存档
 
-新入库或重新启用的主游戏进入持久成就准备队列。Steam 登录时取得公开定义，退出后再以备份事务应用；从 Fluent 启动 Steam 前也会处理。无定义、网络失败、游戏移除、手动关闭和运行中配置变化均有保护。不会批量接管现有游戏，也不会自动解锁成就。后续正常游玩由游戏自己的 Steam API 触发成就。
+新入库或重新启用的主游戏进入持久成就准备队列。Steam 登录时取得公开定义，退出后再以备份事务应用；从 MacSteamTool 启动 Steam 前也会处理。无定义、网络失败、游戏移除、手动关闭和运行中配置变化均有保护。不会批量接管现有游戏，也不会自动解锁成就。后续正常游玩由游戏自己的 Steam API 触发成就。
 
 修复显式回锁修订号使后续原生缓存新解锁一直被忽略的问题：保留旧状态过滤，仅接受晚于回锁时间的新解锁；与回锁同秒的缓存时间无法区分，继续等待明确提交。独立原生测试先复现旧版失败，再验证新行为及旧状态不复活。实际《深空当铺》自带 `steam_api64.dll` 经 NotProton 返回 `EResult=1`，读到 21 项。用户正常改变物品标签，解锁「下层特供」并确认弹窗；原生记录捕获 0→1，独立只读回查确认仅这一项新增，保留此次真实进度。首次游戏启动曾报 Steam API 初始化失败，重开游戏后成功，根因仍待排查。
 

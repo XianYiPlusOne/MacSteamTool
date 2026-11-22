@@ -1,5 +1,5 @@
 #!/bin/sh
-# Shared by the CrossOver and Fluent Wine launchers.
+# Shared by the CrossOver and MacSteamTool Wine launchers.
 controller_ids() {
   printf '%s\n' "$1" | tr ',' '\n' | tr 'A-F' 'a-f' \
     | sed -n 's/^[[:space:]]*0x\([0-9a-f]\{4\}\)\/0x\([0-9a-f]\{4\}\)[[:space:]]*$/\1\/\2/p' \

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Reversible manager-free live trial, retaining native Steam login and game downloads.
 
-Parks all managers, their caches, Fluent's data, compatibility tools and the test
-save prefix. Fluent must initialize its own components and fetch Wine afresh.
+Parks all managers, their caches, MacSteamTool's data, compatibility tools and the test
+save prefix. MacSteamTool must initialize its own components and fetch Wine afresh.
 Original configuration and saves are restored by the journal, never overwritten.
 """
 import fresh_machine_trial as trial
@@ -18,10 +18,10 @@ def stage():
     trial.EVIDENCE.chmod(0o700)
     vault=trial.SUPPORT/('FluentNativeWineTrial-'+uuid.uuid4().hex);vault.mkdir(mode=0o700)
     assets=trial.EVIDENCE/'assets';assets.mkdir(mode=0o700,exist_ok=True)
-    lua=trial.SUPPORT/f'FluentSteamMac/Lua/{trial.APP_ID}.lua'
+    lua=trial.app_data()/f'Lua/{trial.APP_ID}.lua'
     shutil.copy2(lua,assets/lua.name);(assets/lua.name).chmod(0o600)
     paths=[Path('/Applications')/n for n in ['Steam.app','macSteam Config.app','NotProton.app','CrossOver.app']]
-    paths += [trial.SUPPORT/n for n in ['macsteam','notproton','FluentSteamMac','CrossOver']]
+    paths += [trial.SUPPORT/n for n in ['macsteam','notproton','FluentSteamMac','MacSteamTool','CrossOver']]
     paths += [trial.SUPPORT/'Steam/compatibilitytools.d',trial.SUPPORT/f'Steam/steamapps/compatdata/{trial.APP_ID}']
     # Steam's existing login and installed games stay in place; ordinary game
     # preferences are snapshotted because Steam writes them during the trial.
@@ -34,7 +34,7 @@ def stage():
     entries=[dict(source=str(p),stored=str(vault/str(i)),moved=False,existed=p.exists()) for i,p in enumerate(paths)]
     state=dict(phase='staged',created=time.time(),vault=str(vault),assets=str(assets),entries=entries,
                protected=trial.protected_files(),preferences=saved)
-    trial.save(state);print('Staged reversible native Steam + blank Fluent/Wine trial. Original login retained in place.')
+    trial.save(state);print('Staged reversible native Steam + blank MacSteamTool/Wine trial. Original login retained in place.')
 
 def seed_game():
     state=json.loads(trial.STATE.read_text())

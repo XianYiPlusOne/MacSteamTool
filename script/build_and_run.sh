@@ -2,14 +2,17 @@
 set -euo pipefail
 MODE="${1:-run}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="FluentSteam"
-APP_BUNDLE="$ROOT_DIR/outputs/Fluent Steam Mac.app"
+APP_NAME="MacSteamTool"
+APP_BUNDLE="$ROOT_DIR/outputs/$APP_NAME.app"
 cd "$ROOT_DIR"
 case "$MODE" in
   run|--verify|--debug|--logs|--telemetry|--build) ;;
   *) echo "Usage: $0 [--build|--verify|--debug|--logs|--telemetry]" >&2; exit 2 ;;
 esac
-if [[ "$MODE" != "--build" ]]; then pkill -x "$APP_NAME" >/dev/null 2>&1 || true; fi
+if [[ "$MODE" != "--build" ]]; then
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -x FluentSteam >/dev/null 2>&1 || true
+fi
 swift build
 BIN_DIR="$(swift build --show-bin-path)"
 mkdir -p "$ROOT_DIR/work"
@@ -18,12 +21,12 @@ STAGING="$(mktemp -d "$ROOT_DIR/work/app-staging.XXXXXX")"
 trap 'rm -rf "$STAGING"' EXIT
 mkdir -p "$STAGING/Contents/MacOS" "$STAGING/Contents/Resources"
 cp "$BIN_DIR/$APP_NAME" "$STAGING/Contents/MacOS/$APP_NAME"
-cp "$BIN_DIR/FluentUpdater" "$STAGING/Contents/MacOS/FluentUpdater"
-cp "$BIN_DIR/FluentRuntime" "$STAGING/Contents/MacOS/FluentRuntime"
+cp "$BIN_DIR/MacSteamToolUpdater" "$STAGING/Contents/MacOS/MacSteamToolUpdater"
+cp "$BIN_DIR/MacSteamToolRuntime" "$STAGING/Contents/MacOS/MacSteamToolRuntime"
 python3 "$ROOT_DIR/script/bundle_connecttool.py" "$STAGING/Contents/Resources/Helpers/ConnectTool"
 cp "$ROOT_DIR/Resources/UpdatePublicKey.txt" "$STAGING/Contents/Resources/UpdatePublicKey.txt"
 cp -RL "$ROOT_DIR/Resources/FreeRuntime" "$STAGING/Contents/Resources/"
-cp "$BIN_DIR/FluentSteamWorker" "$STAGING/Contents/MacOS/FluentSteamWorker"
+cp "$BIN_DIR/MacSteamToolWorker" "$STAGING/Contents/MacOS/MacSteamToolWorker"
 "$ROOT_DIR/script/build_engine.sh"
 "$ROOT_DIR/script/build_cloud.sh"
 "$ROOT_DIR/script/build_notproton.sh"
@@ -38,18 +41,18 @@ python3 "$ROOT_DIR/script/build_native_integration.py"
 python3 "$ROOT_DIR/script/build_crossover_bridge.py"
 python3 "$ROOT_DIR/script/bundle_native_integration.py" "$STAGING/Contents/Resources"
 mkdir -p "$STAGING/Contents/Resources/Helpers/NotProtonRepair"
-cp "$ROOT_DIR/work/native-integration/notproton.dylib" "$ROOT_DIR/work/native-integration/fluent-notproton-repair.json" "$STAGING/Contents/Resources/Helpers/NotProtonRepair/"
+cp "$ROOT_DIR/work/native-integration/notproton.dylib" "$ROOT_DIR/work/native-integration/repair-receipt.json" "$STAGING/Contents/Resources/Helpers/NotProtonRepair/"
 # The receipt is resource data, not executable code. Never place JSON in Helpers,
 # where deep signing gives it an xattr-only signature lost by ordinary ZIP extraction.
-rm -f "$ROOT_DIR/work/notproton-publish/notproton.dylib" "$ROOT_DIR/work/notproton-publish/fluent-notproton-repair.json"
+rm -f "$ROOT_DIR/work/macsteamtool-notproton-publish/notproton.dylib" "$ROOT_DIR/work/macsteamtool-notproton-publish/repair-receipt.json"
 mkdir -p "$STAGING/Contents/Helpers/Manifest"
-cp "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" "$STAGING/Contents/Helpers/Manifest/"
+cp "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" "$STAGING/Contents/Helpers/Manifest/manifest.dylib"
 mkdir -p "$STAGING/Contents/Helpers/Cloud"
 cp "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" "$STAGING/Contents/Helpers/Cloud/"
 ditto "$ROOT_DIR/work/patch-probe-publish" "$STAGING/Contents/Resources/Helpers/PatchProbe"
 ditto "$ROOT_DIR/work/steamless-bridge-publish" "$STAGING/Contents/Resources/Helpers/SteamlessBridge"
-ditto "$ROOT_DIR/work/engine-publish" "$STAGING/Contents/Resources/Helpers/SteamEngine"
-ditto "$ROOT_DIR/work/notproton-publish" "$STAGING/Contents/Helpers/NotProton"
+ditto "$ROOT_DIR/work/macsteamtool-engine-publish" "$STAGING/Contents/Resources/Helpers/SteamEngine"
+ditto "$ROOT_DIR/work/macsteamtool-notproton-publish" "$STAGING/Contents/Helpers/NotProton"
 chmod +x "$STAGING/Contents/MacOS/$APP_NAME"
 for resource in "$BIN_DIR"/*.bundle; do
   if [[ -d "$resource" ]]; then cp -R "$resource" "$STAGING/Contents/Resources/"; fi
@@ -58,17 +61,17 @@ if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then cp "$ROOT_DIR/Resources/App
 cp "$ROOT_DIR/LICENSE" "$STAGING/Contents/Resources/LICENSE.txt"
 cp "$ROOT_DIR/THIRD-PARTY-NOTICES.md" "$STAGING/Contents/Resources/THIRD-PARTY-NOTICES.md"
 cp -R "$ROOT_DIR/Licenses" "$STAGING/Contents/Resources/Licenses"
-cat > "$STAGING/Contents/Info.plist" <<'PLIST'
+cat > "$STAGING/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>FluentSteam</string>
-<key>CFBundleIdentifier</key><string>dev.fluentsteam.mac</string>
-<key>CFBundleName</key><string>Fluent Steam Mac</string>
-<key>CFBundleDisplayName</key><string>Fluent Steam Mac</string>
+<key>CFBundleExecutable</key><string>$APP_NAME</string>
+<key>CFBundleIdentifier</key><string>dev.macsteamtool.app</string>
+<key>CFBundleName</key><string>$APP_NAME</string>
+<key>CFBundleDisplayName</key><string>$APP_NAME</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.34</string>
-<key>CFBundleVersion</key><string>36</string>
+<key>CFBundleShortVersionString</key><string>0.2.35</string>
+<key>CFBundleVersion</key><string>37</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
@@ -102,8 +105,8 @@ mv "$STAGING" "$APP_BUNDLE"
 case "$MODE" in
   --build) echo "$APP_BUNDLE" ;;
   --debug) lldb -- "$APP_BUNDLE/Contents/MacOS/$APP_NAME" ;;
-  --logs) open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'process == "FluentSteam"' ;;
-  --telemetry) open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'subsystem == "dev.fluentsteam.mac"' ;;
+  --logs) open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\"" ;;
+  --telemetry) open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'subsystem == "dev.macsteamtool.app"' ;;
   --verify) open -n "$APP_BUNDLE"; sleep 2; pgrep -x "$APP_NAME" >/dev/null; echo "Build and launch verified." ;;
   *) open -n "$APP_BUNDLE" ;;
 esac

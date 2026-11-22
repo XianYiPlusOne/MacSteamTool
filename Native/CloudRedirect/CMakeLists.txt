@@ -43,6 +43,7 @@ macos/cloud_hooks.cpp
 macos/cloud_intercept.cpp
 macos/stats_hooks.cpp
 macos/gamesplayed_hook.cpp
+macos/multiplayer_presence.cpp
 macos/live_playtime.cpp
 macos/runtime_settings.cpp
 macos/ticket_hooks.cpp
@@ -80,3 +81,11 @@ target_link_libraries(FluentCloudOnlineProbe PRIVATE cloud_redirect)
 add_executable(FluentAchievementProbe tests/achievement_probe.cpp)
 target_include_directories(FluentAchievementProbe PRIVATE common providers macos)
 target_link_libraries(FluentAchievementProbe PRIVATE cloud_redirect)
+
+add_executable(FluentMultiplayerPresenceTest tests/multiplayer_presence_test.cpp)
+target_include_directories(FluentMultiplayerPresenceTest PRIVATE common macos)
+target_link_libraries(FluentMultiplayerPresenceTest PRIVATE cloud_redirect)
+set_target_properties(FluentMultiplayerPresenceTest PROPERTIES OUTPUT_NAME MacSteamToolConnect
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture.app/Contents/Resources/Helpers/ConnectTool/MacOS")
+enable_testing()
+add_test(NAME multiplayer_presence COMMAND FluentMultiplayerPresenceTest)
