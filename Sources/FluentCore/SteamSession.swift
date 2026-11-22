@@ -60,7 +60,6 @@ public struct SteamEngineResponse: Decodable, Sendable {
     public var generationApps: [SteamGenerationApp]?
     public var warnings: [String]?
     public var path: String?
-    public var cloudTokens: [String: String]?
     public var patchFiles: [String]?
     public var runtimeRelease: OfficialRuntimeRelease?
     public func lua() throws -> String {
@@ -133,7 +132,7 @@ public enum SteamEngine {
         let task = Task.detached {
             try Task.checkCancellation(); try process.run()
             defer { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
-            let deadline = Date().addingTimeInterval(["login", "login-password", "login-local", "cloud-oauth"].contains(request.operation) ? 190 : ["patch-extract", "library-import", "tool-download", "runtime-download", "extract"].contains(request.operation) ? 910 : 130)
+            let deadline = Date().addingTimeInterval(["login", "login-password", "login-local"].contains(request.operation) ? 190 : ["patch-extract", "library-import", "tool-download", "runtime-download", "extract"].contains(request.operation) ? 910 : 130)
             var last = "", lastChallenge = ""
             while process.isRunning && Date() < deadline && !Task.isCancelled {
                 if let data = try? FileStore.read(URL(fileURLWithPath: output.path + ".status")),

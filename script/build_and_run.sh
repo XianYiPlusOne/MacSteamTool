@@ -45,7 +45,7 @@ rm -f "$ROOT_DIR/work/notproton-publish/notproton.dylib" "$ROOT_DIR/work/notprot
 mkdir -p "$STAGING/Contents/Helpers/Manifest"
 cp "$ROOT_DIR/work/pins-build/fluent_manifest.dylib" "$STAGING/Contents/Helpers/Manifest/"
 mkdir -p "$STAGING/Contents/Helpers/Cloud"
-cp "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" "$ROOT_DIR/work/cloud-build/FluentCloudCLI" "$STAGING/Contents/Helpers/Cloud/"
+cp "$ROOT_DIR/work/cloud-build/cloud_redirect.dylib" "$STAGING/Contents/Helpers/Cloud/"
 ditto "$ROOT_DIR/work/patch-probe-publish" "$STAGING/Contents/Resources/Helpers/PatchProbe"
 ditto "$ROOT_DIR/work/steamless-bridge-publish" "$STAGING/Contents/Resources/Helpers/SteamlessBridge"
 ditto "$ROOT_DIR/work/engine-publish" "$STAGING/Contents/Resources/Helpers/SteamEngine"

@@ -25,6 +25,29 @@ struct SaveManagementTests {
         #expect(SaveManagement.filtered(catalog, query: "Beta", onlyWithSaves: true).isEmpty)
     }
 
+    @Test func removedLibraryEntriesKeepLocalizedMetadataWithTheirSaves() throws {
+        let paths = try fixture()
+        defer { clean(paths) }
+        let library = LibraryService(paths: paths)
+        let a = Game(id: 900001, name: "Alpha"), b = Game(id: 900002, name: "Beta")
+        let reference = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/900001/head/header.jpg"
+        try SaveGameMetadataStore.remember(paths: paths, localized: [.init(id: a.id, name: "阿尔法", image: reference)])
+        try library.remove(a)
+        try library.batch([b], action: .remove)
+        // Placeholder imports and a missing image must not overwrite earlier good values.
+        try SaveGameMetadataStore.remember(paths: paths, games: [.init(id: a.id, name: "App 900001")],
+                                          localized: [.init(id: a.id, name: "Alpha")], language: "english")
+        _ = try CacheMaintenance.clear(paths: paths)
+        let records = try SaveGameMetadataStore.remember(paths: paths)
+        let catalog = SaveManagement.catalog(games: [], locations: [location(a.id, "/tmp/a"), location(b.id, "/tmp/b")],
+                                            state: .init(), metadata: records)
+        #expect(catalog.first { $0.id == a.id }?.name == "阿尔法")
+        #expect(catalog.first { $0.id == a.id }?.image == reference)
+        #expect(catalog.first { $0.id == b.id }?.name == "Beta")
+        #expect(records[a.id]?.displayName(language: "english") == "Alpha")
+        #expect(SaveManagement.catalog(games: [], locations: [], state: .init(), metadata: records).isEmpty)
+    }
+
     @Test func savingPreferencesPreservesOtherGamesAndNeverChangesSaveFiles() throws {
         let paths = try fixture(); defer { clean(paths) }
         let a = paths.data.appendingPathComponent("fixture-a"), b = paths.data.appendingPathComponent("fixture-b")
@@ -100,32 +123,5 @@ struct SaveManagementTests {
         #expect(try FileStore.text(previous.appendingPathComponent("slot.dat")) == "second-version")
         #expect(try FileStore.text(other) == "untouched")
         #expect(try SaveManagerStore.load(paths: paths).backups(for: 900001).count == 2)
-    }
-
-    @Test func automaticScopeChangesOnlySelectedGameAndPreservesProviderAndStatistics() throws {
-        let paths = try fixture(); defer { clean(paths) }
-        var original = CloudConfiguration.localDefaults(paths: paths)
-        original.provider = .s3; original.statsApps = "900002"; original.syncAchievements = true; original.syncPlaytime = true
-        let excluded = try SaveManagement.settingCloudSelection(false, appID: 900001, config: original, paths: paths)
-        #expect(try excluded.selectedApps(paths: paths) == [900002])
-        #expect(excluded.provider == original.provider && excluded.statsApps == original.statsApps && excluded.syncAchievements && excluded.syncPlaytime)
-        #expect(excluded.enabled == original.enabled && excluded.folder == original.folder)
-        let restored = try SaveManagement.settingCloudSelection(true, appID: 900001, config: excluded, paths: paths)
-        #expect(try restored.selectedApps(paths: paths) == [900001, 900002])
-        #expect(throws: (any Error).self) { try SaveManagement.settingCloudSelection(true, appID: 900003, config: original, paths: paths) }
-        #expect(throws: (any Error).self) { try SaveManagement.settingCloudSelection(true, appID: 900099, config: original, paths: paths) }
-    }
-
-    @Test func manualScopeCanBePreparedWithoutEnablingSyncAndProtectsLastActiveGame() throws {
-        let paths = try fixture(); defer { clean(paths) }
-        var config = CloudConfiguration(); config.apps = "900001"; config.provider = .webdav; config.statsApps = "900099"
-        let added = try SaveManagement.settingCloudSelection(true, appID: 900002, config: config, paths: paths)
-        #expect(!added.enabled && added.apps == "900001, 900002")
-        #expect(try SaveManagement.cloudSelection(added, appID: 900002, paths: paths))
-        #expect(added.provider == .webdav && added.statsApps == "900099")
-        config.enabled = true
-        #expect(throws: (any Error).self) { try SaveManagement.settingCloudSelection(false, appID: 900001, config: config, paths: paths) }
-        config.enabled = false
-        #expect(try SaveManagement.settingCloudSelection(false, appID: 900001, config: config, paths: paths).apps.isEmpty)
     }
 }

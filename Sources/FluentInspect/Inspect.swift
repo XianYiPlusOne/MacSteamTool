@@ -67,42 +67,6 @@ import FluentCore
             }
             print("PASS: isolated upgrade cleanup; only the unique fixture launchd service was targeted"); return
         }
-        if args.first == "--exercise-cloud-delete", args.count == 4 {
-            let root = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath().standardizedFileURL
-            guard root.path != FileStore.fm.homeDirectoryForCurrentUser.path, FileStore.fm.fileExists(atPath: root.appendingPathComponent(".fluent-cloud-delete-fixture").path) else { throw AppFailure("Explicit isolated cloud-delete fixture required") }
-            let paths = AppPaths(home: root, data: root.appendingPathComponent("Data"))
-            let config = try CloudConfiguration.load(paths: paths)
-            if ![.local, .folder].contains(config.provider) {
-                let credentials = try CloudEngine.effectiveCredentialsURL(config.provider, paths: paths).resolvingSymlinksInPath()
-                guard credentials.path.hasPrefix(root.path + "/") else { throw AppFailure("Fixture credentials must be isolated") }
-                let json = try JSONSerialization.jsonObject(with: FileStore.read(credentials)) as? [String: Any] ?? [:]
-                let endpoint = (json["url"] ?? json["endpoint"]) as? String ?? ""
-                guard URLComponents(string: endpoint)?.host == "127.0.0.1" else { throw AppFailure("Cloud-delete fixture supports loopback providers only") }
-            }
-            if config.provider == .folder {
-                guard URL(fileURLWithPath: config.folder).resolvingSymlinksInPath().path.hasPrefix(root.path + "/") else { throw AppFailure("Fixture sync folder must be isolated") }
-            }
-            let service = CloudGameDeletion(paths: paths, engine: URL(fileURLWithPath: args[2]), steamRunning: { false })
-            let planFile = root.appendingPathComponent("preview.json"), readyFile = root.appendingPathComponent("ready.json")
-            switch args[3] {
-            case "preview":
-                let preview = try await service.preview(provider: config.provider, account: "12345", app: 900001)
-                try FileStore.json(preview, to: planFile)
-                print("PASS: preview \(preview.fileCount) files; \(preview.local.count) local targets; \(preview.remote.count) remote objects")
-            case "backup":
-                let preview = try FileStore.decode(CloudDeletePreview.self, at: planFile)
-                guard preview.app == 900001, preview.account == "12345" else { throw AppFailure("Synthetic account/app required") }
-                let backup = try await service.backup(preview); try FileStore.json(backup, to: readyFile)
-                print("PASS: complete backup and readback verification; no source deleted")
-            case "delete":
-                let backup = try FileStore.decode(CloudGameBackup.self, at: readyFile)
-                guard backup.preview.app == 900001, backup.preview.account == "12345" else { throw AppFailure("Synthetic account/app required") }
-                try await service.delete(backup)
-                print("PASS: checked deletion and final remote/local verification")
-            default: throw AppFailure("Unknown fixture phase")
-            }
-            return
-        }
         if args.first == "--verify-remote-package", args.count >= 3, let id = TextUtil.validID(args[1]) {
             var preferences = Preferences()
             if args.count == 4 { preferences.remotePackageMode = "direct"; preferences.remotePackageURL = args[3] }

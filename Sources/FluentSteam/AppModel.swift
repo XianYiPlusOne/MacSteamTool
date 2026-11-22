@@ -9,7 +9,7 @@ enum Page: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .library: "square.grid.2x2"; case .discover: "plus.magnifyingglass"; case .manifests: "doc.text"
-        case .saves: "externaldrive.badge.icloud"; case .accounts: "person.crop.circle"
+        case .saves: "externaldrive"; case .accounts: "person.crop.circle"
         case .runtime: "cpu"; case .settings: "gearshape"
         case .achievements: "trophy"
         case .multiplayer: "network"
@@ -74,6 +74,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     @Published var accounts: [SteamAccount] = []
     @Published var saves: [SaveLocation] = []
     @Published var saveManagerState = SaveManagerState()
+    @Published var saveGameMetadata: [Int: SaveGameMetadata] = [:]
     @Published var saveManagerSection: SaveManagerSection = .games
     @Published var saveManagerGameID: Int?
     @Published var saveManagerStatus = ""
@@ -129,6 +130,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
     var fingerprint = ""
     var observedSteamPIDs: [Int32] = []
     var runningTools: [Process] = []
+    var saveNameRetryAfter: [Int: Date] = [:]
     var metadataTask: Task<Void, Never>?
     var metadataGeneration = UUID()
     // Steamworks Common Redistributables has a local name but no Store game page.
@@ -151,7 +153,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         home = fixture.map { URL(fileURLWithPath: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
         defaults = fixture.map { AppPaths(home: URL(fileURLWithPath: $0)) } ?? AppPaths()
         charts = DiscoveryChartsFlow(store: chartStore ?? DiscoveryChartStore(file: defaults.cache.appendingPathComponent("Charts/popular.json")))
-        covers = GameCovers(cache: defaults.cache.appendingPathComponent("Covers"))
+        covers = GameCovers(cache: defaults.cache.appendingPathComponent("Covers"), archive: SaveGameMetadataStore.covers(defaults))
         let api = SteamAPI(cache: defaults.cache.appendingPathComponent("Metadata"))
         self.api = api
         discoverySearch = DiscoverySearchFlow { try await api.searchPage($0, language: $1, offset: $2) }
@@ -176,6 +178,9 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             }.value
         } catch { message = Message(title: "设置读取失败", detail: error.localizedDescription + "。原文件保留，请检查后重新保存。") }
         savedPaths = preferences.applying(to: defaults)
+        do {
+            if try StatisticsConfiguration.retireLegacySaveRedirection(paths: paths) { needsRestart = true }
+        } catch { fail(error) }
         await content.configure(preferredCDN: preferences.preferredCDN)
         busy = false; refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
@@ -228,7 +233,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
         } catch { fail(error) }
     }
     func loadMetadata() {
-        guard metadataTask == nil, !testing else { return }
+        guard metadataTask == nil else { return }
         let language = language
         let generation = UUID(); metadataGeneration = generation
         let fetchNames = preferences.autoMetadata
@@ -251,21 +256,28 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
             let cached = await api.cached(language: language)
             guard current() else { return }
             var localized = cached
-            publish(localized)
-            guard fetchNames else { return }
-            let pending = games.filter {
-                !Self.sharedComponentAppIDs.contains($0.id) && localized[$0.id] == nil
-            }.prefix(24)
-            for game in pending {
+            if !testing { publish(localized) }
+            let ids = Set(managedSaveGames.map(\.id))
+            await loadSaveMetadata(ids: ids, cached: cached, language: language, current: current)
+            guard current() else { return }
+            guard fetchNames, !testing else { return }
+            let libraryIDs = Set(games.map(\.id))
+            let orphans = ids.subtracting(libraryIDs).filter {
+                saveGameMetadata[$0]?.localizedNames[language] == nil && (saveNameRetryAfter[$0] ?? .distantPast) <= Date()
+            }.sorted()
+            let pending = games.map(\.id).filter { !Self.sharedComponentAppIDs.contains($0) && localized[$0] == nil }.prefix(24)
+            for id in pending + orphans.prefix(24) {
                 guard current() else { return }
                 do {
-                    let item = try await api.details(game.id, language: language)
+                    let item = try await api.details(id, language: language)
                     guard current() else { return }
-                    localized[game.id] = item
+                    localized[id] = item
+                    rememberSaveMetadata([item], language: language)
                     publish(localized)
                 } catch {
                     if current() {
-                        log(tr("后台名称查询 \(game.id)：", "Background name lookup \(game.id): ") + error.localizedDescription)
+                        if !libraryIDs.contains(id) { saveNameRetryAfter[id] = Date().addingTimeInterval(3600) }
+                        log(tr("后台名称查询 \(id)：", "Background name lookup \(id): ") + error.localizedDescription)
                     }
                 }
             }
@@ -303,7 +315,7 @@ struct Message: Identifiable { let id = UUID(); var title: String; var detail: S
                 let result = try await Task.detached { try PreferenceStore.save(saved, defaults: defaults, migrateLua: migrateLua) }.value
                 self.savedPaths = saved.applying(to: defaults)
                 await self.content.configure(preferredCDN: cdn)
-                self.metadata.removeAll(); self.metadataTask?.cancel(); self.metadataTask = nil; self.metadataGeneration = UUID(); self.refresh()
+                self.metadata.removeAll(); self.saveNameRetryAfter.removeAll(); self.metadataTask?.cancel(); self.metadataTask = nil; self.metadataGeneration = UUID(); self.refresh()
                 if let result { self.log(self.tr("Lua 已迁移 \(result.copied) 个，一致 \(result.identical) 个；原目录保留。", "Lua: copied \(result.copied), identical \(result.identical); original folder retained.")) }
             }
         } catch { fail(error) }

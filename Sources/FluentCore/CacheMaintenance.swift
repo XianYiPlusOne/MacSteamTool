@@ -7,7 +7,7 @@ public enum CacheMaintenance {
     private static func targets(paths: AppPaths) throws -> [URL] {
         let cache = paths.cache.standardizedFileURL
         guard cache.resolvingSymlinksInPath().standardizedFileURL == cache else { throw AppFailure("缓存目录不能是符号链接 / Cache directory cannot be a symbolic link") }
-        let cloudFolder = try CloudConfiguration.load(paths: paths).folder
+        let cloudFolder = try StatisticsConfiguration.legacySaveFolder(paths: paths) ?? ""
         let protected = [paths.steam, paths.macSteam, paths.notProton, paths.lua, paths.backups] + (cloudFolder.hasPrefix("/") ? [URL(fileURLWithPath: cloudFolder)] : [])
         return try disposable.compactMap { name in
             let target = cache.appendingPathComponent(name)

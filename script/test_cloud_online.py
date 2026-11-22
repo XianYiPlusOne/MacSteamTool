@@ -13,10 +13,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
-parser.add_argument('--build-dir', type=Path, default=ROOT / 'work/cloud-online-build')
+parser.add_argument('--build-dir', type=Path, default=ROOT / 'work/cloud-build')
 parser.add_argument('--case', help='Run one provider/auth case, e.g. webdav/digest')
 args = parser.parse_args()
-CLI = args.build_dir.resolve() / 'FluentCloudCLI'
 PROBE = args.build_dir.resolve() / 'FluentCloudOnlineProbe'
 ACCOUNT, APP = '12345', '900001'  # synthetic fixture IDs, no installed game
 USER, PASSWORD, BEARER = 'fixture-user', 'fixture-password', 'fixture-bearer'
@@ -197,23 +196,6 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_HEAD = do_PUT = do_DELETE = do_PROPFIND = do_MKCOL = do_OPTIONS = handle_request
 
 
-def client(root, provider, fields, destination):
-    cfg = root / 'CloudRedirect'
-    cfg.mkdir(parents=True)
-    credential = cfg / f'{provider}_credentials.json'
-    credential.write_text(json.dumps(fields))
-    credential.chmod(0o600)
-    (cfg / '.fluent-cloud-online-fixture').touch()
-    (cfg / 'config.json').write_text(json.dumps({'enabled': False, 'provider': 'folder', 'token_paths': {provider: str(credential), 'folder': str(destination)}}))
-    return dict(os.environ, FLUENT_CLOUD_ROOT=str(root), FLUENT_CLOUD_STEAM=str(root / 'No-Steam'))
-
-
-def run(env, *arguments, expected=0):
-    result = subprocess.run([str(CLI), *arguments], env=env, capture_output=True, text=True, timeout=100)
-    assert result.returncode == expected, (arguments, result.returncode, result.stdout[-1500:])
-    return json.loads(result.stdout.splitlines()[-1])
-
-
 def scenario(base, provider, auth='basic', tls=False):
     state = State('s3' if provider in ('s3', 'r2') else 'webdav', 'digest' if auth == 'auto' else auth)
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -234,92 +216,15 @@ def scenario(base, provider, auth='basic', tls=False):
         fields = {'endpoint': endpoint, 'region': 'us-east-1', 'bucket': 'bucket', 'access_key_id': ACCESS, 'secret_access_key': SECRET, 'sign_payload': True, 'account_id': 'a' * 32}
     if cert:
         fields['ca_cert_path'] = str(cert)
-    source, restored = base / 'original', base / 'restored'
-    payloads = {f'{ACCOUNT}/{APP}/blobs/中文 save.bin': bytes(range(256)) * 33, f'{ACCOUNT}/{APP}/blobs/empty.bin': b'', f'{ACCOUNT}/{APP}/manifest.json': b'{"fixture":"isolated"}', '54321/900002/blobs/untouched.bin': b'other-account'}
-    for name, data in payloads.items():
-        path = source / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-    a = client(base / 'device-a', provider, fields, source)
-    b = client(base / 'device-b', provider, fields, restored)
-    config_before = (base / 'device-a/CloudRedirect/config.json').read_bytes()
+    credential = base / f'{provider}_credentials.json'
+    credential.write_text(json.dumps(fields))
+    credential.chmod(0o600)
+    (base / '.fluent-cloud-online-fixture').touch()
     try:
-        proof = run(a, 'probe-provider', provider)
-        assert all(proof[key] for key in ('success', 'uploaded', 'downloaded', 'verified', 'cleaned')), proof
-        assert proof['bytes'] == 4096 and len(proof['sha256']) == 64
-        assert not state.files, 'connection test left an object behind'
-        result = run(a, 'migrate', 'folder', provider)
-        assert result['migrated'] == len(payloads), result
-        inventory = run(b, 'list-remote-apps', provider, ACCOUNT)
-        assert inventory['apps'] == [{'app_id': APP, 'file_count': 3, 'total_size': sum(len(v) for k, v in payloads.items() if k.startswith(ACCOUNT + '/'))}], inventory
-        result = run(b, 'migrate', provider, 'folder', ACCOUNT)
-        assert result['migrated'] == 3, result
-        for name, data in payloads.items():
-            assert (source / name).read_bytes() == data
-            if name.startswith(ACCOUNT + '/'):
-                assert (restored / name).read_bytes() == data
-            else:
-                assert not (restored / name).exists(), 'copied an unselected account'
-        assert run(b, 'migrate', provider, 'folder', ACCOUNT)['skipped'] == 3
-        conflict = restored / f'{ACCOUNT}/{APP}/manifest.json'
-        conflict.write_bytes(b'preserve-existing-progress')
-        assert run(b, 'migrate', provider, 'folder', ACCOUNT, expected=1)['failed'] == 1
-        assert conflict.read_bytes() == b'preserve-existing-progress'
-        original_remote = dict(state.files)
-        state.mode = 'read-only'
-        failure = run(a, 'probe-provider', provider, expected=1)
-        assert not failure['uploaded'] and failure['cleaned'], failure
-        state.mode = 'corrupt'
-        failure = run(a, 'probe-provider', provider, expected=1)
-        assert failure['uploaded'] and not failure['verified'] and failure['cleaned'], failure
-        state.mode = 'delete-denied'
-        failure = run(a, 'probe-provider', provider, expected=1)
-        assert failure['verified'] and not failure['cleaned'], failure
-        for path in list(state.files):
-            if 'fluent-connection-test-' in path:
-                del state.files[path]  # fixture teardown only, not a production cleanup fallback
-        state.mode = 'list-denied'
-        assert not run(b, 'list-remote-apps', provider, ACCOUNT, expected=1)['success']
-        assert state.files == original_remote, 'failure probes changed game objects'
-        state.mode = ''
-        wrong = dict(fields)
-        wrong['secret_access_key' if state.kind == 's3' else 'bearer_token' if auth == 'bearer' else 'password'] = 'invalid-fixture'
-        bad = client(base / 'bad-client', provider, wrong, base / 'bad-destination')
-        assert not run(bad, 'probe-provider', provider, expected=1)['success']
-        if tls:
-            untrusted = dict(fields)
-            del untrusted['ca_cert_path']
-            untrusted_client = client(base / 'untrusted-ca', provider, untrusted, base / 'untrusted-destination')
-            assert not run(untrusted_client, 'probe-provider', provider, expected=1)['success'], 'untrusted TLS certificate was accepted'
-        if provider == 'webdav' and auth == 'basic' and not tls:
-            sink = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-            sink.state = State('webdav', 'none')
-            sink_thread = threading.Thread(target=sink.serve_forever, daemon=True)
-            sink_thread.start()
-            try:
-                state.mode = 'redirect'
-                state.redirect = f'http://127.0.0.1:{sink.server_port}/dav'
-                assert not run(a, 'probe-provider', provider, expected=1)['success']
-                assert not sink.state.requests, 'cross-origin redirect leaked a request'
-            finally:
-                sink.shutdown(); sink.server_close(); sink_thread.join(timeout=2)
-                state.mode = ''
-        assert (base / 'device-a/CloudRedirect/config.json').read_bytes() == config_before
-        assert all((source / name).read_bytes() == data for name, data in payloads.items())
-        for mode in ('upload', 'download', 'reject-corrupt'):
-            state.mode = 'corrupt-blob' if mode == 'reject-corrupt' else ''
-            command = [str(PROBE), provider, str(base / f'device-a/CloudRedirect/{provider}_credentials.json'), str(base / f'rpc-{mode}'), mode]
-            try:
-                result = subprocess.run(command, capture_output=True, text=True, timeout=120)
-            except subprocess.TimeoutExpired as error:
-                output = (error.stdout or b'') + (error.stderr or b'')
-                raise AssertionError((provider, mode, 'RPC timeout', state.requests[-20:], output[-8000:].decode(errors='replace'))) from None
-            assert result.returncode == 0, (provider, mode, result.stderr[-2500:], result.stdout[-1000:])
-            assert 'PASS:' in result.stdout
-            assert 'WriteFileNoIncrement failed' not in result.stdout + result.stderr
-        state.mode = ''
+        subprocess.run([str(PROBE), provider, str(credential), str(base / 'legacy'), 'legacy-saves'], check=True)
+        assert not state.requests, 'legacy save configuration contacted a provider'
         def stats(mode, suffix=None):
-            command = [str(PROBE), provider, str(base / f'device-a/CloudRedirect/{provider}_credentials.json'), str(base / ('rpc-' + (suffix or mode))), mode]
+            command = [str(PROBE), provider, str(credential), str(base / ('rpc-' + (suffix or mode))), mode]
             result = subprocess.run(command, capture_output=True, text=True, timeout=100)
             assert result.returncode == 0, (provider, mode, result.stdout[-2000:], result.stderr[-2000:])
         stats('stats-a'); stats('stats-b'); stats('stats-a', 'stats-a-repeat'); stats('stats-verify')
@@ -382,7 +287,6 @@ def scenario(base, provider, auth='basic', tls=False):
         print(f'PASS: {provider}/{auth}: simultaneous create/update collide; losing writer re-reads and merges; fresh client sees both achievements and 8 minutes.')
         assert any(method == 'PUT' for method, _ in state.requests)
         assert any(method == 'GET' for method, _ in state.requests)
-        print(f'PASS: {provider}/{auth}/{"HTTPS" if tls else "HTTP"}: full save RPC batch/manifest/clean-client restore; authenticated upload, independent-client listing/download, binary/empty/Unicode equality, account scope, conflicts, failed auth/write/read/delete/list; source and config unchanged.')
     finally:
         server.shutdown()
         server.server_close()
@@ -397,14 +301,3 @@ with tempfile.TemporaryDirectory(prefix='cloud-online-', dir=ROOT / 'work') as d
         folder = root / f'{provider}-{auth}-{tls}'
         folder.mkdir()
         scenario(folder, provider, auth, tls)
-    if not args.case or args.case == 'folder':
-        folder = root / 'folder-regression'
-        folder.mkdir()
-        (folder / '.fluent-cloud-online-fixture').touch()
-        remote = folder / 'remote'
-        remote.mkdir()
-        for mode in ('upload', 'download'):
-            result = subprocess.run([str(PROBE), 'folder', str(remote), str(folder / mode), mode], capture_output=True, text=True, timeout=60)
-            assert result.returncode == 0, (mode, result.stderr[-2000:])
-        print('PASS: existing folder backend full save batch, clean-client restoration and repeated worker shutdown remain compatible.')
-print('PASS: all cloud tests used disposable clients, synthetic files and loopback servers; Steam and real game saves were not accessed.')

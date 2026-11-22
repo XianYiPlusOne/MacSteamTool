@@ -8,14 +8,9 @@
 #include "stats_store.h"
 #include "stats_handlers.h"
 #include "metadata_sync.h"
-#include "rpc_handlers.h"
-#include "app_state.h"
-#include "local_storage.h"
-#include "pending_ops_journal.h"
 #include "cloud_storage.h"
 #include "cloud_provider.h"
-#include "cloud_provider_base.h" // g_uploadInFlightCapBytes
-#include "http_server.h"
+#include "steam_kv_injector.h"
 #include "protobuf.h"
 #include "json.h"
 #include "log.h"
@@ -27,7 +22,6 @@
 #include <fstream>
 #include <atomic>
 #include <mutex>
-#include <optional>
 #include <thread>
 #include <vector>
 #include <unistd.h>
@@ -36,23 +30,16 @@
 
 // Verified macOS ARM64 transport ABI (Steam build 1792618285).
 using BYieldingSend_t     = int(*)(void* pThis, const char* method, void* req, void* resp, int* flags);
-using NotificationDirect_t = int(*)(void* pThis, const char* method, void* body, int* flags);
-using SyncSend2_t         = int(*)(void* pThis, const char* method, void* buf, unsigned int bufLen, void* resp, int* flags);
 
 static std::atomic<BYieldingSend_t>      g_origBYieldingSend{nullptr};
-static std::atomic<NotificationDirect_t> g_origNotificationDirect{nullptr};
-static std::atomic<SyncSend2_t>          g_origSyncSend2{nullptr};
 
 static std::atomic<bool> g_initialized{false};
 static std::atomic<bool> g_shuttingDown{false};
 static std::atomic<int>  g_hookRefCount{0};
 static std::atomic<bool> g_statsSyncEnabled{false}; // set false by config before any stats init
 static std::atomic<bool> g_providerReady{false};
-static std::string g_providerName="local",g_loadedConfigDigest="missing";
+static std::string g_loadedConfigDigest="missing";
 static std::mutex g_cloudStatusMutex;
-static std::atomic<uint64_t> g_cloudRequests{0},g_cloudFailures{0};
-static std::atomic<uint32_t> g_cloudLastApp{0};
-static std::atomic<int32_t> g_cloudLastResult{0};
 
 // Tracked (not detached) playtime poller; joined at shutdown to avoid UAF on torn-down statics.
 static std::thread g_cloudPollerThread;
@@ -159,51 +146,10 @@ void CloudHooks::InstallGamesPlayedObserver(uintptr_t steamclientBase, size_t st
 
 }
 
-static std::optional<CloudIntercept::RpcResult> DispatchCloudRpcImpl(
-    const char* method, uint32_t appId, const std::vector<PB::Field>& reqBody) {
-    using namespace CloudIntercept;
-    if (strcmp(method, RPC_GET_CHANGELIST) == 0)    return HandleGetChangelist(appId, reqBody);
-    if (strcmp(method, RPC_LAUNCH_INTENT) == 0)     return HandleLaunchIntent(appId, reqBody);
-    if (strcmp(method, RPC_SUSPEND_SESSION) == 0)   return HandleSuspendSession(appId, reqBody);
-    if (strcmp(method, RPC_RESUME_SESSION) == 0)    return HandleResumeSession(appId, reqBody);
-    if (strcmp(method, RPC_QUOTA_USAGE) == 0)       return HandleQuotaUsage(appId, reqBody);
-    if (strcmp(method, RPC_BEGIN_BATCH) == 0)       return HandleBeginBatch(appId, reqBody);
-    if (strcmp(method, RPC_BEGIN_UPLOAD) == 0)      return HandleBeginFileUpload(appId, reqBody);
-    if (strcmp(method, RPC_COMMIT_UPLOAD) == 0)     return HandleCommitFileUpload(appId, reqBody);
-    if (strcmp(method, RPC_COMPLETE_BATCH) == 0)    return HandleCompleteBatch(appId, reqBody);
-    if (strcmp(method, RPC_FILE_DOWNLOAD) == 0)     return HandleFileDownload(appId, reqBody);
-    if (strcmp(method, RPC_DELETE_FILE) == 0)       return HandleDeleteFile(appId, reqBody);
-    return std::nullopt;
-}
-
-static std::optional<CloudIntercept::RpcResult> DispatchCloudRpc(
-    const char* method,uint32_t appId,const std::vector<PB::Field>& request) {
-    using namespace CloudIntercept;
-    bool known=false;
-    for(auto name:{RPC_GET_CHANGELIST,RPC_LAUNCH_INTENT,RPC_SUSPEND_SESSION,RPC_RESUME_SESSION,RPC_QUOTA_USAGE,RPC_BEGIN_BATCH,RPC_BEGIN_UPLOAD,RPC_COMMIT_UPLOAD,RPC_COMPLETE_BATCH,RPC_FILE_DOWNLOAD,RPC_DELETE_FILE})
-        if(strcmp(method,name)==0){known=true;break;}
-    if(!known)return std::nullopt;
-    std::string loaded;
-    {std::lock_guard<std::mutex> lock(g_cloudStatusMutex);loaded=g_loadedConfigDigest;}
-    // Never acknowledge local-only success when the chosen provider failed,
-    // or use an old provider after the configuration changed without restart.
-    auto result=(!g_providerReady.load()||loaded!=ConfigurationDigest())
-        ? std::optional<RpcResult>(RpcResult(PB::Writer{},kEResultFail))
-        : DispatchCloudRpcImpl(method,appId,request);
-    if(result){g_cloudRequests++;g_cloudLastApp=appId;g_cloudLastResult=result->eresult;if(result->eresult!=kEResultOK)g_cloudFailures++;}
-    return result;
-}
-
 std::string CloudHooks::StatusJSONFields() {
-    std::string provider,digest;
-    {std::lock_guard<std::mutex> lock(g_cloudStatusMutex);provider=g_providerName;digest=g_loadedConfigDigest;}
-    return ",\"cloudProvider\":\""+provider+"\",\"cloudConfigSHA256\":\""+digest+
-        "\",\"cloudReady\":"+(g_initialized.load()&&g_providerReady.load()?"true":"false")+
-        ",\"cloudAppsLoaded\":"+std::to_string(CloudIntercept::GetNamespaceApps().size())+
-        ",\"cloudRequests\":"+std::to_string(g_cloudRequests.load())+
-        ",\"cloudFailures\":"+std::to_string(g_cloudFailures.load())+
-        ",\"cloudLastAppID\":"+std::to_string(g_cloudLastApp.load())+
-        ",\"cloudLastResult\":"+std::to_string(g_cloudLastResult.load());
+    std::lock_guard<std::mutex> lock(g_cloudStatusMutex);
+    return ",\"cloudConfigSHA256\":\"" + g_loadedConfigDigest +
+        "\",\"cloudReady\":" + (g_initialized.load() && g_providerReady.load() ? "true" : "false");
 }
 
 static std::atomic<bool> g_initFailed{false};
@@ -218,7 +164,6 @@ static void EnsureInitialized() {
         CloudIntercept::InitLinux();
 
         std::string cloudRedirectRoot = XdgConfigHome() + "/CloudRedirect/";
-        std::string storageRoot = cloudRedirectRoot + "storage";
 
         // Initialize CloudStorage with cloud provider from config.json
         std::unique_ptr<ICloudProvider> provider;
@@ -232,8 +177,6 @@ static void EnsureInitialized() {
             {
                 std::lock_guard<std::mutex> lock(g_cloudStatusMutex);
                 g_loadedConfigDigest=crypto::Sha256Hex(configStr);
-                g_providerName=(providerName.empty()?"local":providerName);
-                if(g_providerName!="local"&&g_providerName!="folder"&&g_providerName!="webdav"&&g_providerName!="s3"&&g_providerName!="r2"&&g_providerName!="gdrive"&&g_providerName!="onedrive")g_providerName="unknown";
             }
             g_providerReady=providerName.empty()||providerName=="local";
 
@@ -241,7 +184,7 @@ static void EnsureInitialized() {
             MetadataSync::syncPlaytime = cfg["sync_playtime"].boolean();
             g_statsSyncEnabled.store(MetadataSync::syncAchievements || MetadataSync::syncPlaytime);
 
-            if (!providerName.empty() && providerName != "local") {
+            if (g_statsSyncEnabled && !providerName.empty() && providerName != "local") {
                 provider = CreateCloudProvider(providerName);
                 if (provider) {
                     // Resolve the credential path the same way the CLI does:
@@ -258,19 +201,19 @@ static void EnsureInitialized() {
                         LOG("[macOS] Cloud provider '%s' initialized (tokens: %s)",
                             provider->Name(), tokenPath.c_str());
                         if (!provider->IsAuthenticated()) {
-                            LOG("[macOS] ERROR: %s not authenticated -- managed cloud RPCs will fail until configured and restarted",
+                            LOG("[macOS] ERROR: %s not authenticated -- statistics sync requires authentication",
                                 provider->Name());
                             provider.reset();
                         }
                         else g_providerReady=true;
                     } else {
                         LOG("[macOS] WARNING: Cloud provider '%s' init FAILED (credentials path: %s) -- "
-                            "managed cloud RPCs will fail. Check credentials and restart Steam.",
+                            "Statistics sync is unavailable. Check credentials and restart Steam.",
                             providerName.c_str(), tokenPath.c_str());
                         provider.reset();
                     }
                 } else {
-                    LOG("[macOS] ERROR: Unknown cloud provider '%s', managed cloud RPCs will fail",
+                    LOG("[macOS] ERROR: Unknown cloud provider '%s', statistics sync is unavailable",
                         providerName.c_str());
                 }
             }
@@ -279,16 +222,11 @@ static void EnsureInitialized() {
             g_providerReady=true;
         }
 
-        CloudStorage::Init(cloudRedirectRoot, std::move(provider));
-        if(!g_providerReady.load())g_statsSyncEnabled=false;
-    
-        LocalStorage::Init(storageRoot);
-        LocalMetadataStore::Init(storageRoot);
-        PendingOpsJournal::Init(storageRoot);
-        HttpServer::Start(storageRoot, CloudIntercept::GetAccountId());
+        if (!g_providerReady.load()) g_statsSyncEnabled = false;
 
         // Stats/achievement/playtime subsystem; skipped entirely when disabled.
         if (g_statsSyncEnabled.load(std::memory_order_relaxed)) {
+        CloudStorage::InitStatistics(std::move(provider));
         // Stats sync as one account-wide blob at <accountId>/0/stats.json (appId ->
         // stats JSON), not one blob per app (a Drive round-trip per app at startup).
         StatsStore::SetCloudProvider(
@@ -297,6 +235,8 @@ static void EnsureInitialized() {
                 uint32_t accountId = CloudIntercept::GetAccountId();
                 if (accountId == 0) return false;
                 std::vector<uint8_t> data;
+                CloudStorage::InflightSyncScope guard;
+                if (!guard) return false;
                 auto fetch = CloudStorage::FetchCloudMetadataStatus(
                     accountId, CloudIntercept::kAccountScopeAppId, "stats.json", data);
                 if (fetch == CloudStorage::MetadataFetch::Error)
@@ -345,8 +285,7 @@ static void EnsureInitialized() {
                 uint32_t accountId = CloudIntercept::GetAccountId();
                 if (accountId == 0) return std::string();
                 std::vector<uint8_t> data;
-                if (CloudStorage::DownloadCloudMetadataWithLegacyFallback(
-                        accountId, appId, "stats.json", nullptr, data) && !data.empty())
+                if (CloudStorage::DownloadLegacyStats(accountId, appId, data) && !data.empty())
                     return std::string(reinterpret_cast<const char*>(data.data()), data.size());
                 return std::string();
             },
@@ -424,14 +363,6 @@ static void EnsureInitialized() {
         g_initialized.store(true, std::memory_order_release);
         std::atexit(&CloudHooks::ShutdownStorage);
         
-        LOG("[macOS] Storage initialized: root=%s, accountId=%u, namespaceApps=%zu",
-            storageRoot.c_str(), CloudIntercept::GetAccountId(),
-            CloudIntercept::GetNamespaceApps().size());
-
-        // Manifest system fetches CN/manifest on-demand; no bulk startup sync.
-        if (CloudStorage::IsCloudActive()) {
-            LOG("[StartupSync] Cloud active; metadata will be fetched on-demand per app");
-        }
     });
 }
 
@@ -443,14 +374,8 @@ void CloudHooks::ObserveAccount(uint64_t sid) {
     if(g_statsSyncEnabled){StatsStore::ResetForAccountSwitch(account);StatsHandlers::ResetSessions();}
 }
 
-void CloudHooks::SetOriginals(void* origSlot5, void* origSlot7, void* origSlot8) {
+void CloudHooks::SetOriginal(void* origSlot5) {
     g_origBYieldingSend.store(reinterpret_cast<BYieldingSend_t>(origSlot5), std::memory_order_release);
-    g_origNotificationDirect.store(reinterpret_cast<NotificationDirect_t>(origSlot7), std::memory_order_release);
-    g_origSyncSend2.store(reinterpret_cast<SyncSend2_t>(origSlot8), std::memory_order_release);
-}
-
-static bool IsCloudRpc(const char* methodName) {
-    return methodName && strncmp(methodName, "Cloud.", 6) == 0;
 }
 
 // Hook: BYieldingSendMessageAndGetReply (slot 5)
@@ -499,310 +424,7 @@ extern "C" int hook_BYieldingSend(void* pThis, const char* methodName, void* req
         }
     }
 
-    if (!CloudIntercept::HasNamespaceApps() || !IsCloudRpc(methodName) || !g_serializeToArray || !g_parseFromArray)
-        return origFn(pThis, methodName, request, response, flags);
-
-    // Extract raw protobuf bytes
-    auto reqBytes = SerializeMessage(request);
-    if (reqBytes.empty()) {
-        return origFn(pThis, methodName, request, response, flags);
-    }
-
-    auto reqFields = PB::Parse(reqBytes.data(), reqBytes.size());
-    uint32_t appId = CloudRpcUtils::ExtractAppId(methodName, reqFields);
-    if (appId == 0) {
-        return origFn(pThis, methodName, request, response, flags);
-    }
-    CR_SetCrashContext("BYieldingSend:app", methodName, appId);
-
-    if (!CloudIntercept::IsNamespaceApp(appId)) {
-        return origFn(pThis, methodName, request, response, flags);
-    }
-    EnsureInitialized();
-    CR_SetCrashContext("BYieldingSend:namespace", methodName, appId);
-
-    // FileDownload: call original first (yields), then patch response with our URL.
-    if (strcmp(methodName, CloudIntercept::RPC_FILE_DOWNLOAD) == 0) {
-        LOG("[Hook] FileDownload app=%u: calling original first", appId);
-        int origResult = origFn(pThis, methodName, request, response, flags);
-        LOG("[Hook] FileDownload app=%u: original returned %d, patching", appId, origResult);
-
-        auto dispatched = DispatchCloudRpc(methodName, appId, reqFields);
-        if (!dispatched.has_value()) {
-            return origResult;
-        }
-        auto& result = *dispatched;
-
-        if (response && result.body.Size() > 0) {
-            if (!ParseIntoMessage(response, result.body.Data().data(), result.body.Size())) {
-                LOG("[Hook] FileDownload: ParseFromArray failed, keeping original");
-                return origResult;
-            }
-        }
-        if (flags) {
-            flags[2] = 1;
-            flags[3] = result.eresult;
-        }
-        LOG("[Hook] FileDownload app=%u: patched (eresult=%d, %zu bytes)",
-            appId, result.eresult, result.body.Size());
-        return 1;
-    }
-
-    uint32_t accountId = CloudIntercept::GetAccountId();
-    if (accountId == 0) {
-        return origFn(pThis, methodName, request, response, flags);
-    }
-
-    LocalStorage::InitApp(accountId, appId);
-    CR_SetCrashContext("BYieldingSend:metadata-init", methodName, appId);
-    LocalMetadataStore::InitApp(accountId, appId);
-
-    CR_SetCrashContext("BYieldingSend:dispatch", methodName, appId);
-    auto dispatched = DispatchCloudRpc(methodName, appId, reqFields);
-    if (!dispatched.has_value()) {
-        return origFn(pThis, methodName, request, response, flags);
-    }
-    auto& result = *dispatched;
-
-    LOG("[Hook] INTERCEPT BYieldingSend %s app=%u -> %zu bytes, eresult=%d",
-        methodName, appId, result.body.Size(), result.eresult);
-
-#ifdef DEBUG_HEX_DUMP
-    {
-        auto& d = result.body.Data();
-        std::string hex;
-        for (size_t i = 0; i < d.size() && i < 64; i++) {
-            char tmp[4]; snprintf(tmp, sizeof(tmp), "%02X ", d[i]);
-            hex += tmp;
-        }
-        LOG("[Hook]   response hex: %s", hex.c_str());
-    }
-#endif
-
-    // Parse response bytes into the response protobuf object
-    if (response && result.body.Size() > 0) {
-        CR_SetCrashContext("BYieldingSend:parse-response", methodName, appId);
-        if (!ParseIntoMessage(response, result.body.Data().data(), result.body.Size())) {
-            LOG("[Hook] BYieldingSend %s: ParseFromArray failed for response! Falling through.",
-                methodName);
-            return origFn(pThis, methodName, request, response, flags);
-        }
-        LOG("[Hook]   ParseFromArray succeeded");
-    }
-
-    // Flags layout: [0]=routing, [1]=mode, [2]=transport_success, [3]=eresult
-    if (flags) {
-        flags[2] = 1;  // transport success
-        flags[3] = result.eresult;
-    }
-
-    LOG("[Hook]   returning success for %s app=%u", methodName, appId);
-    return 1;  // success
-}
-
-// Hook: NotificationDirect (slot 7)
-//
-// Suppress cloud notifications for namespace apps.
-
-static uint32_t CheckNotificationNamespaceApp(const char* methodName, void* body) {
-    if (!body || !g_serializeToArray) return 0;
-
-    auto bodyBytes = SerializeMessage(body);
-    if (bodyBytes.empty()) {
-        LOG("[Hook-Notif] %s: body serialization empty", methodName);
-        return 0;
-    }
-
-    auto fields = PB::Parse(bodyBytes.data(), bodyBytes.size());
-    // For Cloud notifications, appId is field 1
-    auto* appField = PB::FindField(fields, 1);
-    if (!appField) {
-        LOG("[Hook-Notif] %s: no field 1 (appId) in body", methodName);
-        return 0;
-    }
-
-    uint32_t appId = (uint32_t)appField->varintVal;
-    if (CloudIntercept::IsNamespaceApp(appId)) {
-        return appId;
-    }
-    return 0;
-}
-
-extern "C" int hook_NotificationDirect(void* pThis, const char* methodName, void* body, int* flags)
-{
-    HookGuard guard;
-    if (g_shuttingDown.load(std::memory_order_acquire)) {
-        auto fn = g_origNotificationDirect.load(std::memory_order_acquire);
-        return fn ? fn(pThis, methodName, body, flags) : 0;
-    }
-    CrashContextScope crashContext("NotificationDirect:entry", methodName, 0);
-    auto origFn = g_origNotificationDirect.load(std::memory_order_acquire);
-    for (int i = 0; !origFn && i < 1000; ++i) {
-        usleep(100);
-        origFn = g_origNotificationDirect.load(std::memory_order_acquire);
-    }
-    if (!origFn) return 0;
-
-    // Only intercept Cloud.* notifications
-    if (!IsCloudRpc(methodName)) {
-        return origFn(pThis, methodName, body, flags);
-    }
-
-    uint32_t appId = CheckNotificationNamespaceApp(methodName, body);
-    CR_SetCrashContext("NotificationDirect:checked", methodName, appId);
-    if (appId == 0) {
-        // Not a namespace app - pass through to Steam servers
-        LOG("[Hook-Notif] %s: not namespace, passing through", methodName);
-        return origFn(pThis, methodName, body, flags);
-    }
-
-    // ExitSyncDone: let Steam process it (updates remotecache.vdf CN).
-    if (strcmp(methodName, CloudIntercept::RPC_EXIT_SYNC) == 0) {
-        CR_SetCrashContext("NotificationDirect:exit-sync", methodName, appId);
-        auto bodyBytes = SerializeMessage(body);
-        auto fields = PB::Parse(bodyBytes.data(), bodyBytes.size());
-        uint64_t clientId = 0;
-        bool uploadsCompleted = false;
-        bool uploadsRequired = false;
-        if (auto* f = PB::FindField(fields, 2)) clientId = f->varintVal;
-        if (auto* f = PB::FindField(fields, 3)) uploadsCompleted = f->varintVal != 0;
-        if (auto* f = PB::FindField(fields, 4)) uploadsRequired = f->varintVal != 0;
-        uint32_t accountId = CloudIntercept::GetAccountId();
-        if (accountId != 0) {
-            PendingOpsJournal::RecordExitSyncState(accountId, appId,
-                uploadsCompleted, uploadsRequired, clientId);
-            // Native-faithful: ExitSyncDone is fire-and-forget (notification, no
-            // response). Dispatch session release off Steam's thread.
-            std::thread([accountId, appId, clientId] {
-                CloudStorage::InflightSyncScope guard;
-                if (!guard.entered) return;  // shutting down, skip session release
-                CloudStorage::ReleaseCloudSession(accountId, appId, clientId);
-            }).detach();
-        }
-        LOG("[Hook-Notif] %s app=%u: letting Steam process internally", methodName, appId);
-        return origFn(pThis, methodName, body, flags);
-    }
-
-    // ConflictResolution: parse chose_local_files so HandleLaunchIntent
-    // knows whether to skip pre-restore (user chose "keep local files").
-    if (strcmp(methodName, CloudIntercept::RPC_CONFLICT) == 0) {
-        auto bodyBytes = SerializeMessage(body);
-        auto fields = PB::Parse(bodyBytes.data(), bodyBytes.size());
-        bool choseLocal = false;
-        if (auto* f = PB::FindField(fields, 2)) choseLocal = f->varintVal != 0;
-        CloudIntercept::RecordConflictResolution(appId, choseLocal);
-    }
-
-    // Suppress other Cloud notifications for namespace apps
-    LOG("[Hook-Notif] SUPPRESSED %s app=%u (notification not sent to server)", methodName, appId);
-    return 1;
-}
-
-// Hook: SyncSend2 (slot 8)
-//
-// 32-bit cdecl: int(void* this, const char* method, void* buf, uint32_t bufLen, void* resp, int* flags)
-// Buffer-based variant -- raw protobuf bytes are directly available.
-
-extern "C" int hook_SyncSend2(void* pThis, const char* methodName, void* buf, unsigned int bufLen, void* response, int* flags)
-{
-    HookGuard guard;
-    if (g_shuttingDown.load(std::memory_order_acquire)) {
-        auto fn = g_origSyncSend2.load(std::memory_order_acquire);
-        return fn ? fn(pThis, methodName, buf, bufLen, response, flags) : 0;
-    }
-    CrashContextScope crashContext("SyncSend2:entry", methodName, 0);
-    auto origFn = g_origSyncSend2.load(std::memory_order_acquire);
-    for (int i = 0; !origFn && i < 1000; ++i) {
-        usleep(100);
-        origFn = g_origSyncSend2.load(std::memory_order_acquire);
-    }
-    if (!origFn) return 0;
-    
-    if (!IsCloudRpc(methodName))
-        return origFn(pThis, methodName, buf, bufLen, response, flags);
-
-    if (!buf || bufLen == 0)
-        return origFn(pThis, methodName, buf, bufLen, response, flags);
-
-    auto reqFields = PB::Parse(static_cast<const uint8_t*>(buf), bufLen);
-    uint32_t appId = CloudRpcUtils::ExtractAppId(methodName, reqFields);
-
-    if (appId == 0) {
-        return origFn(pThis, methodName, buf, bufLen, response, flags);
-    }
-    CR_SetCrashContext("SyncSend2:app", methodName, appId);
-
-    if (!CloudIntercept::IsNamespaceApp(appId)) {
-        return origFn(pThis, methodName, buf, bufLen, response, flags);
-    }
-    EnsureInitialized();
-    CR_SetCrashContext("SyncSend2:namespace", methodName, appId);
-
-    uint32_t accountId = CloudIntercept::GetAccountId();
-    if (accountId == 0) {
-        return origFn(pThis, methodName, buf, bufLen, response, flags);
-    }
-
-    LocalStorage::InitApp(accountId, appId);
-    CR_SetCrashContext("SyncSend2:metadata-init", methodName, appId);
-    LocalMetadataStore::InitApp(accountId, appId);
-
-    CR_SetCrashContext("SyncSend2:dispatch", methodName, appId);
-    auto dispatched = DispatchCloudRpc(methodName, appId, reqFields);
-    if (!dispatched.has_value()) {
-        return origFn(pThis, methodName, buf, bufLen, response, flags);
-    }
-    auto& result = *dispatched;
-
-    LOG("[Hook] INTERCEPT SyncSend2 %s app=%u -> %zu bytes, eresult=%d",
-        methodName, appId, result.body.Size(), result.eresult);
-
-    if (response && result.body.Size() > 0 && g_parseFromArray) {
-        CR_SetCrashContext("SyncSend2:parse-response", methodName, appId);
-        if (!ParseIntoMessage(response, result.body.Data().data(), result.body.Size())) {
-            LOG("[Hook] SyncSend2 %s: ParseFromArray failed", methodName);
-            return origFn(pThis, methodName, buf, bufLen, response, flags);
-        }
-    }
-
-    // Flags layout (from IDA): [0]=routing, [1]=mode, [2]=transport_success, [3]=eresult
-    if (flags) {
-        flags[2] = 1;  // transport success
-        flags[3] = result.eresult;
-    }
-
-    return 1;
-}
-
-// Hook: IsCloudEnabledForApp (CUserRemoteStorage vtable slot 24)
-// 32-bit cdecl: bool(void* this, unsigned int appId)
-// Returns true for namespace apps so cloud toggle stays enabled.
-
-using IsCloudEnabledForApp_t = bool(*)(void* pThis, unsigned int appId);
-static std::atomic<IsCloudEnabledForApp_t> g_origIsCloudEnabledForApp{nullptr};
-
-void CloudHooks::SetOriginalIsCloudEnabled(void* orig) {
-    g_origIsCloudEnabledForApp.store(reinterpret_cast<IsCloudEnabledForApp_t>(orig), std::memory_order_release);
-}
-
-extern "C" bool hook_IsCloudEnabledForApp(void* pThis, unsigned int appId)
-{
-    HookGuard guard;
-    if (g_shuttingDown.load(std::memory_order_acquire)) {
-        auto fn = g_origIsCloudEnabledForApp.load(std::memory_order_acquire);
-        return fn ? fn(pThis, appId) : true;
-    }
-    CrashContextScope crashContext("IsCloudEnabledForApp:entry", "IsCloudEnabledForApp", appId);
-    if (CloudIntercept::IsNamespaceApp(appId)) {
-        LOG("[Hook] IsCloudEnabledForApp(%u) -> true (namespace app)", appId);
-        return true;
-    }
-
-    auto origFn = g_origIsCloudEnabledForApp.load(std::memory_order_acquire);
-    if (origFn) {
-        return origFn(pThis, appId);
-    }
-    return true;
+    return origFn(pThis, methodName, request, response, flags);
 }
 
 void CloudHooks::BeginShutdown() {
@@ -850,7 +472,5 @@ void CloudHooks::ShutdownStorage() {
     if(!g_initialized.exchange(false))return;
     BeginShutdown();
     if(g_statsSyncEnabled){StatsHandlers::Shutdown();StatsStore::DrainCloudWrites();}
-    HttpServer::Stop();
-    CloudIntercept::ShutdownRpcHandlers();
-    CloudStorage::Shutdown();
+    if (g_statsSyncEnabled) CloudStorage::Shutdown();
 }

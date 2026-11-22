@@ -16,25 +16,10 @@ add_library(cloud_redirect SHARED
     common/json.cpp
     common/coop_yield.cpp
     common/vdf.cpp
-    common/remotecache_repair.cpp
-    common/manifest_store.cpp
-    common/app_state.cpp
-    common/token_store.cpp
-    common/batch_tracker.cpp
-    common/cloud_staging.cpp
-    common/pending_ops_journal.cpp
-    common/rpc_handlers.cpp
-    common/batch_merge.cpp
-    common/cloud_work_queue.cpp
     common/cloud_storage.cpp
-    common/local_storage.cpp
-    common/local_metadata_store.cpp
-    common/legacy_metadata_cleanup.cpp
-    common/cli.cpp
     common/cloud_provider_base.cpp
     common/sigv4.cpp
     common/sha256_hmac.cpp
-    common/autocloud_scan.cpp
     common/steam_kv_injector.cpp
     common/parental_bypass.cpp
     common/metadata_sync.cpp
@@ -66,12 +51,10 @@ macos/manifest_provider.cpp
 macos/manifest_json.mm
 macos/access_tokens.cpp
 macos/presence_apps.cpp
-macos/save_inventory.cpp
 macos/presence_shortcuts.cpp
 macos/http_transport_linux.cpp
 macos/token_store_linux.cpp
 macos/log.cpp
-macos/http_server.cpp
 macos/http_util.cpp
 macos/platform_linux.cpp
 macos/file_util.cpp)
@@ -79,11 +62,6 @@ set_target_properties(cloud_redirect PROPERTIES PREFIX "" INSTALL_NAME_DIR "@loa
 target_include_directories(cloud_redirect PRIVATE common providers macos "${DOBBY_SOURCE}/include")
 target_compile_definitions(cloud_redirect PRIVATE MINIZ_NO_STDIO CR_VERSION_STRING="mac-port-0.1" CR_RELEASE_VERSION="mac-port-0.1")
 target_compile_options(cloud_redirect PRIVATE -Wno-deprecated-declarations)
-add_executable(FluentCloudCLI macos/cli_main.cpp)
-add_executable(FluentCloudProbe tests/native_probe.cpp)
-target_include_directories(FluentCloudProbe PRIVATE common providers macos)
-target_link_libraries(FluentCloudProbe PRIVATE cloud_redirect)
-
 target_link_libraries(cloud_redirect PRIVATE dobby_static curl "-framework Foundation")
 target_link_options(cloud_redirect PRIVATE "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/macos/hidden_symbols.txt")
 add_executable(FluentRuntimeProbe tests/runtime_probe.cpp)

@@ -47,8 +47,9 @@ if args.count == 4, args[1] == "--same-bundle" {
     }
 }
 
+let names = args.count == 4 && args[2] == "--names"
 let platforms = args.count == 3 && args[2] == "--platforms"
-guard args.count == 3, platforms || UInt32(args[2]) != nil else {
+guard names || (args.count == 3 && (platforms || UInt32(args[2]) != nil)) else {
     fputs("usage: appinfo <appinfo.vdf> <appid>|--platforms\n", stderr)
     exit(2)
 }
@@ -262,6 +263,17 @@ func printPlatforms(_ b: [UInt8]) throws {
 }
 
 do {
+    if names {
+        let wanted = Set(args[3].split(separator: ",").compactMap { UInt32($0) })
+        var result: [String: String] = [:]
+        _ = try forEachApp(bytes) { id, keys in
+            if wanted.contains(id), case .section(let common)? = try keys()["common"],
+               case .string(let name)? = common["name"] { result[String(id)] = name }
+            return result.count < wanted.count
+        }
+        FileHandle.standardOutput.write(try JSONEncoder().encode(result))
+        exit(0)
+    }
     if platforms {
         try printPlatforms(bytes)
         exit(0)

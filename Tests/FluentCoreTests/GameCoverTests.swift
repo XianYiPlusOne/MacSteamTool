@@ -92,6 +92,23 @@ private actor CoverRequests {
         #expect(try await store.load(appID: 12345, steam: steam) == image)
         #expect(try FileStore.read(file) == image)
     }
+    @Test func nestedSteamHeaderSurvivesRemovalAndCacheClearing() async throws {
+        let root = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
+        let paths = AppPaths(home: root)
+        let cache = paths.cache.appendingPathComponent("Covers"), archive = SaveGameMetadataStore.covers(paths)
+        let image = try png()
+        let file = paths.steam.appendingPathComponent("appcache/librarycache/5175310/" + String(repeating: "a", count: 40) + "/library_header_schinese.jpg")
+        try FileStore.write(image, to: file)
+        let store = GameCovers(cache: cache, archive: archive)
+        #expect(try await store.load(appID: 5175310, steam: paths.steam) == image)
+        try await store.retainCached(appID: 5175310, steam: paths.steam)
+        try FileStore.fm.removeItem(at: file)
+        _ = try CacheMaintenance.clear(paths: paths)
+        let restarted = GameCovers(cache: cache, archive: archive)
+        #expect(await restarted.cachedImage(appID: 5175310, steam: paths.steam) == image)
+        #expect(await restarted.cachedImage(appID: 480, steam: paths.steam) == nil)
+    }
+
     @Test func failuresAreNotCachedAsImagesAndExplicitRetryRecovers() async throws {
         let root = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         let image = try png(), calls = CoverRequests()

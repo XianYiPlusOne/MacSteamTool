@@ -53,7 +53,7 @@ int main(int argc,char** argv){
     check(FluentCloudInstallHooks()==1,"native extension install");
     size_t size=0;auto base=VtableHook::FindSteamclient(size);
     check(StatsStore::WaitForSeed(15000),"cloud statistics seed");
-    check(!CloudIntercept::HasNamespaceApps()&&CloudIntercept::IsStatsApp(480)&&!CloudIntercept::IsStatsApp(481),"statistics separated from saves");
+    check(CloudIntercept::IsStatsApp(480)&&!CloudIntercept::IsStatsApp(481),"statistics separated from saves");
     auto c=RuntimeSettings::Current();check(c->tickets.count(480),"ticket validation and private config");auto ticket=c->tickets.at(480);
     alignas(16) unsigned char user[0x6500]={},job[0x200]={},engine[0x1500]={},node[32]={};void* userVT[128]={};userVT[10]=(void*)&fakeID;*(void***)user=userVT;memcpy(user+0x242,&ticket.steamID,8);*(int32_t*)(user+RuntimeProfile::Get(base).ticketTreeRoot)=-1;
     *(uint32_t*)(engine+0x130)=1;*(int32_t*)(engine+RuntimeProfile::Get(base).engineAppRoot)=0;*(void**)(engine+RuntimeProfile::Get(base).engineAppNodes)=node;*(int32_t*)node=-1;*(int32_t*)(node+4)=-1;*(uint32_t*)(node+16)=1;*(uint32_t*)(node+20)=480;
@@ -100,7 +100,7 @@ int main(int argc,char** argv){
     StatsStore::SetAchievement(480,0,0,1700000000);StatsStore::SetStat(480,1,7);StatsStore::FlushAll();
     check(StatsStore::Snapshot(480).schema.size()>0,"native Spacewar schema imported from private copy");
     Proto statReq("28CPlayer_GetUserStats_Request",base,size),statResp("29CPlayer_GetUserStats_Response",base,size);
-    PB::Writer sr;sr.WriteVarint(2,480);sr.WriteVarint(4,0xffffffff);statReq.parse(sr.Data());CloudHooks::SetOriginals((void*)&passthrough,nullptr,nullptr);int flags[70]={};
+    PB::Writer sr;sr.WriteVarint(2,480);sr.WriteVarint(4,0xffffffff);statReq.parse(sr.Data());CloudHooks::SetOriginal((void*)&passthrough);int flags[70]={};
     check(hook_BYieldingSend(nullptr,"Player.GetUserStats#1",statReq.value,statResp.value,flags)==1&&flags[3]==1,"stats RPC served with save redirection off");auto response=serialized(base,statResp.value);auto rf=PB::Parse(response.data(),response.size());check(PB::FindField(rf,3)&&PB::FindField(rf,4),"real response includes stats schema and values");
     bool achievement=false;for(auto f:rf)if(f.fieldNum==4&&f.wireType==PB::LengthDelimited){auto stat=PB::Parse(f.data,f.dataLen);auto id=PB::FindField(stat,1);if(id&&id->varintVal==0&&PB::FindField(stat,2)->varintVal==1&&PB::FindField(stat,3))achievement=true;}check(achievement,"achievement bit and unlock timestamp reach native protobuf");
     // A submitted relock must survive cloud merges in either direction.

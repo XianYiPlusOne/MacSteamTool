@@ -31,12 +31,13 @@ public struct SaveManagerState: Codable, Sendable {
 public struct ManagedSaveGame: Identifiable, Sendable {
     public let id: Int
     public let name: String
+    public let image: String?
     public let locations: [SaveLocation]
     public let backupCount: Int
     public let installed: Bool
 }
 public enum SaveManagement {
-    public static func catalog(games: [Game], locations: [SaveLocation], state: SaveManagerState) -> [ManagedSaveGame] {
+    public static func catalog(games: [Game], locations: [SaveLocation], state: SaveManagerState, metadata: [Int: SaveGameMetadata] = [:], language: String = "schinese") -> [ManagedSaveGame] {
         var names: [Int: Game] = [:]
         for game in games { names[game.id] = game }
         var folders: [Int: [SaveLocation]] = [:], seen: [Int: Set<String>] = [:]
@@ -46,7 +47,9 @@ public enum SaveManagement {
         let backupCounts = state.backups.reduce(into: [Int: Int]()) { $0[$1.appID, default: 0] += 1 }
         let ids = Set(games.map(\.id) + locations.map(\.appID) + state.backups.map(\.appID) + state.games.keys.compactMap(TextUtil.validID))
         return ids.filter { TextUtil.validID(String($0)) != nil }.map { id in
-            return ManagedSaveGame(id: id, name: names[id]?.name ?? "App \(id)", locations: folders[id] ?? [],
+            let title = metadata[id]?.localizedNames[language] ?? SaveGameMetadata.title(names[id]?.name, id: id)
+                ?? metadata[id]?.displayName(language: language) ?? "App \(id)"
+            return ManagedSaveGame(id: id, name: title, image: metadata[id]?.image, locations: folders[id] ?? [],
                                    backupCount: backupCounts[id] ?? 0, installed: names[id]?.installed != nil)
         }.sorted { a, b in a.name == b.name ? a.id < b.id : a.name.localizedStandardCompare(b.name) == .orderedAscending }
     }
@@ -69,29 +72,6 @@ public enum SaveManagement {
         path.hasPrefix("/") && !path.split(separator: "/").isEmpty &&
         !path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) &&
         !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
-    }
-    public static func cloudSelection(_ config: CloudConfiguration, appID: Int, paths: AppPaths) throws -> Bool {
-        var active = config; active.enabled = true
-        return try active.selectedApps(paths: paths).contains(appID)
-    }
-    public static func settingCloudSelection(_ selected: Bool, appID: Int, config: CloudConfiguration, paths: AppPaths) throws -> CloudConfiguration {
-        guard TextUtil.validID(String(appID)) != nil else { throw AppFailure("无效 AppID / Invalid AppID") }
-        var result = config
-        if config.automaticApps {
-            if selected {
-                let mac = try MacSteamConfig.parse(FileStore.text(paths.config))
-                guard mac.apps.contains(appID), mac.parents[appID] == nil else { throw AppFailure("自动模式只接管 macSteam 已启用的主游戏 / Automatic mode only manages enabled macSteam base games") }
-            }
-            var excluded = Set(try CloudConfiguration.parseIDs(config.excludedApps))
-            if selected { excluded.remove(appID) } else { excluded.insert(appID) }
-            result.excludedApps = excluded.sorted().map(String.init).joined(separator: ", ")
-        } else {
-            var ids = Set(try CloudConfiguration.parseIDs(config.apps))
-            if selected { ids.insert(appID) } else { ids.remove(appID) }
-            guard !config.enabled || !ids.isEmpty else { throw AppFailure("这是最后一款接管游戏；请在云服务设置中关闭全局接管 / This is the last managed game; disable global redirection in cloud settings") }
-            result.apps = ids.sorted().map(String.init).joined(separator: ", ")
-        }
-        return result
     }
 }
 

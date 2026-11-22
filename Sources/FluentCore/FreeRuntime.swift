@@ -83,7 +83,7 @@ public enum FreeRuntime {
         // Older CloudRedirect versions resolve all Windows saves to the paid
         // prefix. Update that optional extension before exposing the new tool.
         if RuntimeStatus.read(paths).injectedLibraries.contains(where: { $0.hasSuffix("/cloud_redirect.dylib") }) {
-            guard let cloudHelper else { throw AppFailure("需要本应用的云存档扩展以支持独立前缀 / The bundled cloud extension is required for separate prefixes") }
+            guard let cloudHelper else { throw AppFailure("需要更新随附的运行时扩展 / The bundled runtime extension is required") }
             let live = paths.steamApp.appendingPathComponent("Contents/MacOS/cloud_redirect.dylib")
             if (try? FileStore.read(live)) != (try FileStore.read(cloudHelper)) {
                 _ = try await KernelDeployment.deploy(name: "cloud_redirect.dylib", source: cloudHelper, paths: paths)

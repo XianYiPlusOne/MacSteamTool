@@ -47,7 +47,11 @@ import Testing
     @Test func removeRequestsChoiceAndEntryOnlyPreservesSaveFiles() async throws {
         let (root, model, backup) = try fixture(); defer { try? FileStore.fm.removeItem(at: root) }
         try model.service.perform(model.service.plan([ImportFile(name: "480.lua", data: Data("addappid(480)".utf8))]))
+        let title = "Spacewar"
+        let metadata = GameMetadata(id: 480, name: title, image: "https://shared.fastly.steamstatic.com/steam/apps/480/header.jpg")
+        try FileStore.json(metadata, to: model.paths.cache.appendingPathComponent("Metadata/schinese-480.json"))
         model.refresh()
+        await model.metadataTask?.value
         let game = try #require(model.games.first { $0.id == 480 })
         let before = try FileStore.read(model.paths.config)
         model.remove(game)
@@ -57,5 +61,15 @@ import Testing
         #expect(!model.games.contains { $0.id == 480 })
         #expect(FileStore.fm.fileExists(atPath: backup.source))
         #expect(try SaveManagerStore.load(paths: model.paths).backups.contains { $0.id == backup.id })
+        await model.metadataTask?.value
+        _ = try CacheMaintenance.clear(paths: model.paths)
+        let restarted = AppModel(fixtureHome: root)
+        restarted.preferences.autoMetadata = false
+        restarted.refresh()
+        await restarted.metadataTask?.value
+        let row = try #require(restarted.managedSaveGames.first { $0.id == 480 })
+        #expect(row.name == title)
+        #expect(row.image == metadata.image)
+        #expect(row.backupCount == 1)
     }
 }

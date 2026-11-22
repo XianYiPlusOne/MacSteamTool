@@ -168,6 +168,7 @@ public final class LibraryService {
         try applyLibraryChanges(changes, config: config, hash: hash, apps: enabled ? [game.id] : [], removing: enabled ? [] : [game.id], reason: "\(enabled ? "启用" : "禁用") \(game.name)")
     }
     public func remove(_ game: Game) throws {
+        try SaveGameMetadataStore.remember(paths: paths, games: [game])
         var (config, hash) = try configSnapshot(); config.remove(game.id)
         var changes: [(URL, Data?)] = [(paths.config, Data(config.serialized().utf8))]
         for file in [paths.lua.appendingPathComponent("\(game.id).lua"), paths.disabled.appendingPathComponent("\(game.id).lua")] where FileStore.fm.fileExists(atPath: file.path) { changes.append((file, nil)) }
@@ -176,6 +177,7 @@ public final class LibraryService {
     public enum BatchAction { case enable, disable, remove }
     public func batch(_ games: [Game], action: BatchAction) throws {
         guard !games.isEmpty, Set(games.map(\.id)).count == games.count, games.allSatisfy({ $0.source != "Steam" }) else { throw AppFailure("请选择受管游戏 / Select managed games") }
+        if action == .remove { try SaveGameMetadataStore.remember(paths: paths, games: games) }
         var (config, hash) = try configSnapshot()
         var changes: [(URL, Data?)] = [], enabled: [Int] = [], removed: [Int] = []
         for game in games {
@@ -257,7 +259,13 @@ public final class LibraryService {
         let roots = [paths.steam, paths.macSteam, paths.lua, paths.data]
         guard let available = try restoreGameIDs(record) else {
             guard appIDs == nil else { throw AppFailure("此备份不支持按游戏恢复 / This backup does not support per-game restore") }
-            try journal.restore(record, allowedRoots: roots)
+            let changes: [(URL, Data?)] = try journal.verifiedChanges(record, allowedRoots: roots).map { url, data in
+                if url == StatisticsConfiguration.url(paths).standardizedFileURL, let data {
+                    return (url, try StatisticsConfiguration.disablingLegacySaveRedirection(in: data))
+                }
+                return (url, data)
+            }
+            try journal.apply(changes, reason: "还原 \(record.reason)")
             return
         }
         let ids = appIDs ?? available

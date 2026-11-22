@@ -1,10 +1,8 @@
-// macOS adapter: explicit selection or opt-in macSteam main-game tracking.
+// macOS adapter for the active Steam account and statistics scope.
 #include "cloud_intercept.h"
 #include "json.h"
 #include "xdg.h"
 #include "log.h"
-#include "presence_apps.h"
-#include "sha256_hmac.h"
 #include <fstream>
 #include <mutex>
 #include <unordered_set>
@@ -14,16 +12,7 @@
 #include <unistd.h>
 static std::mutex g_mutex;
 static std::string g_steamPath;
-static std::unordered_set<uint32_t> g_apps, g_statsApps;
-static std::unordered_set<uint32_t> g_excludedApps;
-static bool g_automaticApps=false;
-static std::string g_configDigest="missing";
-static std::string g_macSteamConfig;
-static void RefreshAutomaticApps() {
-    if(!g_automaticApps)return;
-    g_apps.clear();
-    for(const auto& [id,name]:PresenceApps::Read(g_macSteamConfig))if(!g_excludedApps.count(id))g_apps.insert(id);
-}
+static std::unordered_set<uint32_t> g_statsApps;
 static std::atomic<uint32_t> g_account{0};
 static std::string DetectSteamPath() {
     const char* p=getenv("FLUENT_CLOUD_STEAM");
@@ -32,20 +21,13 @@ static std::string DetectSteamPath() {
 static void Refresh() {
     auto path=XdgConfigHome()+"/CloudRedirect/config.json";
     static time_t last=0; static long nanos=-1;
-    struct stat st{}; if(lstat(path.c_str(),&st)!=0||!S_ISREG(st.st_mode)||st.st_uid!=getuid()||st.st_size>1024*1024){g_apps.clear();g_statsApps.clear();g_automaticApps=false;g_configDigest="missing";last=0;nanos=-1;return;}
-    if(st.st_mtimespec.tv_sec==last&&st.st_mtimespec.tv_nsec==nanos){RefreshAutomaticApps();return;}
+    struct stat st{}; if(lstat(path.c_str(),&st)!=0||!S_ISREG(st.st_mode)||st.st_uid!=getuid()||st.st_size>1024*1024){g_statsApps.clear();last=0;nanos=-1;return;}
+    if(st.st_mtimespec.tv_sec==last&&st.st_mtimespec.tv_nsec==nanos)return;
     last=st.st_mtimespec.tv_sec;nanos=st.st_mtimespec.tv_nsec;
     std::ifstream file(path);std::string text((std::istreambuf_iterator<char>(file)),{});
-    auto config=Json::Parse(text);g_configDigest=crypto::Sha256Hex(text);g_apps.clear();g_statsApps.clear();g_excludedApps.clear();g_automaticApps=false;
+    auto config=Json::Parse(text);g_statsApps.clear();
     if(config["sync_achievements"].boolean()||config["sync_playtime"].boolean())
         for(const auto& entry:config["stats_apps"].arrVal){auto id=entry.integer();if(id>0&&id<=UINT32_MAX)g_statsApps.insert((uint32_t)id);}
-    if(!config["enabled"].boolean())return;
-    g_automaticApps=config["automatic_apps"].boolean();
-    g_macSteamConfig=config["macsteam_config"].str();
-    if(!g_macSteamConfig.empty()&&(g_macSteamConfig[0]!='/'||g_macSteamConfig.find('\0')!=std::string::npos)){g_automaticApps=false;return;}
-    for(const auto& entry:config["excluded_apps"].arrVal){auto id=entry.integer();if(id>0&&id<=UINT32_MAX)g_excludedApps.insert((uint32_t)id);}
-    if(g_automaticApps){RefreshAutomaticApps();return;}
-    for(const auto& entry:config["apps"].arrVal){ auto id=entry.integer();if(id>0&&id<=UINT32_MAX)g_apps.insert((uint32_t)id); }
 }
 static uint32_t LoadAccountIdFromLoginUsers() {
     std::string steamPath = DetectSteamPath();
@@ -152,13 +134,8 @@ static uint32_t LoadAccountIdFromLoginUsers() {
 
 namespace CloudIntercept {
 void InitLinux(){std::lock_guard<std::mutex> lock(g_mutex);g_steamPath=DetectSteamPath();g_account=LoadAccountIdFromLoginUsers();Refresh();}
-bool IsNamespaceApp(uint32_t app){std::lock_guard<std::mutex> lock(g_mutex);Refresh();return g_apps.count(app)>0;}
 bool IsStatsApp(uint32_t app){std::lock_guard<std::mutex> lock(g_mutex);Refresh();return g_statsApps.count(app)>0;}
 std::vector<uint32_t> GetStatsApps(){std::lock_guard<std::mutex> lock(g_mutex);Refresh();return {g_statsApps.begin(),g_statsApps.end()};}
-bool HasNamespaceApps(){std::lock_guard<std::mutex> lock(g_mutex);Refresh();return !g_apps.empty();}
-std::vector<uint32_t> GetNamespaceApps(){std::lock_guard<std::mutex> lock(g_mutex);Refresh();return {g_apps.begin(),g_apps.end()};}
-std::string ConfigurationDigest(){std::lock_guard<std::mutex> lock(g_mutex);Refresh();return g_configDigest;}
-void RegisterNamespaceApp(uint32_t app){/* Explicit config only; RPCs cannot opt other games in. */}
 std::string GetSteamPath(){std::lock_guard<std::mutex> lock(g_mutex);return g_steamPath.empty()?DetectSteamPath():g_steamPath;}
 uint32_t GetAccountId(){return g_account.load();}
 void SetAccountId(uint32_t account){g_account=account;}

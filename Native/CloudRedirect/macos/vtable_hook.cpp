@@ -264,21 +264,16 @@ static bool MakeReadOnly(void* addr, size_t len)
 // Defined in cloud_hooks.cpp
 extern "C" {
     int hook_BYieldingSend(void* pThis, const char* methodName, void* request, void* response, int* flags);
-    int hook_NotificationDirect(void* pThis, const char* methodName, void* body, int* flags);
-    int hook_SyncSend2(void* pThis, const char* methodName, void* buf, unsigned int bufLen, void* response, int* flags);
-    bool hook_IsCloudEnabledForApp(void* pThis, unsigned int appId);
 }
 
 bool VtableHook::InstallHooks(void** vtable, VtableInfo& info)
 {
     info.vtable = vtable;
     info.origSlot5 = vtable[5];
-    info.origSlot7 = vtable[7];
-    info.origSlot8 = vtable[8];
 
     // The vtable lives in .data.rel.ro -- need to make it writable
     void* slotBase = &vtable[5];
-    size_t span = reinterpret_cast<uintptr_t>(&vtable[8]) - reinterpret_cast<uintptr_t>(&vtable[5]) + 8;
+    size_t span = sizeof(void*);
 
     if (!MakeWritable(slotBase, span))
     {
@@ -287,14 +282,11 @@ bool VtableHook::InstallHooks(void** vtable, VtableInfo& info)
     }
 
     vtable[5] = reinterpret_cast<void*>(&hook_BYieldingSend);
-    vtable[7] = reinterpret_cast<void*>(&hook_NotificationDirect);
-    vtable[8] = reinterpret_cast<void*>(&hook_SyncSend2);
 
     // Restore read-only (non-fatal if it fails).
     MakeReadOnly(slotBase, span);
 
-    Log::Info("Vtable hooks installed: slot5=%p slot7=%p slot8=%p",
-              vtable[5], vtable[7], vtable[8]);
+    Log::Info("Statistics transport hook installed");
     return true;
 }
 
@@ -303,13 +295,11 @@ void VtableHook::RemoveHooks(const VtableInfo& info)
     if (!info.vtable) return;
 
     void* slotBase = &info.vtable[5];
-    size_t span = reinterpret_cast<uintptr_t>(&info.vtable[8]) - reinterpret_cast<uintptr_t>(&info.vtable[5]) + 8;
+    size_t span = sizeof(void*);
 
     if (MakeWritable(slotBase, span))
     {
         info.vtable[5] = info.origSlot5;
-        info.vtable[7] = info.origSlot7;
-        info.vtable[8] = info.origSlot8;
         MakeReadOnly(slotBase, span);
         Log::Info("Vtable hooks removed");
     }
@@ -317,55 +307,6 @@ void VtableHook::RemoveHooks(const VtableInfo& info)
     {
         Log::Warn("mprotect RW failed during hook removal");
     }
-}
-
-static constexpr const char RTTI_REMOTE_STORAGE[] = "18CUserRemoteStorage";
-
-static bool IsWithinSteamclient(uintptr_t ptr, uintptr_t steamBase, size_t steamSize)
-{
-    return ptr >= steamBase && ptr < steamBase + steamSize;
-}
-
-static bool IsLikelyAppCloudEnabledSlot(void** vtable, size_t slotIndex, uintptr_t steamBase, size_t steamSize)
-{
-    uintptr_t fn = reinterpret_cast<uintptr_t>(vtable[slotIndex]);
-    if (!IsWithinSteamclient(fn, steamBase, steamSize) || !CanReadMemory(reinterpret_cast<void*>(fn), 30))
-        return false;
-
-    return slotIndex==24 && fn==steamBase+RuntimeProfile::cloudEnabled(steamBase) &&
-        RuntimeProfile::Check_cloudEnabled(steamBase);
-}
-
-static size_t ResolveCloudEnabledSlot(void** vtable, uintptr_t steamBase, size_t steamSize)
-{
-    for (size_t slot = 0; slot < 32; ++slot) {
-        if (IsLikelyAppCloudEnabledSlot(vtable, slot, steamBase, steamSize))
-            return slot;
-    }
-    return SIZE_MAX;
-}
-
-void** VtableHook::FindRemoteStorageVtable(uintptr_t steamBase, size_t steamSize)
-{
-    void** vtableFuncs=FindVtableByRTTIName(RTTI_REMOTE_STORAGE,steamBase,steamSize);
-    if(!vtableFuncs)return nullptr;
-
-    if (!CanReadMemory(vtableFuncs, 25 * sizeof(void*)))
-    {
-        Log::Error("CUserRemoteStorage vtable at %p but slots not readable", vtableFuncs);
-        return nullptr;
-    }
-
-    size_t cloudEnabledSlot = ResolveCloudEnabledSlot(vtableFuncs, steamBase, steamSize);
-    if (cloudEnabledSlot == SIZE_MAX)
-    {
-        Log::Error("CUserRemoteStorage vtable at %p but could not resolve cloud-enabled slot", vtableFuncs);
-        return nullptr;
-    }
-
-    Log::Info("CUserRemoteStorage vtable at %p (cloud-enabled slot%zu=%p)",
-              vtableFuncs, cloudEnabledSlot, vtableFuncs[cloudEnabledSlot]);
-    return vtableFuncs;
 }
 
 void** VtableHook::FindVtableByRTTIName(const char* mangledName,
@@ -480,45 +421,4 @@ void* VtableHook::FindGlobalWithVtable(void* vtablePtr,
 
     Log::Error("default instance for vtable %p not found", vtablePtr);
     return nullptr;
-}
-
-bool VtableHook::InstallCloudEnabledHook(void** vtable, CloudEnabledHookInfo& info)
-{
-    size_t steamSize=0; auto steamBase=FindSteamclient(steamSize);
-    size_t slotIndex = steamBase ? ResolveCloudEnabledSlot(vtable, steamBase, steamSize) : SIZE_MAX;
-    if (slotIndex == SIZE_MAX)
-    {
-        Log::Error("Could not resolve CUserRemoteStorage cloud-enabled slot");
-        return false;
-    }
-
-    info.vtable = vtable;
-    info.slotIndex = slotIndex;
-    info.origSlot = vtable[slotIndex];
-
-    void* slotAddr = &vtable[slotIndex];
-    if (!MakeWritable(slotAddr, sizeof(void*)))
-    {
-        Log::Error("mprotect RW failed on RemoteStorage vtable slot %zu", slotIndex);
-        return false;
-    }
-
-    vtable[slotIndex] = reinterpret_cast<void*>(&hook_IsCloudEnabledForApp);
-    MakeReadOnly(slotAddr, sizeof(void*));
-
-    Log::Info("IsCloudEnabledForApp hook installed at slot %zu (orig=%p)", slotIndex, info.origSlot);
-    return true;
-}
-
-void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo& info)
-{
-    if (!info.vtable) return;
-
-    void* slotAddr = &info.vtable[info.slotIndex];
-    if (MakeWritable(slotAddr, sizeof(void*)))
-    {
-        info.vtable[info.slotIndex] = info.origSlot;
-        MakeReadOnly(slotAddr, sizeof(void*));
-        Log::Info("IsCloudEnabledForApp hook removed");
-    }
 }

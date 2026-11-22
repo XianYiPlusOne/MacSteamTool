@@ -37,23 +37,6 @@ import Testing
         #expect(throws: (any Error).self) { try PreferenceStore.save(settings, defaults: p, migrateLua: true, steamRunning: { true }) }
         #expect(try FileStore.read(p.settings) == original)
     }
-    @Test func cloudRootSwitchCopiesNestedMetadataAndRollsBackOnFailure() throws {
-        let p = try fixture(); defer { clean(p) }
-        var c = CloudConfiguration(); c.provider = .folder; c.folder = p.data.appendingPathComponent("OldCloud").path
-        try c.save(paths: p)
-        let old = URL(fileURLWithPath: c.folder), new = p.data.appendingPathComponent("NewCloud")
-        try FileStore.write(Data([0, 255, 1]), to: old.appendingPathComponent("1/100/nested/save"))
-        try FileStore.write(Data("stats".utf8), to: old.appendingPathComponent("1/0/stats.json"))
-        let before = try FileStore.read(p.data.appendingPathComponent("CloudRedirect/config.json"))
-        var checks = 0; c.folder = new.path
-        #expect(throws: (any Error).self) { try c.save(paths: p, validate: { checks += 1; if checks == 4 { throw AppFailure("simulated interruption") } }) }
-        #expect(try FileStore.read(p.data.appendingPathComponent("CloudRedirect/config.json")) == before)
-        #expect(!FileStore.fm.fileExists(atPath: new.appendingPathComponent("1/0/stats.json").path))
-        try c.save(paths: p)
-        #expect(try FileStore.read(new.appendingPathComponent("1/100/nested/save")) == Data([0, 255, 1]))
-        #expect(try FileStore.text(old.appendingPathComponent("1/0/stats.json")) == "stats")
-        #expect(try CloudConfiguration.load(paths: p).folder == new.path)
-    }
     @Test func mutationCommitFailureOverlapAndSymlinkDoNotSwitchOrOverwrite() throws {
         let p = try fixture(); defer { clean(p) }
         let source = p.data.appendingPathComponent("Source"), dest = p.data.appendingPathComponent("Dest"), file = source.appendingPathComponent("data")

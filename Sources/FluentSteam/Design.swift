@@ -60,6 +60,7 @@ struct Cover: View {
     var name: String
     var height: CGFloat = 135
     var imageURL: String? = nil
+    var retainForSaves = false
     @ViewState<NSImage?> private var image = nil
     @ViewState<Bool> private var failed = false
     @ViewState<Bool> private var loading = false
@@ -91,6 +92,8 @@ struct Cover: View {
                 let bytes = try await model.covers.load(appID: request.app, reference: request.reference, steam: URL(fileURLWithPath: request.steam), force: request.retry > 0)
                 guard !Task.isCancelled else { return }
                 image = NSImage(data: bytes); failed = image == nil
+                if retainForSaves { try? await model.covers.retain(bytes, appID: request.app) }
+                guard !Task.isCancelled else { return }
             } catch { guard !Task.isCancelled else { return }; failed = image == nil }
             loading = false
         }

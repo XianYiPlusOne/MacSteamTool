@@ -6,14 +6,12 @@ struct SavesPage: View {
     @ViewState<String> private var query = ""
     @ViewState<Bool> private var onlyWithSaves = false
     @ViewState<Int> private var page = 0
-    @ViewState<CloudProvider> private var provider = .local
-    @ViewState<Set<Int>> private var managed = []
     private let pageSize = 8
     private var games: [ManagedSaveGame] { SaveManagement.filtered(model.managedSaveGames, query: query, onlyWithSaves: onlyWithSaves) }
     private var pages: Int { max(1, (games.count + pageSize - 1) / pageSize) }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            PageHeader(title: model.tr("存档管理", "Save manager"), subtitle: model.tr("按游戏查看存档；在独立窗口中备份、恢复与设置同步。", "Browse by game. Back up, restore and configure sync in a dedicated window.")) {
+            PageHeader(title: model.tr("存档管理", "Save manager"), subtitle: model.tr("按游戏查看、备份和恢复本地存档。", "Browse, back up and restore local saves by game.")) {
                 SaveManagerShortcut().buttonStyle(.borderedProminent)
             }
             HStack(spacing: 16) {
@@ -38,13 +36,13 @@ struct SavesPage: View {
                 } else {
                     ForEach(Array(games.dropFirst(min(page, pages - 1) * pageSize).prefix(pageSize))) { game in
                         HStack(spacing: 14) {
-                            Image(systemName: "gamecontroller").font(.title3).foregroundStyle(Palette.accent).frame(width: 30)
+                            Cover(id: game.id, name: game.name, height: 42, imageURL: game.image, retainForSaves: true)
+                                .frame(width: 86).clipShape(RoundedRectangle(cornerRadius: 6))
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(game.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                                 Text("App \(game.id) · " + model.tr("\(game.locations.count) 个目录 · \(game.backupCount) 份备份", "\(game.locations.count) folders · \(game.backupCount) backups")).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Pill(text: managed.contains(game.id) ? ([CloudProvider.local, .folder].contains(provider) ? model.tr("本地接管", "Local storage") : provider.title) : model.tr("未接管", "Not redirected"), color: managed.contains(game.id) ? Palette.accent : .secondary)
                             SaveManagerShortcut(appID: game.id)
                         }.padding(.vertical, 8)
                         Divider()
@@ -58,19 +56,9 @@ struct SavesPage: View {
                     }
                 }
             }
-            HStack {
-                Label(model.tr("本地接管不等于在线云同步；详细服务商设置在独立窗口内。", "Local redirection is not online cloud sync. Configure providers in the manager."), systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
-                Spacer(); SaveManagerShortcut(section: .cloud)
-            }
         }
         .onChange(of: query) { _, _ in page = 0 }
         .onChange(of: onlyWithSaves) { _, _ in page = 0 }
         .onChange(of: pages) { _, value in page = min(page, value - 1) }
-        .task { refreshCloud() }
-        .onChange(of: model.lastRefresh) { _, _ in refreshCloud() }
-    }
-    private func refreshCloud() {
-        guard let cloud = try? CloudConfiguration.load(paths: model.paths) else { managed = []; return }
-        provider = cloud.provider; managed = Set((try? cloud.selectedApps(paths: model.paths)) ?? [])
     }
 }

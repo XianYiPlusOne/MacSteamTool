@@ -20,16 +20,11 @@ internal static class Program
         try
         {
             var request = JsonSerializer.Deserialize<Request>(await File.ReadAllTextAsync(args[0]), Json) ?? throw new Exception("Invalid request");
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(request.Operation is "login" or "login-password" or "login-local" or "cloud-oauth" ? 180 : request.Operation is "patch-extract" or "library-import" or "tool-download" or "runtime-download" or "extract" ? 900 : 120));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(request.Operation is "login" or "login-password" or "login-local" ? 180 : request.Operation is "patch-extract" or "library-import" or "tool-download" or "runtime-download" or "extract" ? 900 : 120));
             if (request.Operation.StartsWith("onlinefix-")) throw new NotSupportedException("Patch-based multiplayer has been removed. Use the bundled ConnectTool client.");
             if (request.Operation == "tool-download") { Write(args[1], await ToolPackages.Download(request, timeout.Token)); return 0; }
             if (request.Operation is "runtime-release" or "runtime-download") { Write(args[1], await RuntimeReleases.Run(request, timeout.Token)); return 0; }
             if (request.Operation is "patch-extract" or "library-import") { Write(args[1], await PatchArchive.Extract(request, timeout.Token)); return 0; }
-            if (request.Operation == "cloud-oauth")
-            {
-                Write(args[1], await CloudOAuth.Authorize(request.Provider, args[1] + ".status", timeout.Token));
-                return 0;
-            }
             using var session = new Session();
             await session.Connect(timeout.Token);
             var response = await session.Execute(request, args[1] + ".status", timeout.Token);

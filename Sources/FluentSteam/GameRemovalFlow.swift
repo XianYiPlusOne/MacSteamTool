@@ -26,6 +26,9 @@ extension AppModel {
         if deleteFiles && (request.problem != nil || steamRunning) { return }
         removalRequest = nil
         run(tr("删除游戏", "Remove game"), cancellable: false) {
+            try SaveGameMetadataStore.remember(paths: self.paths, games: request.games,
+                localized: request.games.compactMap { self.metadata[$0.id] }, language: self.language)
+            for game in request.games { try await self.covers.retainCached(appID: game.id, steam: self.paths.steam) }
             if deleteFiles {
                 let fixture = self.testing
                 var completed = 0

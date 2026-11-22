@@ -4,9 +4,13 @@ import FluentCore
 struct AchievementsPage: View {
     @EnvironmentObject var model: AppModel
     @ViewState<String> private var filter = ""
+    @ViewState<Bool> private var showStatistics = false
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            PageHeader(title: model.tr("Steam 成就管理", "Steam achievements"), subtitle: model.tr("连接当前登录的 Steam 账号，读取、编辑并提交成就状态。", "Read, edit and submit achievements for the currently signed-in Steam account.")) { EmptyView() }
+            PageHeader(title: model.tr("Steam 成就管理", "Steam achievements"), subtitle: model.tr("连接当前登录的 Steam 账号，读取、编辑并提交成就状态。", "Read, edit and submit achievements for the currently signed-in Steam account.")) {
+                Button(model.tr("统计与时长", "Statistics & playtime")) { showStatistics = true }
+                    .popover(isPresented: $showStatistics) { StatisticsSettings() }
+            }
             Panel {
                 Label(model.tr("先选择游戏并读取当前状态；读取成功后才能编辑和保存成就。", "Choose a game and load its current state before editing or saving achievements."), systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.secondary)
                 Toggle(model.tr("自动准备新入库游戏的兼容成就", "Automatically prepare achievements for newly added games"), isOn: Binding(get: { model.preferences.automaticallyPrepareAchievements != false }, set: {
@@ -76,4 +80,37 @@ struct AchievementsPage: View {
 
 extension AppModel {
     func invertAchievements() { guard !busy else { return }; for index in achievements.indices { achievements[index].achieved.toggle() } }
+}
+
+private struct StatisticsSettings: View {
+    @EnvironmentObject var model: AppModel
+    @ViewState<StatisticsConfiguration> private var settings = .init()
+    @ViewState<StatisticsConfiguration?> private var original = nil
+    @ViewState<String> private var error = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(model.tr("统计与时长", "Statistics & playtime")).font(.headline)
+            TextField(model.tr("统计 AppID，用逗号分隔", "Statistics AppIDs, separated by commas"), text: $settings.statsApps)
+            Toggle(model.tr("同步成就与统计", "Sync achievements and statistics"), isOn: $settings.syncAchievements)
+            Toggle(model.tr("记录并同步游戏时长", "Track and sync playtime"), isOn: $settings.syncPlaytime)
+            Text(model.tr("退出 Steam 后保存，下次启动 Steam 时生效。", "Quit Steam to save. Changes apply the next time Steam starts."))
+                .font(.caption).foregroundStyle(.secondary)
+            if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.red) }
+            Button(model.tr("保存统计设置", "Save statistics settings")) {
+                do {
+                    guard !SteamProcesses.isRunning else { throw AppFailure("请先退出 Steam / Quit Steam before saving") }
+                    try settings.save(paths: model.paths)
+                    model.needsRestart = true
+                    model.refresh()
+                    dismiss()
+                } catch { self.error = error.localizedDescription }
+            }.disabled(model.busy || model.steamRunning || original == nil || settings == original)
+        }.padding(18).frame(width: 360)
+        .onAppear {
+            do { settings = try StatisticsConfiguration.load(paths: model.paths); original = settings }
+            catch { self.error = error.localizedDescription }
+        }
+    }
 }

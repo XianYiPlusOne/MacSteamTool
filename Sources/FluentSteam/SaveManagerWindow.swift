@@ -14,8 +14,8 @@ struct SaveManagerShortcut: View {
             model.saveManagerSection = section
             openWindow(id: "save-manager")
         } label: {
-            if compact { Image(systemName: "externaldrive.badge.icloud") }
-            else { Label(title, systemImage: section == .cloud ? "icloud" : section == .history ? "clock.arrow.circlepath" : "externaldrive.badge.icloud") }
+            if compact { Image(systemName: "externaldrive") }
+            else { Label(title, systemImage: section == .history ? "clock.arrow.circlepath" : "externaldrive") }
         }
         .help(title).accessibilityLabel(title)
         .accessibilityIdentifier(appID.map { "manage-saves-\($0)" } ?? "open-save-manager")
@@ -23,7 +23,6 @@ struct SaveManagerShortcut: View {
     private var title: String {
         switch section {
         case .games: model.tr("管理存档", "Manage saves")
-        case .cloud: model.tr("云服务设置", "Cloud settings")
         case .history: model.tr("配置历史", "Configuration history")
         }
     }
@@ -36,11 +35,10 @@ struct SaveManagerWindow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label(model.tr("存档管理", "Save manager"), systemImage: "externaldrive.badge.icloud").font(.headline)
+                Label(model.tr("存档管理", "Save manager"), systemImage: "externaldrive").font(.headline)
                 Spacer()
                 Picker("", selection: $model.saveManagerSection) {
                     Text(model.tr("游戏存档", "Game saves")).tag(SaveManagerSection.games)
-                    Text(model.tr("云服务", "Cloud services")).tag(SaveManagerSection.cloud)
                     Text(model.tr("配置历史", "Config history")).tag(SaveManagerSection.history)
                 }.pickerStyle(.segmented).frame(width: 360).accessibilityIdentifier("save-manager-sections")
                 Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }.help(model.tr("刷新存档", "Refresh saves")).disabled(model.busy)
@@ -54,9 +52,13 @@ struct SaveManagerWindow: View {
                             HStack { Image(systemName: "magnifyingglass"); TextField(model.tr("搜索游戏或 AppID", "Game name or AppID"), text: $search).textFieldStyle(.plain) }.padding(10).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8)).padding([.horizontal, .top], 12)
                             List(selection: $model.saveManagerGameID) {
                                 ForEach(games) { game in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(game.name).lineLimit(1)
-                                        Text("App \(game.id) · " + model.tr("\(game.locations.count) 个目录", "\(game.locations.count) folders")).font(.caption).foregroundStyle(.secondary)
+                                    HStack(spacing: 8) {
+                                        Cover(id: game.id, name: game.name, height: 30, imageURL: game.image, retainForSaves: true)
+                                            .frame(width: 60).clipShape(RoundedRectangle(cornerRadius: 4))
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(game.name).lineLimit(1)
+                                            Text("App \(game.id) · " + model.tr("\(game.locations.count) 个目录", "\(game.locations.count) folders")).font(.caption).foregroundStyle(.secondary)
+                                        }
                                     }.padding(.vertical, 5).tag(game.id)
                                 }
                             }.listStyle(.sidebar).accessibilityIdentifier("save-manager-game-list")
@@ -65,11 +67,9 @@ struct SaveManagerWindow: View {
                         if let game = model.managedSaveGames.first(where: { $0.id == model.saveManagerGameID }) {
                             GameSaveDetail(game: game).id(game.id).frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            EmptyMessage(icon: "externaldrive", title: model.tr("选择一款游戏", "Select a game"), detail: model.tr("在左侧选择游戏，管理目录、备份和同步设置。", "Choose a game to manage its folders, backups and sync preferences.")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            EmptyMessage(icon: "externaldrive", title: model.tr("选择一款游戏", "Select a game"), detail: model.tr("在左侧选择游戏，管理存档目录和备份。", "Choose a game to manage its save folders and backups.")).frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
-                case .cloud:
-                    ScrollView { CloudPanel().padding(22) }
                 case .history:
                     ConfigurationHistoryPanel().padding(22)
                 }
@@ -79,7 +79,7 @@ struct SaveManagerWindow: View {
                 if model.busy { ProgressView().controlSize(.small); Text(model.progress) }
                 else { Image(systemName: "checkmark.shield"); Text(model.tr("仅操作所选目录；恢复或清空前先备份。", "Actions target the selected folder; back up before restoring or clearing.")) }
                 Spacer()
-                if model.steamRunning { Label(model.tr("Steam 运行中：恢复与同步设置已锁定", "Steam running: restore & sync settings locked"), systemImage: "lock") }
+                if model.steamRunning { Label(model.tr("Steam 运行中：恢复与清空已锁定", "Steam running: restore and clear locked"), systemImage: "lock") }
             }.font(.caption).foregroundStyle(.secondary).padding(14)
         }
         .frame(minWidth: 900, minHeight: 600)

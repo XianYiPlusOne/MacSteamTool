@@ -51,30 +51,6 @@ final class CoreTests {
         expectThrow(try GamePatches.target("../escape.dll", root: game))
     }
 
-    @Test func cloudAllowlistAndProviderConfigurationStayScoped() throws {
-        let p = try fixture()
-        var c = CloudConfiguration(); c.enabled = true
-        expectThrow(try c.save(paths: p))
-        c.apps = "480, invalid"; expectThrow(try c.save(paths: p))
-        c.apps = "480, 480 481"; c.provider = .folder; c.folder = p.steam.path
-        expectThrow(try c.save(paths: p))
-        c.folder = temp.appendingPathComponent("DedicatedCloud").path
-        try c.save(paths: p)
-        let read = try CloudConfiguration.load(paths: p)
-        assertEqual(read.apps, "480, 481"); assertEqual(read.folder, c.folder)
-        assertTrue(read.enabled)
-        let json = try JSONSerialization.jsonObject(with: FileStore.read(p.data.appendingPathComponent("CloudRedirect/config.json"))) as! [String: Any]
-        assertEqual(json["stats_sync_enabled"] as? Bool, false)
-    }
-    @Test func cloudCredentialsAreOwnerOnly() throws {
-        let p = try fixture()
-        try CloudEngine.saveCredentials(["url": "https://dav.example.test/saves", "username": "fixture", "password": "test-only"], provider: .webdav, paths: p)
-        let url = CloudEngine.credentialsURL(.webdav, paths: p)
-        let attr = try FileManager.default.attributesOfItem(atPath: url.path)
-        assertEqual((attr[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-        let parsed = try JSONSerialization.jsonObject(with: FileStore.read(url)) as! [String: String]
-        assertEqual(parsed["password"], "test-only")
-    }
     @Test func kernelMergePreservesOtherRuntimesAndEnvironment() throws {
         let path = "/Applications/Steam.app/Contents/MacOS/"
         let plist: [String: Any] = ["CFBundleIdentifier": "com.valvesoftware.steam", "CFBundleName": "Steam", "LSEnvironment": ["DYLD_INSERT_LIBRARIES": path + "macsteam.dylib:" + path + "notproton.dylib", "KeepThis": "yes"]]

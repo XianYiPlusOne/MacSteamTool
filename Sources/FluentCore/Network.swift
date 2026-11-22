@@ -92,6 +92,17 @@ public actor SteamAPI {
         }
         return items
     }
+    public func cachedAppNames(ids: Set<Int>) -> [Int: String] {
+        var names: [Int: String] = [:]
+        for id in ids {
+            let file = cache.appendingPathComponent("appinfo-\(id).json")
+            if let info = try? FileStore.decode(AppInfo.self, at: file), info.id == id {
+                names[id] = SaveGameMetadata.title(info.name, id: id)
+            }
+        }
+        return names
+    }
+
     public func appInfo(_ id: Int) async throws -> AppInfo {
         let root = try await HTTP.json(HTTP.url("https://api.steamcmd.net/v1/info/\(id)"))
         guard let data = root["data"] as? [String: Any], let app = data[String(id)] as? [String: Any] else { throw AppFailure("未取得 AppID / Could not retrieve depot data for AppID \(id) 的 depot 数据 / depot data") }

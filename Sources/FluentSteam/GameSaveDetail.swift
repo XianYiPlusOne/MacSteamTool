@@ -11,7 +11,8 @@ struct GameSaveDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
-                    Image(systemName: "externaldrive.badge.icloud").font(.system(size: 27)).foregroundStyle(Palette.accent).padding(14).background(Palette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    Cover(id: game.id, name: game.name, height: 52, imageURL: game.image, retainForSaves: true)
+                        .frame(width: 108).clipShape(RoundedRectangle(cornerRadius: 7))
                     VStack(alignment: .leading, spacing: 6) {
                         Text(game.name).font(.title2.bold()).lineLimit(2).accessibilityIdentifier("save-manager-game-title")
                         Text("AppID \(game.id) · " + model.tr("\(game.locations.count) 个目录 · \(game.backupCount) 份备份", "\(game.locations.count) folders · \(game.backupCount) backups")).font(.caption).foregroundStyle(.secondary)

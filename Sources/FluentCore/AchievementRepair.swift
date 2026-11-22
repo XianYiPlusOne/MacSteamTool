@@ -52,8 +52,8 @@ public enum AchievementRepair {
         }
         guard json["stats_apps"] == nil || json["stats_apps"] is [Int] else { throw AppFailure("Invalid statistics app list") }
         var apps = Set(json["stats_apps"] as? [Int] ?? [])
-        guard (json["sync_achievements"] as? Bool ?? false) || apps.subtracting([appID]).isEmpty else { throw AppFailure("现有统计列表还包含其他游戏，请先在云统计设置中确认成就范围 / Confirm the achievement scope in statistics settings before enabling other listed games") }
-        guard !(json["sync_playtime"] as? Bool ?? false) || apps.contains(appID) else { throw AppFailure("此游戏未包含在现有时长同步范围内，请在云统计设置中单独选择 / Select this app in statistics settings before expanding an active playtime scope") }
+        guard (json["sync_achievements"] as? Bool ?? false) || apps.subtracting([appID]).isEmpty else { throw AppFailure("现有统计列表还包含其他游戏，请先在成就页的统计设置中确认成就范围 / Confirm the achievement scope in statistics settings before enabling other listed games") }
+        guard !(json["sync_playtime"] as? Bool ?? false) || apps.contains(appID) else { throw AppFailure("此游戏未包含在现有时长同步范围内，请在成就页的统计设置中单独选择 / Select this app in statistics settings before expanding an active playtime scope") }
         apps.insert(appID)
         json["stats_apps"] = apps.sorted(); json["sync_achievements"] = true; json["stats_sync_enabled"] = true
         let new = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
@@ -66,7 +66,7 @@ public enum AchievementRepair {
         }
     }
     public static func enabled(appID: Int, paths: AppPaths) -> Bool {
-        guard let c = try? CloudConfiguration.load(paths: paths) else { return false }
-        return c.syncAchievements && ((try? CloudConfiguration.parseIDs(c.statsApps)) ?? []).contains(appID)
+        guard let c = try? StatisticsConfiguration.load(paths: paths) else { return false }
+        return c.syncAchievements && ((try? c.appIDs) ?? []).contains(appID)
     }
 }

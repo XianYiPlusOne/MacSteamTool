@@ -1,12 +1,13 @@
 import Foundation
 import ImageIO
 
-/// Shared cover loading for library, search, details and charts. Writes only app cache.
+/// Shared cover loading for library, search, details and charts. Save manager artwork can also be retained with local save metadata.
 public actor GameCovers {
     public typealias Fetch = @Sendable (URL) async throws -> Data
     public typealias Metadata = @Sendable (Int) async throws -> String?
     private struct Key: Hashable { let app: Int; let reference: String?; let steam: String? }
     private struct Record: Codable { let reference: String?; let source: String; let date: Date }
+    private let archive: URL?
     private let cache: URL
     private let fetch: Fetch
     private let metadata: Metadata
@@ -15,8 +16,8 @@ public actor GameCovers {
     private var failed: [Key: Date] = [:]
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    public init(cache: URL, fetch: @escaping Fetch = GameCovers.fetchImage, metadata: @escaping Metadata = GameCovers.storeImage) {
-        self.cache = cache; self.fetch = fetch; self.metadata = metadata
+    public init(cache: URL, archive: URL? = nil, fetch: @escaping Fetch = GameCovers.fetchImage, metadata: @escaping Metadata = GameCovers.storeImage) {
+        self.archive = archive; self.cache = cache; self.fetch = fetch; self.metadata = metadata
     }
     public static func fetchImage(_ url: URL) async throws -> Data {
         let heybox = ["heyboxbj.max-c.com", "cdn.max-c.com"].contains(url.host ?? "")
@@ -75,7 +76,22 @@ public actor GameCovers {
         guard appID > 0, UInt32(exactly: appID) != nil else { return nil }
         if let data = memory.first(where: { $0.key.app == appID })?.value { return data }
         if let data = try? FileStore.read(cache.appendingPathComponent("\(appID).image")), Self.validImage(data) { return data }
-        return local(Key(app: appID, reference: nil, steam: steam?.path))
+        return local(Key(app: appID, reference: nil, steam: steam?.path)) ?? archived(appID)
+    }
+
+    private func archived(_ id: Int) -> Data? {
+        guard let file = archive?.appendingPathComponent("\(id).image"),
+              let data = try? FileStore.read(file), Self.validImage(data) else { return nil }
+        return data
+    }
+
+    public func retain(_ data: Data, appID: Int) throws {
+        guard let file = archive?.appendingPathComponent("\(appID).image"), Self.validImage(data) else { return }
+        if (try? FileStore.read(file)) != data { try FileStore.write(data, to: file) }
+    }
+
+    public func retainCached(appID: Int, steam: URL) throws {
+        if let data = cachedImage(appID: appID, steam: steam) { try retain(data, appID: appID) }
     }
     public func load(appID: Int, reference: String? = nil, steam: URL? = nil, force: Bool = false) async throws -> Data {
         try Task.checkCancellation()
@@ -108,8 +124,23 @@ public actor GameCovers {
         guard let steam = key.steam else { return nil }
         let root = URL(fileURLWithPath: steam).appendingPathComponent("appcache/librarycache")
         let folder = root.appendingPathComponent(String(key.app))
-        var files = ["\(key.app)_header.jpg", "\(key.app)_header.png", "\(key.app)_library_600x900.jpg"].map { root.appendingPathComponent($0) }
-        files += FileStore.files(folder).filter { $0.lastPathComponent.contains("header") }.sorted { $0.path < $1.path }.prefix(100)
+        // Steam also stores localized headers one level below the AppID, in a hash directory.
+        func rank(_ file: URL) -> Int {
+            let name = file.lastPathComponent.lowercased()
+            if name.contains("header") { return 0 }
+            if name.contains("capsule") || name.contains("600x900") { return 1 }
+            if name.contains("library_hero") && !name.contains("blur") { return 2 }
+            return 3
+        }
+        let children = FileStore.files(folder)
+        let nested = children.filter {
+            $0.lastPathComponent.count == 40 && $0.lastPathComponent.allSatisfy(\.isHexDigit) &&
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])).map { $0.isDirectory == true && $0.isSymbolicLink != true } == true
+        }
+        let legacy = ["header.jpg", "header.png", "library_600x900.jpg"].map { root.appendingPathComponent("\(key.app)_\($0)") }
+        let files = (legacy + children + nested.flatMap(FileStore.files)).filter {
+            ["jpg", "jpeg", "png", "webp"].contains($0.pathExtension.lowercased()) && rank($0) < 3
+        }.sorted { (rank($0), $0.path) < (rank($1), $1.path) }
         for file in files {
             guard (try? file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
                   let data = try? FileStore.read(file), Self.validImage(data) else { continue }
@@ -146,6 +177,7 @@ public actor GameCovers {
             return data
         }
         if let stale { return stale }
+        if let data = archived(key.app) { return data }
         throw AppFailure("封面加载失败，可点击重试 / Cover could not be loaded; click to retry")
     }
 }

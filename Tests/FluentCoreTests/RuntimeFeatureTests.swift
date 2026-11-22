@@ -71,10 +71,39 @@ import Testing
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = AppPaths(home: root)
-        var c = CloudConfiguration(); c.syncPlaytime = true
+        var c = StatisticsConfiguration(); c.syncPlaytime = true
         #expect(throws: (any Error).self) { try c.save(paths: paths) }
         c.statsApps = "480"; try c.save(paths: paths)
-        let read = try CloudConfiguration.load(paths: paths)
-        #expect(!read.enabled); #expect(read.apps.isEmpty); #expect(read.statsApps == "480"); #expect(read.syncPlaytime); #expect(!read.syncAchievements)
+        let read = try StatisticsConfiguration.load(paths: paths)
+        let json = try #require(JSONSerialization.jsonObject(with: FileStore.read(StatisticsConfiguration.url(paths))) as? [String: Any])
+        #expect(json["enabled"] as? Bool == false)
+        #expect(read.statsApps == "480"); #expect(read.syncPlaytime); #expect(!read.syncAchievements)
     }
+}
+
+@Test func retiringSaveRedirectionPreservesFilesStatisticsAndHistoricBackups() throws {
+    let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let paths = AppPaths(home: root)
+    let config = StatisticsConfiguration.url(paths)
+    let legacy = Data(#"{"enabled":true,"provider":"folder","automatic_apps":true,"sync_achievements":true,"stats_apps":[480],"unknown":"retain"}"#.utf8)
+    let bytes = Data([0, 255, 42])
+    let saves = ["CloudSaves/7/480/save", "CloudRedirect/storage/7/480/save", "CloudDeleteBackups/older/save"]
+    #expect(try !StatisticsConfiguration.retireLegacySaveRedirection(paths: paths))
+    #expect(!FileStore.fm.fileExists(atPath: config.path))
+    try FileStore.write(legacy, to: config)
+    for save in saves { try FileStore.write(bytes, to: paths.data.appendingPathComponent(save)) }
+
+    #expect(try StatisticsConfiguration.retireLegacySaveRedirection(paths: paths))
+    let migrated = try FileStore.read(config)
+    var expected = try #require(JSONSerialization.jsonObject(with: legacy) as? [String: Any])
+    expected["enabled"] = false
+    #expect(try NSDictionary(dictionary: expected).isEqual(JSONSerialization.jsonObject(with: migrated)))
+    #expect(try !StatisticsConfiguration.retireLegacySaveRedirection(paths: paths))
+    let recordURL = try #require(FileStore.files(paths.backups).map { $0.appendingPathComponent("record.json") }.first { FileStore.fm.fileExists(atPath: $0.path) })
+    let record = try FileStore.decode(BackupRecord.self, at: recordURL)
+    #expect(try FileStore.read(recordURL.deletingLastPathComponent().appendingPathComponent(record.files[0].stored)) == legacy)
+    try LibraryService(paths: paths).restoreBackup(record)
+    #expect(try FileStore.read(config) == migrated)
+    for save in saves { #expect(try FileStore.read(paths.data.appendingPathComponent(save)) == bytes) }
 }
