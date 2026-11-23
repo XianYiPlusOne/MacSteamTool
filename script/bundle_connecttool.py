@@ -97,7 +97,7 @@ def machos(root):
             if stream.read(4) in MAGIC: yield path
 
 
-def verify(destination):
+def verify(destination, architecture=None):
     destination = destination.resolve()
     binaries = set(machos(destination))
     expected = {destination / name for name in ('Frameworks/libMacMultiplayer.dylib',
@@ -109,8 +109,10 @@ def verify(destination):
     frameworks = destination / 'Frameworks'
     for path in sorted(binaries):
         archs = run('lipo', '-archs', path, capture_output=True, text=True).stdout.split()
-        if not {'arm64', 'x86_64'}.issubset(archs):
-            raise RuntimeError(f'Multiplayer component {path.relative_to(destination)} must support arm64 and x86_64; found {archs}')
+        required = {architecture} if architecture else {'arm64', 'x86_64'}
+        if not required.issubset(archs):
+            label = architecture or 'arm64 and x86_64'
+            raise RuntimeError(f'Multiplayer component {path.relative_to(destination)} must support {label}; found {archs}')
         listing = run('otool', '-L', path, capture_output=True, text=True).stdout
         for line in listing.splitlines():
             if not line.startswith('\t'): continue  # handles universal architecture headers

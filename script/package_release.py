@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Package only explicit source files and the generated application; exclude user data."""
+"""Build universal and architecture-specific MacSteamTool release artifacts."""
 from pathlib import Path
-import hashlib
+import argparse
 import fcntl
+import hashlib
+import json
 import os
 import plistlib
-import json
-import argparse
 import shutil
 import subprocess
 import tempfile
@@ -17,8 +17,131 @@ out = root / "outputs"
 app = out / "MacSteamTool.app"
 if not app.is_dir():
     raise SystemExit("Build the app first with script/build_and_run.sh --build")
-subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
-subprocess.run(["python3", str(root / "script/verify_bundled_cores.py"), str(app)], check=True)
+
+
+def run(*args, **kwargs):
+    return subprocess.run([str(a) for a in args], check=True, **kwargs)
+
+
+def verify_bundle(bundle, architecture=None):
+    command = ["python3", root / "script/verify_bundled_cores.py", bundle]
+    if architecture:
+        command += ["--architecture", architecture]
+    run(*command)
+
+
+def thin_macho_tree(bundle, architecture):
+    """Thin every host Mach-O in a copied app to one architecture."""
+    for path in sorted(bundle.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        parts = path.relative_to(bundle).parts
+        # CrossOver's bridge contains separate Wine/Unix target binaries. They
+        # are selected by the runner and must remain available in both host
+        # architecture packages.
+        if "RuntimeBackends" in parts and "bridge" in parts:
+            continue
+        info = subprocess.run(["lipo", "-info", path], capture_output=True, text=True)
+        if info.returncode != 0:
+            continue
+        text = info.stdout + info.stderr
+        if "Architectures in the fat file" in text:
+            temporary = path.with_name(path.name + ".thin")
+            try:
+                run("lipo", "-thin", architecture, path, "-output", temporary)
+                shutil.copymode(path, temporary)
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        elif "Non-fat file" not in text:
+            raise RuntimeError(f"Unexpected lipo output for {path}: {text.strip()}")
+        verify = subprocess.run(["lipo", "-verify_arch", architecture, path],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if verify.returncode != 0:
+            raise RuntimeError(f"{path} does not contain {architecture}: {verify.stderr.strip()}")
+
+
+def reseal_component(folder):
+    receipt_path = folder / "component.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["files"] = {
+        str(path.relative_to(folder)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(folder.rglob("*"))
+        if path.is_file() and path != receipt_path
+    }
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+
+
+def prepare_architecture_app(architecture, staging):
+    if architecture == "universal":
+        return app
+    variant_root = staging / f"variant-{architecture}"
+    variant_root.mkdir()
+    variant = variant_root / "MacSteamTool.app"
+    shutil.copytree(app, variant, symlinks=True)
+    thin_macho_tree(variant, architecture)
+    for relative in (
+        "Contents/Resources/RuntimeComponents/macsteam/0.8.2",
+        "Contents/Resources/RuntimeComponents/notproton/1.2.3",
+        "Contents/Resources/RuntimeBackends/crossover",
+    ):
+        reseal_component(variant / relative)
+    run("codesign", "--force", "--deep", "--sign", "-", variant)
+    run("codesign", "--verify", "--deep", "--strict", variant)
+    verify_bundle(variant, architecture)
+    return variant
+
+
+def package_variant(version, label, variant, staging):
+    app_zip = staging / f"MacSteamTool-{version}-{label}.zip"
+    run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", variant, app_zip)
+
+    app_dmg = staging / f"MacSteamTool-{version}-{label}.dmg"
+    volume = staging / f"volume-{label}"
+    volume.mkdir()
+    staged_app = volume / variant.name
+    run("ditto", variant, staged_app)
+    # Retain transparent filesystem compression when copying the app off the image.
+    for folder in ("MacOS", "Resources/RuntimeBackends", "Resources/Helpers/ConnectTool"):
+        relative = Path("Contents") / folder
+        source = variant / relative
+        if not source.exists():
+            continue
+        shutil.rmtree(staged_app / relative)
+        run("ditto", "--noclone", "--hfsCompression", source, staged_app / relative)
+    run("codesign", "--verify", "--deep", "--strict", staged_app)
+    run("hdiutil", "create", "-quiet", "-fs", "HFS+", "-format", "ULMO",
+        "-volname", f"MacSteamTool-{label}", "-srcfolder", volume, app_dmg)
+    run("hdiutil", "verify", "-quiet", app_dmg)
+    return app_zip, app_dmg
+
+
+def signed_release(root_dir, path, version, build, architecture, archive, download_url, key):
+    if not key.is_file():
+        return None
+    url = download_url.replace("{arch}", architecture)
+    payload = root_dir / "work/update-signing" / f"release-payload-{architecture}.json"
+    payload.write_text(json.dumps({
+        "version": version,
+        "build": build,
+        "minimumOS": 14,
+        "architecture": architecture,
+        "url": url,
+        "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "size": archive.stat().st_size,
+        "notes": f"{architecture} macOS build; local build; not notarized.",
+    }, separators=(",", ":")))
+    run("swift", root_dir / "script/sign_update.swift", "sign", key, payload, path)
+    return path
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--download-url", default="",
+                    help="HTTPS archive URL; use {arch} for architecture-specific assets")
+args = parser.parse_args()
+
+run("codesign", "--verify", "--deep", "--strict", app)
+verify_bundle(app)
 version = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleShortVersionString"]
 build = int(plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleVersion"])
 
@@ -27,42 +150,38 @@ try:
     fcntl.flock(lock, fcntl.LOCK_EX)
     with tempfile.TemporaryDirectory(prefix=".release-", dir=out) as directory:
         staging = Path(directory)
-        app_zip = staging / f"MacSteamTool-{version}-universal.zip"
-        subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(app_zip)], check=True)
-        app_dmg = staging / f"MacSteamTool-{version}-universal.dmg"
-        volume = staging / "volume"
-        volume.mkdir()
-        staged_app = volume / app.name
-        subprocess.run(["ditto", app, staged_app], check=True)
-        # Retain transparent filesystem compression when copying the app off the image.
-        for folder in ("MacOS", "Resources/RuntimeBackends", "Resources/Helpers/ConnectTool"):
-            relative = Path("Contents") / folder
-            shutil.rmtree(staged_app / relative)
-            subprocess.run(["ditto", "--noclone", "--hfsCompression", app / relative, staged_app / relative], check=True)
-        subprocess.run(["codesign", "--verify", "--deep", "--strict", staged_app], check=True)
-        subprocess.run(["hdiutil", "create", "-quiet", "-fs", "HFS+", "-format", "ULMO",
-                        "-volname", app.stem, "-srcfolder", volume, app_dmg], check=True)
-        subprocess.run(["hdiutil", "verify", "-quiet", app_dmg], check=True)
-        subprocess.run(["python3", root / "script/verify_release_paths.py", app, app_zip, app_dmg], check=True)
+        variants = {}
+        for label in ("universal", "arm64", "x86_64"):
+            variants[label] = prepare_architecture_app(label, staging)
+
+        app_artifacts = []
+        for label, variant in variants.items():
+            app_artifacts.extend(package_variant(version, label, variant, staging))
+
         source_zip = staging / f"MacSteamTool-{version}-source.zip"
         write_source_zip(root, source_zip)
-        artifacts = [app_zip, app_dmg, source_zip]
-        lines = [hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name for p in artifacts]
+        artifacts = app_artifacts + [source_zip]
+        lines = [hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.name
+                 for path in artifacts]
         (staging / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n")
-        for p in artifacts: print(f"{p.name}: {p.stat().st_size:,} bytes")
+        for path in artifacts:
+            print(f"{path.name}: {path.stat().st_size:,} bytes")
 
-        # Signing key remains in private work/ and is never included in either archive.
-        publish = artifacts + [staging / "SHA256SUMS.txt"]
         key = root / "work/update-signing/private-key"
-        if key.is_file():
-            parser = argparse.ArgumentParser(); parser.add_argument("--download-url", default=""); args = parser.parse_args()
-            payload = root / "work/update-signing/release-payload.json"
-            payload.write_text(json.dumps({"version": version, "build": build, "minimumOS": 14, "architecture": "universal", "url": args.download_url, "sha256": hashlib.sha256(app_zip.read_bytes()).hexdigest(), "size": app_zip.stat().st_size, "notes": "Universal arm64/x86_64 build; local build; not notarized."}, separators=(",", ":")))
-            subprocess.run(["swift", str(root / "script/sign_update.swift"), "sign", str(key), str(payload), str(staging / "release.json")], check=True)
-            publish.append(staging / "release.json")
-            print("release.json: signed; empty URL means local import only")
+        release_files = []
+        for label, archive in zip(("universal", "arm64", "x86_64"),
+                                  (app_artifacts[0], app_artifacts[2], app_artifacts[4])):
+            release_name = "release.json" if label == "universal" else f"release-{label}.json"
+            release_path = staging / release_name
+            if signed_release(root, release_path, version, build, label, archive,
+                              args.download_url, key):
+                release_files.append(release_path)
 
-        for file in publish:
-            file.replace(out / file.name)
+        publish = artifacts + [staging / "SHA256SUMS.txt"] + release_files
+        run("python3", root / "script/verify_release_paths.py", app, *app_artifacts)
+        for path in publish:
+            path.replace(out / path.name)
+        if release_files:
+            print("release metadata: signed; empty URL means local import only")
 finally:
     os.close(lock)

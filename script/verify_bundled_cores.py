@@ -6,11 +6,18 @@ from pathlib import Path
 import struct
 import sys
 import subprocess
+import argparse
 from native_core_validation import validate_macsteam
 from bundle_connecttool import verify as verify_multiplayer
 
-app = Path(sys.argv[1])
-verify_multiplayer(app / 'Contents/Resources/Helpers/ConnectTool')
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('app', type=Path)
+parser.add_argument('--architecture', choices=('arm64', 'x86_64'),
+                    help='require a single native architecture; omit for universal')
+args = parser.parse_args()
+app = args.app
+architectures = (args.architecture,) if args.architecture else ('arm64', 'x86_64')
+verify_multiplayer(app / 'Contents/Resources/Helpers/ConnectTool', args.architecture)
 retired = {
     'steamengine', 'macsteamtoolengine', 'steamkit2.dll', 'steamlessbridge',
     'steamlessbridge.exe', 'dotnet', 'dotnet.exe', 'coreclr.dll', 'libcoreclr.dylib',
@@ -66,12 +73,13 @@ for provider, version in [('macsteam', '0.8.2'), ('notproton', '1.2.3')]:
             assert len(entry['function_sha256']) == 64
             int(entry['function_sha256'], 16)
     if provider == 'macsteam':
-        validate_macsteam(component / 'Resources/macsteam.dylib')
+        for architecture in architectures:
+            validate_macsteam(component / 'Resources/macsteam.dylib', architecture)
     assert not any(part in {'bridge', 'fonts', 'runners', 'MacOS'} for key in actual for part in Path(key).parts)
     assert not any(Path(key).name in {'run', 'wine', 'wineserver', 'valve-packages.manifest'} for key in actual)
     print(f'PASS: {provider} {version}, {len(actual)} native resource files, complete inventory intact')
 assert (app / 'Contents/Helpers/NotProton/MacSteamToolNotProton').is_file()
-for arch in ('arm64', 'x86_64'):
+for arch in architectures:
     subprocess.run(['lipo', str(app / 'Contents/Helpers/NotProton/MacSteamToolNotProton'),
                     '-verify_arch', arch], check=True)
 print('PASS: bundled installer present; core resources contain no external manager or translation backend')
