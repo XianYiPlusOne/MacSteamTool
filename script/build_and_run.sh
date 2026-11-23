@@ -5,6 +5,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="MacSteamTool"
 APP_BUNDLE="$ROOT_DIR/outputs/$APP_NAME.app"
 cd "$ROOT_DIR"
+# Homebrew is installed under /opt/homebrew on Apple silicon and usually under
+# /usr/local on Intel.  Keep the full build independent of the developer's
+# interactive shell configuration, because all native helper builds inherit this
+# process environment.
+if command -v brew >/dev/null 2>&1; then
+  BREW_PREFIX="$(brew --prefix)"
+  PATH="$BREW_PREFIX/bin:$BREW_PREFIX/opt/bison/bin:$BREW_PREFIX/opt/autoconf/bin:$PATH"
+  export PATH
+fi
 if [[ "$MODE" == "--build-host-tools" ]]; then
   mkdir -p "$ROOT_DIR/work" "$ROOT_DIR/outputs/host-tools"
   stage="$(mktemp -d "$ROOT_DIR/outputs/.host-tools.XXXXXX")"

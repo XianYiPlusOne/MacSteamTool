@@ -9,7 +9,8 @@ from verify_release_paths import path_markers, verify
 
 def write_source_zip(root: Path, destination: Path):
     include = ("Package.swift", "Package.resolved", "Sources", "Tests", "Engine", "Native",
-               "script", "Resources", "README.md", "README.zh-CN.md", "LICENSE", "Licenses",
+               "script", "Resources", "README.md", "README.zh-CN.md", "BUILDING.md",
+               "BUILDING.zh-CN.md", "LICENSE", "Licenses",
                "THIRD-PARTY-NOTICES.md", ".gitignore", ".codex/environments/environment.toml")
     excluded = {"__pycache__", "bin", "obj", ".build", ".swiftpm", ".git", "work", "outputs"}
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:

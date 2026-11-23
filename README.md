@@ -46,6 +46,10 @@ On Apple silicon, MacSteamTool running as Intel or ARM can open an installed Int
 
 The application, native libraries, and `MacSteamToolNotProton` installation/recovery helper are built as **universal arm64/x86_64** binaries. The helper supports installation, backup, and restoration on Intel; CrossOver registration excludes ARM FEX runners on Intel. Intel macSteam and NotProton profiles now cover Steam build `1794536281`, including compatibility tool registration, listing, and selection. Unknown builds do not reuse old addresses. Isolated x86_64 tests pass on Apple silicon; full game launch still requires validation on physical Intel hardware. NotProton Intel instruction hooks reject Rosetta-translated processes; use native ARM Steam on Apple silicon. Native integration has additional version and architecture requirements. For example, an Intel-only client requires a `macos.x86_64` profile for its Steam build. Automatic installation also checks for a profile for the architecture running MacSteamTool. The app runs on **macOS 14 or later**. Automatic setup requires **macOS 15 or later**. Some Steam integration features modify the local client and affect ownership checks for games and DLC.
 
+## Build from source
+
+The complete release build is documented in [BUILDING.md](BUILDING.md). From a fresh clone, run `./script/bootstrap_build_env.sh --check`, then `./script/build_and_run.sh --build`. The build downloads only pinned, verified upstream dependencies into ignored `work/` and SwiftPM build directories; generated release files stay under `outputs/` and are not committed.
+
 ## Open-source acknowledgments
 
 We thank the authors and contributors whose work made these features possible.

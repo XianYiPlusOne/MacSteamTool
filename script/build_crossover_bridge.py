@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import hashlib
 import json
+import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,19 @@ def inputs():
 def artifacts():
     return {name: digest(STAGE / "scratch" / name) for name in OUTPUTS}
 
+def tool_path():
+    """Return a PATH that works with Homebrew on either Mac architecture."""
+    path = os.environ.get("PATH", "")
+    brew = shutil.which("brew", path=path)
+    if not brew:
+        return path
+    try:
+        prefix = subprocess.check_output([brew, "--prefix"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return path
+    return os.pathsep.join([f"{prefix}/bin", f"{prefix}/opt/bison/bin",
+                            f"{prefix}/opt/autoconf/bin", path])
+
 def build():
     STAGE.mkdir(parents=True, exist_ok=True)
     key = inputs()
@@ -48,7 +62,7 @@ def build():
     # Build scripts generate assembled source and Wine build trees. Keep those
     # outside the maintained sources and never copy an original app payload.
     subprocess.run(["rsync", "-a", "--exclude=upstream.json", str(SOURCE) + "/", str(STAGE) + "/"], check=True)
-    env = dict(os.environ, PATH="/opt/homebrew/bin:/opt/homebrew/opt/bison/bin:" + os.environ["PATH"],
+    env = dict(os.environ, PATH=tool_path(),
                CROSSCFLAGS="-O2", CX_ROOT=str(STAGE / "no-installed-crossover"),
                WINE_URL="https://github.com/wine-mirror/wine.git")
     subprocess.run(["make", "-C", str(STAGE), "bridge"], env=env, check=True)

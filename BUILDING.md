@@ -1,0 +1,111 @@
+# Building MacSteamTool from source
+
+This guide describes the complete macOS release build, including the universal
+application, native Steam integrations, Wine/CrossOver bridge, multiplayer
+helper, DMG installers, ZIP archives, and the source archive.
+
+## Requirements
+
+- A Mac running macOS 14 or later. The app itself requires macOS 14; automatic
+  setup inside the app requires macOS 15 or later.
+- Xcode Command Line Tools (or a full Xcode installation), including Swift,
+  Clang, `codesign`, and the macOS SDK.
+- [Homebrew](https://brew.sh). The repository does not install Homebrew for you.
+- A working network connection for the first build. Several upstream sources and
+  binary SDK archives are pinned and SHA-256 checked during the build.
+- Several GB of free disk space. SwiftPM caches and the Wine build tree are kept
+  under ignored directories and can be reused by later builds.
+
+## Fresh clone
+
+From the repository root:
+
+```sh
+./script/bootstrap_build_env.sh --check
+./script/build_and_run.sh --build
+python3 script/package_release.py
+```
+
+The first command is read-only. If Homebrew is already installed, the following
+command can install the formulae used by the native build and then re-check the
+toolchain:
+
+```sh
+./script/bootstrap_build_env.sh --install
+```
+
+`--install` does not install Xcode or Homebrew itself. If either is missing,
+install Xcode Command Line Tools with `xcode-select --install` and install
+Homebrew from its official site, then run the check again.
+
+The build scripts discover the Homebrew prefix automatically on both Apple
+silicon (`/opt/homebrew`) and Intel (`/usr/local`) Macs. No architecture-specific
+PATH export is required.
+
+## What each command does
+
+- `script/bootstrap_build_env.sh` checks macOS and all required command-line
+  tools. It does not modify the machine unless `--install` is explicitly used.
+- `script/build_and_run.sh --build` builds Swift products for arm64 and x86_64,
+  combines them into universal binaries, then builds and bundles ConnectTool,
+  PatchProbe, CloudRedirect, ManifestPins, NotProton, native Steam integration,
+  and the CrossOver/Wine bridge.
+- `script/package_release.py` verifies the universal app, creates thin arm64 and
+  x86_64 variants, produces DMG and ZIP installers for all three architectures,
+  creates the source ZIP and `SHA256SUMS.txt`, and collects them in
+  `outputs/MacSteamTool-<version>/`.
+
+`swift build` alone is not the complete release build: it does not produce the
+native helpers or the CrossOver bridge that are required by the packaged app.
+
+## Downloads and generated files
+
+The source repository intentionally does not contain generated binaries or
+large upstream trees. On a clean clone, the build may download:
+
+- SwiftPM dependencies such as ZIPFoundation into `.build/` or the configured
+  Swift scratch directory.
+- The pinned Dobby revision into `work/dobby/`.
+- The pinned Wine source and Valve/Proton headers into
+  `work/crossover-bridge-release/` and its scratch directories.
+- ConnectTool's pinned release and SDK slices into `work/`.
+- Other pinned Steam headers and runtime inputs used by the native integration.
+
+Download URLs, revisions, and hashes are kept in the scripts and manifests next
+to the code that consumes them. A failed or interrupted download is safe to retry;
+the scripts use temporary files and verify hashes before replacing cached files.
+Keep `.build/` and `work/` when iterating locally. They are excluded by
+`.gitignore` and are intentionally omitted from the source release archive.
+
+## Packaging and signing
+
+Packaging uses the macOS `hdiutil`, `ditto`, `lipo`, and `codesign` tools. The
+generated app and installers are ad-hoc signed for local use and are not
+notarized. A Developer ID signing and notarization workflow is a separate
+distribution step and is not required to build or test locally.
+
+## Troubleshooting
+
+- **A command is missing:** run `./script/bootstrap_build_env.sh --check`; use
+  `--install` for Homebrew formulae and `xcode-select --install` for Apple's
+  command-line tools.
+- **Git/curl/SwiftPM download failed:** retry with the same checkout. The build
+  is network-dependent on a fresh machine; existing verified files in `work/`
+  and SwiftPM caches are reused.
+- **Wine source is at the wrong revision:** remove only the incomplete
+  `work/crossover-bridge-release/scratch/wine` tree and rerun the build. Do not
+  change the pinned revision unless you are intentionally updating the bridge.
+- **Disk I/O or stale build errors:** stop concurrent builds and remove only the
+  affected ignored scratch directory (for example `work/swift-build-arm64`),
+  then retry. Never delete maintained source directories.
+- **Intel build on Apple silicon:** no Intel Mac is needed to compile the x86_64
+  slice; the build uses MinGW and Swift cross-compilation. Full game-launch
+  validation on physical Intel hardware is still recommended.
+
+## Source release
+
+The source archive generated by `script/package_release.py` includes this guide,
+the Chinese guide, scripts, source code, manifests, licenses, and maintained
+resources. It excludes `.git`, build caches, `work/`, `outputs/`, and generated
+artifacts so another developer can clone or unpack it and repeat the bootstrap
+steps above.

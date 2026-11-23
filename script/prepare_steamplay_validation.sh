@@ -9,7 +9,10 @@ REVISION=e350a87013fcbd4c81c33b59e8081f943b271955
 BRIDGE_REVISION=df2f23a71bd42151e9aec923b1a01e50efcb8505
 ASSET=steamplay-mac-2026.10.13-e350a87.dmg
 ASSET_SHA=4d2446faa89f8c72838ca419df5b76d76a8d9ac52bea11cb47dd731ea83f85a8
-export PATH="/opt/homebrew/opt/curl/bin:/opt/homebrew/bin:$PATH"
+if command -v brew >/dev/null 2>&1; then
+  brew_prefix="$(brew --prefix)"
+  export PATH="$brew_prefix/opt/curl/bin:$brew_prefix/bin:$PATH"
+fi
 mkdir -p "$TASK_DIR"
 for tool in git curl python3 x86_64-w64-mingw32-gcc; do
     command -v "$tool" >/dev/null || { echo "Missing prerequisite: $tool" >&2; exit 1; }

@@ -29,8 +29,13 @@ HOST_CPU="${HOST%%-*}"
 HOST_CC="${HOST_CC:-clang -arch x86_64}"
 HOST_CXX="${HOST_CXX:-clang++ -arch x86_64}"
 
-# The bison and autoconf macOS ships are too old for wine's configure.
-PATH="/opt/homebrew/bin:/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/autoconf/bin:$PATH"
+# The bison and autoconf macOS ships are too old for wine's configure. Homebrew
+# lives in /opt/homebrew on Apple silicon and /usr/local on Intel, so discover
+# its prefix instead of assuming one architecture.
+if command -v brew >/dev/null 2>&1; then
+    brew_prefix=$(brew --prefix)
+    PATH="$brew_prefix/bin:$brew_prefix/opt/bison/bin:$brew_prefix/opt/autoconf/bin:$PATH"
+fi
 export PATH
 
 missing=""

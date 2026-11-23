@@ -46,6 +46,10 @@
 
 应用、原生库和安装恢复助手 `MacSteamToolNotProton` 均以 **通用 arm64/x86_64** 构建。助手可在 Intel 上执行安装、备份和恢复；CrossOver 接入仅注册可用的 x86_64 运行器，不注册 ARM FEX。现已包含 Steam 构建 `1794536281` 的 Intel `macSteam` 和 `NotProton` 适配数据，支持兼容工具注册、列表和选择运行器所需的接口；未知构建不会套用旧地址。当前已完成 Apple 芯片主机上的 x86_64 隔离测试，仍需实体 Intel Mac 验收完整游戏启动。NotProton 的 Intel 指令补丁不支持 Rosetta 翻译进程；Apple 芯片请使用原生 ARM Steam。原生接入另有版本和架构要求。例如，纯 Intel 客户端需要对应 Steam 构建的 `macos.x86_64` 适配数据，自动安装还会检查 MacSteamTool 当前架构的适配数据。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
 
+## 从源码构建
+
+完整构建流程见[构建指南](BUILDING.zh-CN.md)。从全新克隆开始，先运行 `./script/bootstrap_build_env.sh --check`，再运行 `./script/build_and_run.sh --build`。构建过程只会把已固定版本并经过校验的上游依赖下载到被忽略的 `work/` 和 SwiftPM 构建目录；生成的发布文件统一放在 `outputs/`，不会提交到 Git。
+
 ## 开源鸣谢
 
 感谢以下项目的作者和贡献者。MacSteamTool 的多项功能来自他们公开的工作。
