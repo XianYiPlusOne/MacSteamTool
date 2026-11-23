@@ -52,11 +52,11 @@
 
 | 项目 | 在 MacSteamTool 中的贡献 |
 | --- | --- |
-| **NotProton** | Windows 游戏运行器、CrossOver 接入和游戏容器管理的移植基础。感谢 [NotProtonNot](https://github.com/NotProtonNot/NotProton) 和维护 Wine 启动器分支的 [Drustburn](https://github.com/Drustburn/NotProton)。 |
-| **macSteam Config（macSteam）** | 本机 Steam 配置格式和原生组件的来源。感谢 crghofficial 及 macSteam 贡献者。[上游许可](Licenses/macSteam.txt) |
-| **OpenSteamTool** | Steam 消息格式和好友游戏状态的兼容性参考。感谢 OpenSteam001 及项目贡献者。[上游许可](https://github.com/OpenSteam001/OpenSteamTool/blob/main/LICENSE) |
-| **Fluent-Steam-Lua** | Lua 清单格式与清单管理流程的参考。感谢 huanyuejue 及项目贡献者。[上游许可](Licenses/Fluent-Steam-Lua.txt) |
-| **ConnectTool（connecttool-qt）** | 联机房间协议和虚拟局域网组件的来源。Mac 端使用 Swift 实现会话逻辑，兼容目标为 ConnectTool 1.6.0。感谢 Ji Fuyao 及 [ConnectTool 贡献者](https://github.com/moeleak/connecttool-qt)。 |
+| **[NotProton](https://github.com/NotProtonNot/NotProton)** | Windows 游戏运行器、CrossOver 接入和游戏容器管理的移植基础。感谢 [NotProtonNot](https://github.com/NotProtonNot/NotProton) 和维护 Wine 启动器分支的 [Drustburn](https://github.com/Drustburn/NotProton)。 |
+| **[macSteam Config（macSteam）](https://github.com/crghofficial/macsteam)** | 本机 Steam 配置格式和原生组件的来源。感谢 crghofficial 及 macSteam 贡献者。[上游许可](Licenses/macSteam.txt) |
+| **[OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool)** | Steam 消息格式和好友游戏状态的兼容性参考。感谢 OpenSteam001 及项目贡献者。[上游许可](https://github.com/OpenSteam001/OpenSteamTool/blob/main/LICENSE) |
+| **[Fluent-Steam-Lua](https://github.com/huanyuejue/Fluent-Steam-Lua)** | Lua 清单格式与清单管理流程的参考。感谢 huanyuejue 及项目贡献者。[上游许可](Licenses/Fluent-Steam-Lua.txt) |
+| **[ConnectTool（connecttool-qt）](https://github.com/moeleak/connecttool-qt)** | 联机房间协议和虚拟局域网组件的来源。Mac 端使用 Swift 实现会话逻辑，兼容目标为 ConnectTool 1.6.0。感谢 Ji Fuyao 及 [ConnectTool 贡献者](https://github.com/moeleak/connecttool-qt)。 |
 
 MacSteamTool 采用 [GNU AGPL-3.0](LICENSE)。第三方组件各自的作者、来源、修改记录和许可见[第三方声明](THIRD-PARTY-NOTICES.md)与[许可证目录](Licenses/)。
 

@@ -52,11 +52,11 @@ We thank the authors and contributors whose work made these features possible.
 
 | Project | Contribution to MacSteamTool |
 | --- | --- |
-| **NotProton** | Provided the basis for the Windows game runner, CrossOver integration, and game container management. Thanks to [NotProtonNot](https://github.com/NotProtonNot/NotProton) and to [Drustburn](https://github.com/Drustburn/NotProton) for the Wine launcher fork. |
-| **macSteam Config (macSteam)** | Provided the local Steam configuration format and native components. Thanks to crghofficial and the macSteam contributors. [Upstream license](Licenses/macSteam.txt) |
-| **OpenSteamTool** | Served as a compatibility reference for Steam message formats and how friends' game activity is displayed. Thanks to OpenSteam001 and the project contributors. [Upstream license](https://github.com/OpenSteam001/OpenSteamTool/blob/main/LICENSE) |
-| **Fluent-Steam-Lua** | Informed the Lua manifest format and the workflow for managing manifests. Thanks to huanyuejue and the project contributors. [Upstream license](Licenses/Fluent-Steam-Lua.txt) |
-| **ConnectTool (connecttool-qt)** | Provided the multiplayer room protocol and virtual LAN components. The Mac app implements session handling in Swift and targets compatibility with ConnectTool 1.6.0. Thanks to Ji Fuyao and the [ConnectTool contributors](https://github.com/moeleak/connecttool-qt). |
+| **[NotProton](https://github.com/NotProtonNot/NotProton)** | Provided the basis for the Windows game runner, CrossOver integration, and game container management. Thanks to [NotProtonNot](https://github.com/NotProtonNot/NotProton) and to [Drustburn](https://github.com/Drustburn/NotProton) for the Wine launcher fork. |
+| **[macSteam Config (macSteam)](https://github.com/crghofficial/macsteam)** | Provided the local Steam configuration format and native components. Thanks to crghofficial and the macSteam contributors. [Upstream license](Licenses/macSteam.txt) |
+| **[OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool)** | Served as a compatibility reference for Steam message formats and how friends' game activity is displayed. Thanks to OpenSteam001 and the project contributors. [Upstream license](https://github.com/OpenSteam001/OpenSteamTool/blob/main/LICENSE) |
+| **[Fluent-Steam-Lua](https://github.com/huanyuejue/Fluent-Steam-Lua)** | Informed the Lua manifest format and the workflow for managing manifests. Thanks to huanyuejue and the project contributors. [Upstream license](Licenses/Fluent-Steam-Lua.txt) |
+| **[ConnectTool (connecttool-qt)](https://github.com/moeleak/connecttool-qt)** | Provided the multiplayer room protocol and virtual LAN components. The Mac app implements session handling in Swift and targets compatibility with ConnectTool 1.6.0. Thanks to Ji Fuyao and the [ConnectTool contributors](https://github.com/moeleak/connecttool-qt). |
 
 MacSteamTool uses the [GNU AGPL-3.0 license](LICENSE). For third-party authors, sources, modifications, and license terms, see the [third-party notices](THIRD-PARTY-NOTICES.md) and [license directory](Licenses/).
 
