@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import tempfile
 from package_source import write_source_zip
+from create_install_dmg import create_install_dmg
+from steam_payload_architectures import preserve_steam_architectures
 
 root = Path(__file__).resolve().parents[1]
 out = root / "outputs"
@@ -31,9 +33,11 @@ def verify_bundle(bundle, architecture=None):
 
 
 def thin_macho_tree(bundle, architecture):
-    """Thin every host Mach-O in a copied app to one architecture."""
+    """Thin app binaries while preserving libraries loaded by universal Steam."""
     for path in sorted(bundle.rglob("*")):
         if path.is_symlink() or not path.is_file():
+            continue
+        if preserve_steam_architectures(path):
             continue
         parts = path.relative_to(bundle).parts
         # CrossOver's bridge contains separate Wine/Unix target binaries. They
@@ -110,9 +114,7 @@ def package_variant(version, label, variant, staging):
         shutil.rmtree(staged_app / relative)
         run("ditto", "--noclone", "--hfsCompression", source, staged_app / relative)
     run("codesign", "--verify", "--deep", "--strict", staged_app)
-    run("hdiutil", "create", "-quiet", "-fs", "HFS+", "-format", "ULMO",
-        "-volname", f"MacSteamTool-{label}", "-srcfolder", volume, app_dmg)
-    run("hdiutil", "verify", "-quiet", app_dmg)
+    create_install_dmg(volume, app_dmg, f"MacSteamTool-{label}", variant.name)
     return app_zip, app_dmg
 
 

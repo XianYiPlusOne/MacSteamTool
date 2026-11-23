@@ -8,6 +8,7 @@ import sys
 import subprocess
 import argparse
 from native_core_validation import validate_macsteam
+from steam_payload_architectures import STEAM_ARCHITECTURES, preserve_steam_architectures
 from bundle_connecttool import verify as verify_multiplayer
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -25,6 +26,9 @@ retired = {
     'system.private.corelib.dll',
 }
 for entry in app.rglob('*'):
+    if entry.is_file() and preserve_steam_architectures(entry):
+        for steam_architecture in STEAM_ARCHITECTURES:
+            subprocess.run(['lipo', str(entry), '-verify_arch', steam_architecture], check=True)
     assert entry.name.lower() not in retired, f'Retired helper or .NET runtime in bundle: {entry}'
     if entry.suffix.lower() not in {'.exe', '.dll'} or not entry.is_file():
         continue
@@ -73,7 +77,7 @@ for provider, version in [('macsteam', '0.8.2'), ('notproton', '1.2.3')]:
             assert len(entry['function_sha256']) == 64
             int(entry['function_sha256'], 16)
     if provider == 'macsteam':
-        for architecture in architectures:
+        for architecture in STEAM_ARCHITECTURES:
             validate_macsteam(component / 'Resources/macsteam.dylib', architecture)
     assert not any(part in {'bridge', 'fonts', 'runners', 'MacOS'} for key in actual for part in Path(key).parts)
     assert not any(Path(key).name in {'run', 'wine', 'wineserver', 'valve-packages.manifest'} for key in actual)
