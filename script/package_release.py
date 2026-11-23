@@ -181,8 +181,15 @@ try:
 
         publish = artifacts + [staging / "SHA256SUMS.txt"] + release_files
         run("python3", root / "script/verify_release_paths.py", app, *app_artifacts)
+        # Keep the build app in ``outputs`` for subsequent packaging runs, but
+        # collect every distributable release artifact in one versioned folder.
+        # This makes the folder ready to upload as a GitHub Release asset set
+        # without mixing intermediate build products and release files.
+        release_dir = out / f"MacSteamTool-{version}"
+        release_dir.mkdir(parents=True, exist_ok=True)
         for path in publish:
-            path.replace(out / path.name)
+            path.replace(release_dir / path.name)
+        print(f"published release artifacts: {release_dir}")
         if release_files:
             print("release metadata: signed; empty URL means local import only")
 finally:

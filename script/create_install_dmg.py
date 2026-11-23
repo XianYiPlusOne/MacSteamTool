@@ -25,19 +25,19 @@ def install_background(source):
     svg = background / "dmg-background.svg"
     png = background / "dmg-background.png"
     svg.write_text(
-        """<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="650" viewBox="0 0 1000 650">
+        """<svg xmlns="http://www.w3.org/2000/svg" width="760" height="490" viewBox="0 0 760 490">
   <defs>
     <linearGradient id="wash" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8fbff"/>
       <stop offset="1" stop-color="#e8efff"/>
     </linearGradient>
   </defs>
-  <rect width="1000" height="650" rx="28" fill="url(#wash)"/>
-  <text x="500" y="72" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="36" font-weight="600" fill="#182230">MacSteamTool</text>
-  <text x="500" y="116" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="21" fill="#4d5f78">Drag the app to Applications to install</text>
-  <path d="M 355 330 H 645" fill="none" stroke="#4f78ff" stroke-width="8" stroke-linecap="round"/>
-  <path d="M 645 330 L 605 302 L 605 358 Z" fill="#4f78ff"/>
-  <text x="500" y="590" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="17" fill="#6b7b94">You can eject this disk image after installation.</text>
+  <rect width="760" height="490" rx="22" fill="url(#wash)"/>
+  <text x="380" y="54" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="27" font-weight="600" fill="#182230">MacSteamTool</text>
+  <text x="380" y="86" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="16" fill="#4d5f78">Drag the app to Applications to install</text>
+  <path d="M 270 255 H 490" fill="none" stroke="#4f78ff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M 490 255 L 458 232 L 458 278 Z" fill="#4f78ff"/>
+  <text x="380" y="458" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="13" fill="#6b7b94">You can eject this disk image after installation.</text>
 </svg>
 """,
         encoding="utf-8",
@@ -104,12 +104,14 @@ on run argv
         delay 1
         set toolbar visible of installerWindow to false
         set statusbar visible of installerWindow to false
-        set bounds of installerWindow to {120, 100, 1020, 720}
+                set bounds of installerWindow to {240, 160, 1000, 680}
         set viewOptions to icon view options of installerWindow
         set background picture of viewOptions to backgroundFile
+                set icon size of viewOptions to 128
+                set text size of viewOptions to 15
         tell installerWindow
-            set position of item applicationName to {250, 350}
-            set position of item "Applications" to {750, 350}
+            set position of item applicationName to {170, 285}
+            set position of item "Applications" to {590, 285}
             close
         end tell
         update volumeAlias without registering applications
