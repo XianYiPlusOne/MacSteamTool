@@ -4,7 +4,7 @@
 
 <h1 align="center">MacSteamTool</h1>
 
-<p align="center"><strong>English</strong> · <a href="README.zh-CN.md" hreflang="zh-CN">Simplified Chinese</a></p>
+<p align="center"><strong>English</strong> · <a href="README.zh-CN.md" hreflang="zh-CN">简体中文</a></p>
 
 <p align="center">
   Find games and add them to your Steam library on Mac, run compatible Windows games with Wine or CrossOver, and host multiplayer rooms for friends over Steam.<br>
