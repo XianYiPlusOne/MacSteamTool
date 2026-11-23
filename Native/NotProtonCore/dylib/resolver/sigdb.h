@@ -13,6 +13,9 @@ typedef struct {
     char        module[64];
     char        aob_hex[4096];
     uintptr_t   func_addr_this_build;
+    uintptr_t   function_start;
+    uintptr_t   function_size;
+    char        function_sha256[65];
     int         deprecated;
     int         optional;
     int32_t     match_offset;   // site = hit - match_offset; the site is not always an entry
@@ -27,6 +30,7 @@ typedef struct {
     int             sigdb_version;
     uint64_t        steam_build;
     char            arch[16];
+    char            module_uuid[33];
     char            steam_build_date[32];
 } np_sigdb_t;
 

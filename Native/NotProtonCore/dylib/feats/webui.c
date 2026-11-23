@@ -5,13 +5,17 @@
 #include "../util/log.h"
 #include "../util/ptr.h"
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
+#if !defined(__x86_64__)
 static inline int32_t sign_extend(uint32_t val, int bits) {
     if (val & (1u << (bits - 1))) val -= (1u << bits);
     return (int32_t)val;
 }
+
+#endif
 
 #define ACCESSOR_LOOKBACK 12
 
@@ -49,11 +53,11 @@ static inline int32_t sign_extend(uint32_t val, int bits) {
 
 typedef uintptr_t (*np_registry_accessor_fn)(void);
 typedef uintptr_t (*np_msg_new_fn)(void);
-typedef int (*np_notify_fn)(uintptr_t transport, const char *name, uintptr_t message);
-typedef int (*np_parse_fn)(uintptr_t message, const void *bytes, uint32_t len);
+typedef bool (*np_notify_fn)(uintptr_t transport, const char *name, uintptr_t message);
+typedef bool (*np_parse_fn)(uintptr_t message, const void *bytes, uint32_t len);
 typedef uintptr_t (*np_job_factory_fn)(uintptr_t dispatcher, uintptr_t arg);
 typedef void      (*np_send_response_fn)(uintptr_t job, uintptr_t ctx);
-typedef int       (*np_register_fn)(uintptr_t registry, void *record);
+typedef bool      (*np_register_fn)(uintptr_t registry, void *record);
 
 // Routes can share request types, so each gets its own job vtable and the job's
 // vptr says which route it belongs to.
@@ -83,6 +87,42 @@ static uintptr_t g_clone[2 + VT_SLOTS];
 static size_t    g_clone_words;
 static uintptr_t g_route_flags;
 
+#if defined(__x86_64__)
+static intptr_t g_intel_slide;
+static uintptr_t g_intel_accessor, g_intel_parse, g_intel_lookup;
+static uintptr_t g_intel_factory, g_intel_handler, g_intel_notify;
+
+int np_webui_intel_prehook_allowed(uintptr_t address) {
+    return g_intel_lookup && address == g_intel_lookup;
+}
+
+int np_webui_bind_intel(intptr_t slide, const np_resolve_result_t *resolved) {
+    g_intel_accessor = g_intel_parse = g_intel_lookup = 0;
+    g_intel_factory = g_intel_handler = g_intel_notify = 0;
+    const struct { const char *name; uintptr_t va; } sites[] = {
+        {"IntelWebUI::Registry", 0x90732}, {"IntelWebUI::Parse", 0xb3ada8},
+        {"IntelWebUI::Factory", 0x91498}, {"IntelWebUI::Constructor", 0x914c2},
+        {"IntelWebUI::Handler", 0x9153e}, {"IntelWebUI::Notify", 0x92d32},
+        {"CWebUITransport::RouteLookup", 0x90c64},
+        {"CWebUIJobDispatcher::RegisterHandler", 0x9099c},
+        {"CWebUITransport::DispatchJob", 0x90b58},
+        {"CWebUIMsgJob::SendResponse", 0x91024},
+    };
+    // These addresses are consumed only after schema-4 full-function validation.
+    for (size_t i = 0; i < sizeof(sites)/sizeof(sites[0]); ++i)
+        if (np_lookup_address(resolved, sites[i].name) != sites[i].va + (uintptr_t)slide) return 0;
+    g_intel_slide = slide;
+    g_intel_accessor = 0x90732 + (uintptr_t)slide;
+    g_intel_parse = 0xb3ada8 + (uintptr_t)slide;
+    g_intel_lookup = 0x90c64 + (uintptr_t)slide;
+    g_intel_factory = 0x91498 + (uintptr_t)slide;
+    g_intel_handler = 0x9153e + (uintptr_t)slide;
+    g_intel_notify = 0x92d32 + (uintptr_t)slide;
+    return 1;
+}
+#endif
+
+#if !defined(__x86_64__)
 static int bl_target(uint32_t insn, uintptr_t pc, uintptr_t *out) {
     if ((insn & 0xFC000000) != 0x94000000) return 0;
     int32_t imm = sign_extend(insn & 0x03FFFFFF, 26);
@@ -90,10 +130,18 @@ static int bl_target(uint32_t insn, uintptr_t pc, uintptr_t *out) {
     return 1;
 }
 
+#endif
+
 static int in_text(uintptr_t va) {
-    return g_text_base && va >= g_text_base && va < g_text_end && (va & 3) == 0;
+    if (!g_text_base || va < g_text_base || va >= g_text_end) return 0;
+#if defined(__x86_64__)
+    return 1;
+#else
+    return (va & 3) == 0;
+#endif
 }
 
+#if !defined(__x86_64__)
 static uintptr_t adrp_add_target(uintptr_t pc, uint32_t first, uint32_t second) {
     if ((first & 0x9F000000) != 0x90000000) return 0;
 
@@ -177,6 +225,8 @@ static uintptr_t find_parse(uintptr_t dispatch_fn) {
     return found;
 }
 
+#endif
+
 int np_webui_init(const struct mach_header_64 *mh, intptr_t slide,
                   uintptr_t register_fn, uintptr_t dispatch_fn,
                   uintptr_t send_response) {
@@ -204,8 +254,12 @@ int np_webui_init(const struct mach_header_64 *mh, intptr_t slide,
         NP_WARN("webui: the image has no __TEXT, so nothing can be told when the "
                 "answer to a route stops holding");
 
+#if defined(__x86_64__)
+    uintptr_t accessor = g_intel_accessor;
+#else
     int sites = 0;
     uintptr_t accessor = find_accessor(register_fn, g_text_base, text_size, &sites);
+#endif
     if (!accessor) return 0;
 
     uintptr_t registry = ((np_registry_accessor_fn)accessor)();
@@ -218,10 +272,18 @@ int np_webui_init(const struct mach_header_64 *mh, intptr_t slide,
     g_registry      = registry;
     g_register_fn   = register_fn;
     g_send_response = send_response;
-    g_parse         = find_parse(dispatch_fn);
+#if defined(__x86_64__)
+    g_parse = g_intel_parse;
+#else
+    g_parse = find_parse(dispatch_fn);
+#endif
+#if defined(__x86_64__)
+    NP_LOG("webui: registry 0x%lx via reviewed Intel accessor 0x%lx", (unsigned long)registry, (unsigned long)accessor);
+#else
     NP_LOG("webui: registry 0x%lx via accessor 0x%lx, agreed by %d of the client's "
            "own route registrations", (unsigned long)registry,
            (unsigned long)accessor, sites);
+#endif
     return 1;
 }
 
@@ -236,7 +298,9 @@ int np_webui_parse_into(uintptr_t message, const void *bytes, uint32_t len) {
 
 uintptr_t np_webui_lookup_site(uintptr_t register_fn, uintptr_t dispatch_fn) {
     if (!register_fn || !dispatch_fn) return 0;
-
+#if defined(__x86_64__)
+    return g_intel_lookup;
+#else
     uintptr_t lookup = 0;
     for (uintptr_t pc = register_fn; pc < register_fn + FN_SPAN_MAX; pc += 4)
         if (bl_target(*(const uint32_t *)pc, pc, &lookup)) break;
@@ -267,6 +331,7 @@ uintptr_t np_webui_lookup_site(uintptr_t register_fn, uintptr_t dispatch_fn) {
     NP_DBG("webui: route lookup 0x%lx called from 0x%lx",
            (unsigned long)lookup, (unsigned long)site);
     return site;
+#endif
 }
 
 static const char *route_at(uintptr_t elements, int index) {
@@ -313,6 +378,7 @@ void np_webui_dump_routes(void) {
     NP_LOG("webui: %d of %d route slots named", named, bound);
 }
 
+#if !defined(__x86_64__)
 // The target of a branch, with `cond` set when the branch is conditional
 static uintptr_t branch_target(uint32_t insn, uintptr_t pc, int *cond) {
     int32_t imm;
@@ -359,6 +425,8 @@ static int fn_calls(uintptr_t fn, uintptr_t target) {
     return 0;
 }
 
+#endif
+
 static int vtable_run(uintptr_t vptr) {
     int n = 0;
     while (n < VT_SLOTS && in_text(*(const uintptr_t *)(vptr + 8 * (uintptr_t)n)))
@@ -366,6 +434,7 @@ static int vtable_run(uintptr_t vptr) {
     return n;
 }
 
+#if !defined(__x86_64__)
 // The handler slot of a job vtable
 static int handler_slot(uintptr_t vptr, int run) {
     int found = -1;
@@ -383,8 +452,19 @@ static int handler_slot(uintptr_t vptr, int run) {
     return found;
 }
 
+#endif
+
 // The job vtable a factory installs
 static uintptr_t vtable_from_factory(uintptr_t factory, int *slot_out, int *run_out) {
+#if defined(__x86_64__)
+    if (!g_intel_factory || factory != g_intel_factory) return 0;
+    uintptr_t vptr = 0x18039d8 + (uintptr_t)g_intel_slide;
+    if (vptr < g_const_base + 16 || vptr + VT_SLOTS * 8 > g_const_end ||
+        *(const uintptr_t *)(vptr + 14 * 8) != g_intel_handler ||
+        vtable_run(vptr) != 17) return 0;
+    *slot_out = 14; *run_out = 17;
+    return vptr;
+#else
     uintptr_t ctor = 0;
     for (uintptr_t pc = factory; pc < factory + FN_SPAN_MAX; pc += 4)
         if (bl_target(*(const uint32_t *)pc, pc, &ctor)) break;
@@ -415,6 +495,7 @@ static uintptr_t vtable_from_factory(uintptr_t factory, int *slot_out, int *run_
     NP_DBG("webui: nothing in the job builder at 0x%lx reads as a job class built on "
            "a single base", (unsigned long)ctor);
     return 0;
+#endif
 }
 
 // Every route shares one job class, so one handler serves them all
@@ -555,12 +636,16 @@ static int notify_slot(uintptr_t vtable, uintptr_t task_name) {
         uintptr_t fn = *(const uintptr_t *)(vtable + 8 * (uintptr_t)slot);
         if (!in_text(fn)) continue;
 
+#if defined(__x86_64__)
+        if (fn == g_intel_notify) return slot;
+#else
         for (uintptr_t pc = fn; pc + 8 <= fn + FN_SPAN_MAX; pc += 4) {
             uint32_t insn = *(const uint32_t *)pc;
             if (insn == 0xD65F03C0) break;                    // RET
             if (adrp_add_target(pc, insn, *(const uint32_t *)(pc + 4)) == task_name)
                 return slot;
         }
+#endif
     }
     return -1;
 }

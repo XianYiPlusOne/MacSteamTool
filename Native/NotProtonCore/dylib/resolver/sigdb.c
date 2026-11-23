@@ -228,6 +228,7 @@ int np_load_profile(const char *path, np_sigdb_t *out) {
     if ((v = cJSON_GetObjectItem(root, "profile_version")))
         out->sigdb_version = v->valueint;
     out->steam_build = build_field(root, "steam_build");
+    str_field(root, "module_uuid", out->module_uuid, sizeof(out->module_uuid));
     str_field(root, "arch", out->arch, sizeof(out->arch));
     str_field(root, "steam_build_date", out->steam_build_date, sizeof(out->steam_build_date));
 
@@ -249,6 +250,9 @@ int np_load_profile(const char *path, np_sigdb_t *out) {
             str_field(elem, "module",  e->module,  sizeof(e->module));
             str_field(elem, "aob_hex", e->aob_hex, sizeof(e->aob_hex));
             e->func_addr_this_build = hex_field(elem, "func_addr_this_build");
+            e->function_start = hex_field(elem, "function_start");
+            e->function_size = hex_field(elem, "function_size");
+            str_field(elem, "function_sha256", e->function_sha256, sizeof(e->function_sha256));
 
             if (!e->module[0])
                 memcpy(e->module, NP_MODULE_DEFAULT, sizeof(NP_MODULE_DEFAULT));

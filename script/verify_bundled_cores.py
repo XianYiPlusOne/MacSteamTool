@@ -49,6 +49,22 @@ for provider, version in [('macsteam', '0.8.2'), ('notproton', '1.2.3')]:
     actual = {str(p.relative_to(component)): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in component.rglob('*') if p.is_file() and p != component / 'component.json'}
     assert actual == receipt['files'], f'{provider}: signed bundle changed component inventory'
+    profile_prefix = 'Resources' if provider == 'macsteam' else 'NotProtonRuntime.bundle/Contents/Resources/payload'
+    intel_profile = component / profile_prefix / 'signatures/macos.x86_64/1794536281.json'
+    profile = json.loads(intel_profile.read_text())
+    assert profile['arch'] == 'x86_64' and profile['steam_build'] == '1794536281'
+    assert profile['module_uuid'] == '543c930a432c36fb998842214bd9d93c'
+    if provider == 'notproton':
+        assert profile['schema_version'] == 4
+        names = [entry['name'] for entry in profile['signatures']]
+        assert len(names) == len(set(names)) and len(names) >= 22
+        for entry in profile['signatures']:
+            start = int(entry['function_start'], 16)
+            size = int(entry['function_size'], 16)
+            site = int(entry['func_addr_this_build'], 16)
+            assert start > 0 and start <= site < start + size
+            assert len(entry['function_sha256']) == 64
+            int(entry['function_sha256'], 16)
     if provider == 'macsteam':
         validate_macsteam(component / 'Resources/macsteam.dylib')
     assert not any(part in {'bridge', 'fonts', 'runners', 'MacOS'} for key in actual for part in Path(key).parts)

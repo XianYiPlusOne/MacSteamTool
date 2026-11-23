@@ -3,9 +3,13 @@
 #ifndef NOTPROTON_FEATS_WEBUI_H
 #define NOTPROTON_FEATS_WEBUI_H
 
+#include "../resolver/resolver.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <mach-o/loader.h>
+
+int np_webui_intel_prehook_allowed(uintptr_t address);
+int np_webui_bind_intel(intptr_t slide, const np_resolve_result_t *resolved);
 
 // The Compatibility page in the new UI needs GetCompatTools and SpecifyCompatTool,
 // neither of which are served on the macOS client, rudely.

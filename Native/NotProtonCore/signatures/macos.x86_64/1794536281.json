@@ -1,0 +1,164 @@
+{
+  "schema_version": 4,
+  "profile_version": 1,
+  "arch": "x86_64",
+  "platform": "macos",
+  "steam_build": "1794536281",
+  "module_uuid": "543c930a432c36fb998842214bd9d93c",
+  "signatures": [
+    {
+      "name": "CCompatManager::Init",
+      "func_addr_this_build": "0x67518a",
+      "function_start": "0x67518a",
+      "function_size": "0xa18",
+      "function_sha256": "7f07f0fc30dfb0a44b37aaeb3357d61273bd38a01c58bade99f34f6f9be51349"
+    },
+    {
+      "name": "CCompatManager::BIsCompatibilityToolEnabled",
+      "func_addr_this_build": "0x66d1f0",
+      "function_start": "0x66d1f0",
+      "function_size": "0x142",
+      "function_sha256": "0993e4e8151190598d2c977cf8ecc34d210a01b83fadb334c96c2669db7b8b2a"
+    },
+    {
+      "name": "CCompatManager::YldRegisterTool",
+      "func_addr_this_build": "0x671374",
+      "function_start": "0x671374",
+      "function_size": "0x4e4",
+      "function_sha256": "116afca6d11bcf5e6d28c92120618554c9fa7fe5dbcb9a8624f3c16a4674f339"
+    },
+    {
+      "name": "CCompatManager::FindToolForTargetApp",
+      "func_addr_this_build": "0x66c832",
+      "function_start": "0x66c832",
+      "function_size": "0x17e",
+      "function_sha256": "cd123d0ce8152526da572e29e99bd7360d0bf0c6d0b70413919081ed352ff8d3"
+    },
+    {
+      "name": "CCompatManager::GetValidPlatforms",
+      "func_addr_this_build": "0x66b1d2",
+      "function_start": "0x66b1d2",
+      "function_size": "0x12e",
+      "function_sha256": "a759fbdc40ff4eabf4af313b32411576081a4fa189d190e8aa17f4c2e2511b8a"
+    },
+    {
+      "name": "CCompatManager::SetCompatToolMapping",
+      "func_addr_this_build": "0x66c5ea",
+      "function_start": "0x66c5ea",
+      "function_size": "0x90",
+      "function_sha256": "6dfe8fac9b5b08c935c5e81014cd45f1d509d3d6905c52b660ca7ea840d1c1d9"
+    },
+    {
+      "name": "CCompatManager::InternalSpecifyCompatTool",
+      "func_addr_this_build": "0x66b6fe",
+      "function_start": "0x66b6fe",
+      "function_size": "0x39c",
+      "function_sha256": "23a0915100ef2885b7743e70daafcca4f5ee64c6be204b605bcd1cc281a42eda"
+    },
+    {
+      "name": "CCompatManager::FindMapping",
+      "func_addr_this_build": "0x66c9fa",
+      "function_start": "0x66c9fa",
+      "function_size": "0x68",
+      "function_sha256": "6a928cff7e28b646637f45c06bd1469cf12924fd369804d6d15d0cb901f0e02e"
+    },
+    {
+      "name": "CCompatManager::GetWildcardMapping",
+      "func_addr_this_build": "0x66ca62",
+      "function_start": "0x66ca62",
+      "function_size": "0x1e2",
+      "function_sha256": "f9ae904abace423b8aa29a05486300f21086ae02418abf7a9c4a23b6c98d5c5f"
+    },
+    {
+      "name": "CCompatManager::WindowsOnlyLookup",
+      "func_addr_this_build": "0x66cf7c",
+      "function_start": "0x66cf7c",
+      "function_size": "0x118",
+      "function_sha256": "d8dc85a1372dcf21697636170ae78edae1907250a6d980b7e8851c64f3f95f27"
+    },
+    {
+      "name": "CCompatManager::GetOSListOverrideForApp.oslist_gate",
+      "func_addr_this_build": "0x66cd29",
+      "function_start": "0x66cc78",
+      "function_size": "0x166",
+      "function_sha256": "8bd5d08ff8a466084062801d7d72bdd3ad7ab322eea633b6add0d4e61b4f0ad4"
+    },
+    {
+      "name": "CCompatManager::ResolveCompatToolForApp.local_redirect",
+      "func_addr_this_build": "0x66ce14",
+      "function_start": "0x66cdde",
+      "function_size": "0x140",
+      "function_sha256": "9ab2ffbc43e634e378272fc79339eca938712404c8eac184b98285a4d6356231"
+    },
+    {
+      "name": "CWebUIJobDispatcher::RegisterHandler",
+      "func_addr_this_build": "0x9099c",
+      "function_start": "0x9099c",
+      "function_size": "0xa0",
+      "function_sha256": "db68dfb7bb3b2f804ee1448e92b19e9f08827baaf059616726f7b083197ec6fc"
+    },
+    {
+      "name": "CWebUITransport::DispatchJob",
+      "func_addr_this_build": "0x90b58",
+      "function_start": "0x90b58",
+      "function_size": "0x448",
+      "function_sha256": "ebc5bd0b7850b94dcfbe8b7971a4edb9f63071b949fcb1488c97030474e437ee"
+    },
+    {
+      "name": "CWebUIMsgJob::SendResponse",
+      "func_addr_this_build": "0x91024",
+      "function_start": "0x91024",
+      "function_size": "0xf4",
+      "function_sha256": "912abf15696f353a4bf81ca7fcbd6d563b464ab9251fa031f8bb2b657c59859a"
+    },
+    {
+      "name": "CWebUITransport::RouteLookup",
+      "func_addr_this_build": "0x90c64",
+      "function_start": "0x90b58",
+      "function_size": "0x448",
+      "function_sha256": "ebc5bd0b7850b94dcfbe8b7971a4edb9f63071b949fcb1488c97030474e437ee"
+    },
+    {
+      "name": "IntelWebUI::Registry",
+      "func_addr_this_build": "0x90732",
+      "function_start": "0x90732",
+      "function_size": "0x7a",
+      "function_sha256": "cfb5e98dd6fb142e6e2c1c36e9b62d91ef216b15de947110a4da7e130daf400a"
+    },
+    {
+      "name": "IntelWebUI::Parse",
+      "func_addr_this_build": "0xb3ada8",
+      "function_start": "0xb3ada8",
+      "function_size": "0x44",
+      "function_sha256": "4b828b52f949bd53b96f2687c997b63d8ff284b6221f20ebe6586c41cb5b6d44"
+    },
+    {
+      "name": "IntelWebUI::Factory",
+      "func_addr_this_build": "0x91498",
+      "function_start": "0x91498",
+      "function_size": "0x2a",
+      "function_sha256": "0d81b0e36b9568151f4c388196f0a9ae9739b1c5303811e65f927713ff526b9e"
+    },
+    {
+      "name": "IntelWebUI::Constructor",
+      "func_addr_this_build": "0x914c2",
+      "function_start": "0x914c2",
+      "function_size": "0x56",
+      "function_sha256": "1d99dd56efa625e69c22fdc7e72c156e6879e42562c23bbdd85bd30bfd92700a"
+    },
+    {
+      "name": "IntelWebUI::Handler",
+      "func_addr_this_build": "0x9153e",
+      "function_start": "0x9153e",
+      "function_size": "0x14",
+      "function_sha256": "cac987307051b20cc44451741cd373fd8d892826f43ecc215a80339ebca89a0b"
+    },
+    {
+      "name": "IntelWebUI::Notify",
+      "func_addr_this_build": "0x92d32",
+      "function_start": "0x92d32",
+      "function_size": "0x112",
+      "function_sha256": "23079b1a5d3ce37f4edc16ddf2509005223e8aa943f4170743d13a7b1f2b8475"
+    }
+  ]
+}

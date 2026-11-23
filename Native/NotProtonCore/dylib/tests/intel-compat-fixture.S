@@ -35,3 +35,9 @@ _np_test_redirect_gate:
     xorl %eax, %eax
     popq %rbp
     retq
+
+.p2align 4
+.globl _np_test_enabled
+_np_test_enabled:
+    movb 0x810(%rdi), %al
+    retq

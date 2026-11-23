@@ -267,6 +267,9 @@ static np_patch_entry_t g_hooks[] = {
         .mode     = NP_PATCH_PREHOOK,
     },
     {
+#if defined(__x86_64__)
+        .optional = 1, // No reviewed Intel Cocoa termination wrapper yet.
+#endif
         .label    = "CAppManager::TerminateProcessByPid",
         .signature = "CAppManager::TerminateProcessByPid",
         .entry    = (void *)hook_TerminateProcessByPid,

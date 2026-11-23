@@ -1,6 +1,7 @@
 // Anchor-based function resolution
 
 #include "anchor.h"
+#include "../core/arch.h"
 #include "resolver.h"          // np_looks_like_prologue
 #include "../core/macho.h"     // np_find_segment, np_get_section_containing
 #include "../util/log.h"
@@ -709,7 +710,7 @@ static uintptr_t vptr_from_typeinfo(const struct mach_header_64 *mh, intptr_t sl
             if (p[i - 1] != 0) continue;
             uintptr_t fn = p[i + 1];
             if (fn < text || fn >= text + text_sz) continue;
-            if (fn & 3) continue;
+            if (fn % NP_SCAN_ALIGNMENT) continue;
             if (found) return 0;        // more than one primary vtable, give up
             found = base + (i + 1) * sizeof(uintptr_t);
         }

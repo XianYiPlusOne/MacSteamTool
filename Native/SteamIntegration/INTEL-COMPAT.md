@@ -1,58 +1,63 @@
-# Intel compatibility callbacks (implementation checkpoint)
+# Intel installer and compatibility integration
 
-The installer/recovery helper has a real x86_64 build. Native Steam integration
-is a separate workstream; this checkpoint does **not** establish end-to-end
-Windows game support on Intel.
+The installer/recovery helper and native libraries contain real x86_64 builds.
+Intel profiles are supplied for Steam build **1794536281**, steamclient UUID
+`543c930a432c36fb998842214bd9d93c`. This is a version-scoped implementation, not
+an assurance that arbitrary Steam versions or every Windows game work.
 
-## Reviewed client and layout
+## Implemented contracts
 
-Steam build 1794536281, steamclient x86_64 UUID
-`543c930a432c36fb998842214bd9d93c`. The complete function hashes, sizes and
-required resolved sites are recorded in `NotProtonCore/dylib/feats/intel_compat.c`.
-The runtime validates architecture, UUID, function boundaries, full function
-contents and unique resolved sites before applying the layout. Unknown versions
-and changed function bodies are rejected; there is no ARM-layout fallback.
+NotProton schema 4 uses architecture, module UUID, LC_FUNCTION_STARTS boundaries
+and full SHA-256 function hashes. There is no ARM-anchor or AOB fallback on Intel.
+All 22 compatibility/WebUI entries must resolve before installation proceeds.
+`script/build_intel_notproton_profile.py` reproduces the reviewed profile from the
+matching local client; it is not an automatic update/discovery tool.
 
-Reviewed fields: manager enabled `0x810`, Windows-only table `0x698`, compatibility
-tool fields shifted by 8 bytes from offset `0x58` onward (stride `0x138`).
-The OS-list site at `0x66cd29` executes before `TEST RAX,RAX`; the callback changes
-zero RAX to one and preserves flags for the original instruction. R12 is the tool.
-The local redirect site at `0x66ce14` takes its tool from RAX and changes the
-appid at `0x68` to zero, selecting the original local-tool path using `0x60`.
-Only these two named instruction sites can receive Intel prehooks.
+Compatibility fields: enabled `0x810`, Windows-only table `0x698`, tool fields
+shifted by 8 bytes from baseline offset `0x58` onward, tool stride `0x138`.
+The OS-list callback runs at `0x66cd29`, before TEST RAX,RAX; tool is R12.
+The local redirect runs at `0x66ce14`, before MOV ESI,[RAX+0x68]; tool is RAX.
+SetCompatToolMapping is `0x66c5ea` (the asynchronous wrapper), distinct from
+InternalSpecifyCompatTool at `0x66b6fe`.
 
-## Reproduction
+The Intel WebUI contract uses registry accessor `0x90732`, parser `0xb3ada8`,
+lookup call `0x90c64`, stock TransportAuth factory `0x91498`, constructor
+`0x914c2`, job handler `0x9153e`, and notifier `0x92d32`. The constructor installs
+vtable `0x18039d8`, with 17 methods and handler slot 14. Runtime pointer checks
+validate the stock template before cloning it. RegisterHandler returns a C++
+**bool**, not int; only AL is defined on Intel. The protobuf string pointer uses
+the ordinary Intel libc++ string layout, rather than ARM's alternate layout.
+Both short and heap-backed names are tested against actual client messages.
+RTTI code-pointer validation also uses the target architecture's alignment.
 
-From the repository root, after building Dobby and native dependencies:
+The existing shell-command launch import binding is architecture independent.
+Intel does not enable the unreviewed CEG, non-Steam shortcut, VR argument-rewrite
+or Cocoa termination-wrapper hooks. These optional feature gaps must not be
+represented as full ARM feature parity. Compatibility registration and selection
+for Steam Windows games use the implemented path.
+
+## Verification
 
 ```sh
-bash script/test_intel_compat.sh "$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib"
 python3 script/build_native_integration.py
-make -C Native/NotProtonCore compatcheck ARCH=arm64
+bash script/test_intel_compat.sh "$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib"
+make -C Native/NotProtonCore compatcheck compatsvc-check ARCH=arm64
+make -C Native/NotProtonCore compatsvc-check ARCH=x86_64 OUT_DIR=../../work/intel-compat-unit
+swift test --filter 'NativeIntegrationTests|OneClickSetupTests'
+bash script/build_and_run.sh --build
 ```
 
-The profile test loads the local library in an isolated process and installs no
-hooks. It rejects mutations in every reviewed function, wrong UUIDs, missing or
-duplicate sites, incorrect addresses and invalid section bounds.
-The callback test executes production callbacks against synthetic tool structures
-and Dobby instrumentation on test-owned assembly, including restoration.
+The first checks perform read-only client resolution and mutation-negative tests.
+Actual Dobby callbacks run only on test-owned assembly. A separate process loads
+the real client/runtime, verifies all 22 entries, rejects every changed function
+hash, constructs/parses real Intel protobuf messages, and registers/verifies all
+nine compatibility routes in its private registry. It does not install Steam
+hooks, connect a Steam session, or write the user's Steam configuration.
 
-On the Apple silicon development host, tests run as x86_64 under Rosetta. The
-page-remapping backend changes bytes successfully, but Rosetta retains previously
-translated instructions even after `sys_icache_invalidate`. The fixture therefore
-refreshes its own isolated, single-threaded code page using `mprotect` between
-executions. This is **test-only** and does not prove live Steam patching on Rosetta.
-Production Intel compatibility binding rejects translated execution (and
-unexpected translation-query errors); native Intel does not require Rosetta.
-
-## Remaining integration work
-
-No production NotProton x86_64 signature profile is published by this checkpoint.
-The independent macSteam x86_64 profile must not be treated as a NotProton profile.
-WebUI, launch and CEG still need separate Intel analysis; the steamclient Intel
-installation branch only installs the compatibility group and bypasses their
-ARM instruction probes. Other image-specific installers remain separate.
-Before releasing full Intel support, complete the required profiles and remaining
-runtime bindings, then validate runner selection, game launch, update and restore
-on an actual Intel Mac. The generated app bundle has not been refreshed with this
-experimental native work.
+The development host is Apple silicon. Rosetta caches translated instructions
+across the code-page replacement backend, even after sys_icache_invalidate. The
+owned, single-threaded assembly fixture refreshes its own mapping with mprotect;
+production never applies that workaround to live Steam pages. Intel binding
+rejects Rosetta-translated execution and unexpected translation-query errors.
+Physical Intel installation/game-launch testing remains an external acceptance
+requirement; successful Rosetta tests do not replace it.

@@ -112,10 +112,12 @@ uintptr_t np_webui_registry(void) { return 1; }
 static const char *routes_seen[16];
 static uintptr_t   route_requests[16];
 static int         route_count;
+static const char *refused_route;
 
 int np_webui_register_route(const char *name, uintptr_t req, uintptr_t resp,
                             int (*handler)(uintptr_t, uintptr_t)) {
     (void)resp; (void)handler;
+    if (refused_route && !strcmp(name,refused_route)) return 0;
     if (route_count < 16) {
         routes_seen[route_count] = name;
         route_requests[route_count++] = req;
@@ -428,8 +430,13 @@ static uintptr_t build_specify_request(uint32_t has_bits, uint32_t appid,
     *(uint32_t *)(request_buf + REQ_HAS_BITS_OFF) = has_bits;
     *(uint32_t *)(request_buf + SPECIFY_APPID_OFF) = appid;
     memset(specify_string_struct, 0, sizeof specify_string_struct);
+#if defined(__x86_64__)
+    specify_string_struct[0] = 1;
+    *(const char **)(specify_string_struct+16) = tool_name ? tool_name : "";
+#else
     *(const char **)specify_string_struct = tool_name ? tool_name : "";
     specify_string_struct[23] = 0xFF;
+#endif
     *(uintptr_t *)(request_buf + SPECIFY_TOOL_NAME_OFF) = (uintptr_t)specify_string_struct;
     return (uintptr_t)request_buf;
 }
@@ -816,6 +823,17 @@ static void routes_state_cases(void) {
     check(after, "every defaults route registers after SpecifyCompatTool");
     check(same, "every defaults route takes the SpecifyCompatTool request");
 
+    const char *mandatory[] = {ROUTE_GET_COMPAT_TOOLS, ROUTE_SPECIFY_COMPAT_TOOL};
+    for (size_t i=0;i<sizeof(mandatory)/sizeof(mandatory[0]);++i) {
+        g_routes = NP_COMPATSVC_UNTRIED;
+        route_count = 0;
+        refused_route = mandatory[i];
+        np_compatsvc_register(NULL,0,0,0);
+        check(np_compatsvc_routes() == NP_COMPATSVC_ABSENT,
+              "rejected required registration never reports a working service");
+    }
+    refused_route = NULL;
+
     // The stable client: the page specifies the tool directly and the build carries no
     // CompatManager types at all.
     g_routes = NP_COMPATSVC_UNTRIED;
@@ -988,8 +1006,13 @@ static void string_field_cases(void) {
     // deref. A long string (byte[23] < 0) dereferences the first qword as a pointer to
     // the characters. A short string (byte[23] >= 0) reads the characters inline.
     static uint8_t short_str[24];
+#if defined(__x86_64__)
+    short_str[0] = 22;
+    memcpy(short_str+1, "hello world", 11);
+#else
     memcpy(short_str, "hello world", 11);
     short_str[23] = 11;
+#endif
     uintptr_t ptr = (uintptr_t)short_str;
 
     // Build a request whose tool name field points at this.
@@ -997,13 +1020,18 @@ static void string_field_cases(void) {
     *(uintptr_t *)(request_buf + SPECIFY_TOOL_NAME_OFF) = ptr;
     const char *result = string_field((uintptr_t)(request_buf + SPECIFY_TOOL_NAME_OFF));
     check(result != NULL, "a short string is read");
-    check(result == (const char *)short_str, "a short string reads inline from the struct");
+    check(result && !strcmp(result,"hello world"), "a short string reads inline from the struct");
 
     // A long string: byte[23] negative, first qword is a pointer.
     static char long_chars[] = "this is a longer string value";
     static uint8_t long_str[24];
+#if defined(__x86_64__)
+    long_str[0] = 1;
+    *(const char **)(long_str+16) = long_chars;
+#else
     *(const char **)long_str = long_chars;
     long_str[23] = (uint8_t)0xFF;
+#endif
     ptr = (uintptr_t)long_str;
     *(uintptr_t *)(request_buf + SPECIFY_TOOL_NAME_OFF) = ptr;
     result = string_field((uintptr_t)(request_buf + SPECIFY_TOOL_NAME_OFF));

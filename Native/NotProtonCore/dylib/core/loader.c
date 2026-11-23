@@ -212,8 +212,6 @@ static void *install_thread(void *unused) {
         return NULL;
     }
 
-    np_hooks_launch_install(mh, slide);
-
     int total = 0;
     int installed = np_hooks_install_all(mh, slide, &resolved, &total);
 

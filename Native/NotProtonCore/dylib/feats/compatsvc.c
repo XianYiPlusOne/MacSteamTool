@@ -19,6 +19,7 @@
 #include "webui.h"
 #include "../resolver/anchor.h"
 #include "../util/file.h"
+#include "../util/cxx_string.h"
 #include "../util/log.h"
 #include "../util/spawn.h"
 
@@ -286,11 +287,7 @@ done:
 
 // Reads a protobuf string field.
 static const char *string_field(uintptr_t field) {
-    uintptr_t str = *(const uintptr_t *)field & ~(uintptr_t)1;
-    if (!str) return "";
-
-    const int8_t *bytes = (const int8_t *)str;
-    return bytes[23] < 0 ? *(const char *const *)str : (const char *)str;
+    return np_steam_string_field(field);
 }
 
 // The page takes the result code as the answer and refetches the tool list.
@@ -543,7 +540,10 @@ void np_compatsvc_register(const struct mach_header_64 *mh, intptr_t slide,
         return;
     }
 
-    np_webui_register_route(ROUTE_GET_COMPAT_TOOLS, request, response, get_compat_tools);
+    if (!np_webui_register_route(ROUTE_GET_COMPAT_TOOLS, request, response, get_compat_tools)) {
+        g_routes = NP_COMPATSVC_ABSENT;
+        return;
+    }
 
     uintptr_t specify_request  = np_rtti_vptr(mh, slide, text_base, text_size,
                                               TYPE_SPECIFY_REQUEST);
@@ -558,8 +558,11 @@ void np_compatsvc_register(const struct mach_header_64 *mh, intptr_t slide,
         return;
     }
 
-    np_webui_register_route(ROUTE_SPECIFY_COMPAT_TOOL, specify_request,
-                            specify_response, specify_compat_tool);
+    if (!np_webui_register_route(ROUTE_SPECIFY_COMPAT_TOOL, specify_request,
+                                 specify_response, specify_compat_tool)) {
+        g_routes = NP_COMPATSVC_ABSENT;
+        return;
+    }
     if (!np_webui_register_route(ROUTE_SET_DEFAULTS, specify_request, specify_response, set_defaults)
         || !np_webui_register_route(ROUTE_SET_TOOL_DEFAULTS, specify_request, specify_response,
                                     set_tool_defaults)

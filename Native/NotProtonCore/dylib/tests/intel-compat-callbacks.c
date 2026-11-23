@@ -7,6 +7,10 @@
 
 int np_log_level = -1;
 FILE *np_log_file = NULL;
+static int test_registration_count;
+void np_compat_force_enable(void *manager) { ((unsigned char *)manager)[0x810] = 1; }
+void np_compat_register_crossover(void *manager) { if (manager) ++test_registration_count; }
+extern bool np_test_enabled(void *manager, uint32_t appid);
 static const char *test_directory = "/isolated/crossover";
 uint32_t np_compat_tool_off(uint32_t offset) { return offset < 0x58 ? offset : offset + 8; }
 const char *np_compat_tool_dir(void) { return test_directory; }
@@ -86,8 +90,22 @@ int main(void) {
     CHECK(!refresh_fixture(code,page_size), "refresh owned translation");
     *(uint32_t *)(tool+0x68) = 42;
     CHECK(run_redirect(tool) == NULL, "redirect code restored");
+    CHECK(!mprotect(code,page_size,PROT_READ|PROT_WRITE),"prepare replacement fixture");
+    memcpy(code+512,(const void *)np_test_enabled,32);
+    CHECK(!mprotect(code,page_size,PROT_READ|PROT_EXEC),"make replacement fixture executable");
+    bool (*run_enabled)(void *,uint32_t) = (void *)(code+512);
+    unsigned char manager[0x900] = {0};
+    CHECK(!run_enabled(manager,300),"original compatibility switch is off");
+    CHECK(!DobbyHook(code+512,(void *)hook_CCompatManager_BIsEnabled,&orig_CCompatManager_BIsEnabled),"install production compatibility replacement");
+    CHECK(!refresh_fixture(code,page_size),"refresh owned replacement translation");
+    CHECK(run_enabled(manager,300) && test_registration_count == 1 && manager[0x810] == 1,
+          "production replacement registers runner, forces enable and calls original trampoline");
+    CHECK(!DobbyDestroy(code+512),"restore compatibility replacement");
+    CHECK(!refresh_fixture(code,page_size),"refresh restored replacement translation");
+    manager[0x810] = 0;
+    CHECK(!run_enabled(manager,300) && test_registration_count == 1,"replacement removal restores original behavior");
     munmap(code,page_size);
     free(tool);
-    puts("PASS: production Intel callbacks, register preservation, real Dobby instrumentation and restoration on owned assembly fixtures");
+    puts("PASS: production Intel callbacks, register preservation, real Dobby instrumentation, replacement trampolines and restoration on owned assembly fixtures");
     return 0;
 }

@@ -44,7 +44,7 @@
 
 在 Apple 芯片 Mac 上，以 Intel 或 ARM 模式运行的 MacSteamTool 都可以打开已安装的 Intel、ARM 或通用版 Steam。macOS 按 Steam 自身的设置选择运行架构。可在「运行环境 → 诊断与恢复」查看 Steam 包含的架构和当前进程使用的架构。
 
-应用、原生库和安装恢复助手 `MacSteamToolNotProton` 均以 **通用 arm64/x86_64** 构建。助手可在 Intel 上执行安装、备份和恢复；CrossOver 接入仅注册可用的 x86_64 运行器，不注册 ARM FEX。仓库目前尚未提供 Intel Steam 的 `macos.x86_64` 版本适配数据，因此通用助手不代表所有 Intel Steam 接入功能已可用。原生接入另有版本和架构要求。例如，纯 Intel 客户端需要对应 Steam 构建的 `macos.x86_64` 适配数据，自动安装还会检查 MacSteamTool 当前架构的适配数据。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
+应用、原生库和安装恢复助手 `MacSteamToolNotProton` 均以 **通用 arm64/x86_64** 构建。助手可在 Intel 上执行安装、备份和恢复；CrossOver 接入仅注册可用的 x86_64 运行器，不注册 ARM FEX。现已包含 Steam 构建 `1794536281` 的 Intel `macSteam` 和 `NotProton` 适配数据，支持兼容工具注册、列表和选择运行器所需的接口；未知构建不会套用旧地址。当前已完成 Apple 芯片主机上的 x86_64 隔离测试，仍需实体 Intel Mac 验收完整游戏启动。NotProton 的 Intel 指令补丁不支持 Rosetta 翻译进程；Apple 芯片请使用原生 ARM Steam。原生接入另有版本和架构要求。例如，纯 Intel 客户端需要对应 Steam 构建的 `macos.x86_64` 适配数据，自动安装还会检查 MacSteamTool 当前架构的适配数据。应用最低启动版本为 **macOS 14**，自动初始化需要 **macOS 15 或更新版本**。部分 Steam 接入功能会修改本机客户端，并影响游戏和 DLC 的所有权检查。
 
 ## 开源鸣谢
 

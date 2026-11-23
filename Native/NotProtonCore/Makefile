@@ -45,6 +45,7 @@ SRCS := \
 	dylib/hooks/hook_ceg.c \
 	dylib/feats/ceg.c \
 	dylib/feats/compat.c \
+	dylib/feats/intel_compat.c \
 	dylib/feats/webui.c \
 	dylib/feats/compatsvc.c \
 	dylib/feats/defaults.c \

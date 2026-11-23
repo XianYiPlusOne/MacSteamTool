@@ -78,7 +78,8 @@ static int np_apply_entry(np_resolve_result_t *resolved, const char *group,
     }
 
 #if defined(__x86_64__)
-    if (e->mode == NP_PATCH_PREHOOK && !np_compat_intel_prehook_allowed(e->signature, addr)) {
+    if (e->mode == NP_PATCH_PREHOOK && !np_compat_intel_prehook_allowed(e->signature, addr) &&
+        !(strcmp(e->label, "CWebUITransport::RouteLookup") == 0 && np_webui_intel_prehook_allowed(addr))) {
         NP_WARN("[%s] %s: prehook has no validated x86 ABI, skipped", group, e->label);
         return 0;
     }
@@ -192,15 +193,28 @@ int np_hooks_install_all(const struct mach_header_64 *mh, intptr_t slide,
         np_lookup_address(resolved, "CCompatManager::WindowsOnlyLookup"));
 #endif
 #if defined(__x86_64__)
-    // Only the compatibility group has an Intel layout contract. Other groups
-    // still decode ARM instructions and must not run on an Intel image.
+    if (!np_webui_bind_intel(slide, resolved) ||
+        !np_webui_init(mh, slide,
+            np_lookup_address(resolved, "CWebUIJobDispatcher::RegisterHandler"),
+            np_lookup_address(resolved, "CWebUITransport::DispatchJob"),
+            np_lookup_address(resolved, "CWebUIMsgJob::SendResponse"))) {
+        if (total_out) *total_out = np_hooks_compat_count() + np_hooks_webui_count();
+        NP_ERR("hooks: Intel WebUI contract failed; installing nothing");
+        return 0;
+    }
+    np_hooks_webui_bind(mh, slide,
+        np_lookup_address(resolved, "CWebUIJobDispatcher::RegisterHandler"),
+        np_lookup_address(resolved, "CWebUITransport::DispatchJob"));
+    np_hooks_launch_install(mh, slide);
     const np_hook_group_t intel_groups[] = {
         { "compat", np_hooks_compat_count, np_hooks_compat_defs },
+        { "webui", np_hooks_webui_count, np_hooks_webui_defs },
     };
-    int landed = install_groups(intel_groups, 1, resolved, total_out);
+    int landed = install_groups(intel_groups, sizeof(intel_groups)/sizeof(intel_groups[0]), resolved, total_out);
     np_hooks_compat_publish_originals();
     return landed;
 #else
+    np_hooks_launch_install(mh, slide);
     np_usershortcuts_bind(mh, slide,
         np_lookup_address(resolved, "CUserShortcuts::SetShortcutExe"));
     np_hooks_ceg_probe_job(

@@ -7,6 +7,7 @@
 #include "../core/macho.h"
 #include "../util/log.h"
 
+#include <CommonCrypto/CommonDigest.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -177,6 +178,53 @@ static int usable_code_address(const char *name, uintptr_t addr,
     return 1;
 }
 
+// Intel profiles use exact, reviewed functions. Never reinterpret x86 bytes as
+// ARM anchors or rescue a rejected function by scanning elsewhere in the image.
+static int exact_image(const struct mach_header_64 *mh, const np_sigdb_t *db) {
+    if (mh->magic != MH_MAGIC_64 || mh->cputype != NP_CPU_TYPE ||
+        strcmp(db->arch, NP_ARCH_NAME) || db->schema_version != 4 ||
+        strlen(db->module_uuid) != 32 || mh->sizeofcmds > 1024 * 1024) return 0;
+    const unsigned char *p = (const unsigned char *)(mh + 1);
+    size_t left = mh->sizeofcmds;
+    int matched = 0;
+    for (uint32_t i = 0; i < mh->ncmds; ++i) {
+        if (left < sizeof(struct load_command)) return 0;
+        const struct load_command *lc = (const void *)p;
+        if (lc->cmdsize < sizeof(*lc) || lc->cmdsize > left) return 0;
+        if (lc->cmd == LC_UUID) {
+            if (lc->cmdsize != sizeof(struct uuid_command) || matched) return 0;
+            const struct uuid_command *u = (const void *)p;
+            char hex[33];
+            for (int n = 0; n < 16; ++n) snprintf(hex + n*2, 3, "%02x", u->uuid[n]);
+            if (strcmp(hex, db->module_uuid)) return 0;
+            matched = 1;
+        }
+        left -= lc->cmdsize; p += lc->cmdsize;
+    }
+    return matched;
+}
+
+static uintptr_t exact_site(const struct mach_header_64 *mh, intptr_t slide,
+                             const np_sig_entry_t *sig, uintptr_t text, size_t size) {
+    if (!sig->function_start || !sig->function_size ||
+        sig->function_size > UINT32_MAX || strlen(sig->function_sha256) != 64 ||
+        sig->func_addr_this_build < sig->function_start ||
+        sig->func_addr_this_build - sig->function_start >= sig->function_size) return 0;
+    uintptr_t start = sig->function_start + (uintptr_t)slide;
+    if (start < text || sig->function_size > size || start - text > size - sig->function_size) return 0;
+    uintptr_t actual_start = 0, actual_end = 0;
+    if (np_function_bounds(mh, slide, start, &actual_start, &actual_end) ||
+        actual_start != start || actual_end - start != sig->function_size) return 0;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    char hex[65];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    CC_SHA256((const void *)start, (CC_LONG)sig->function_size, digest);
+#pragma clang diagnostic pop
+    for (int n = 0; n < CC_SHA256_DIGEST_LENGTH; ++n) snprintf(hex + n*2, 3, "%02x", digest[n]);
+    return strcmp(hex, sig->function_sha256) ? 0 : sig->func_addr_this_build + (uintptr_t)slide;
+}
+
 // Public API
 int np_required_for_module(const np_sigdb_t *sigdb, const char *module) {
     if (!sigdb || !module) return 0;
@@ -205,6 +253,12 @@ int np_resolve_signatures(const struct mach_header_64 *mh, intptr_t slide,
     if (!mh || !sigdb || !module || !out) return 0;
     memset(out, 0, sizeof(*out));
 
+    if (mh->cputype != NP_CPU_TYPE || (sigdb->arch[0] && strcmp(sigdb->arch, NP_ARCH_NAME))) return 0;
+    int exact = sigdb->schema_version == 4;
+#if defined(__x86_64__)
+    if (!exact) return 0;
+#endif
+    if (exact && !exact_image(mh, sigdb)) return 0;
     uintptr_t text;
     size_t text_sz;
     if (np_find_segment(mh, slide, "__TEXT", &text, &text_sz) != 0) {
@@ -228,7 +282,8 @@ int np_resolve_signatures(const struct mach_header_64 *mh, intptr_t slide,
             continue;
         }
 
-        uintptr_t addr = try_anchor(sig, mh, slide, text, text_sz);
+        uintptr_t addr = exact ? exact_site(mh, slide, sig, text, text_sz)
+                               : try_anchor(sig, mh, slide, text, text_sz);
 
         if (addr && !usable_code_address(sig->name, addr, text, text_sz))
             addr = 0;
